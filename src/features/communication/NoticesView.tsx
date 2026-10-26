@@ -38,8 +38,8 @@ export function NoticesView() {
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || +new Date(b.sentAt) - +new Date(a.sentAt));
 
   async function resend(n: Notice) {
-    const unread = n.recipients - n.acked;
-    // only logs the resend; acknowledgements are not invented (no parent app to report them yet)
+    const unread = n.recipients - (n.acked ?? 0);
+    // only logs the resend; acknowledgements come from the parent app (com_notices/{id}/acks, counted into `acked` by a function)
     try {
       await log.create({ noticeId: n.id, action: "Resent to unread", audience: n.audience, channels: n.channels, recipients: unread, at: new Date().toISOString() });
       toast(`Resent to ${unread} unread recipients (simulated)`);
@@ -91,9 +91,9 @@ export function NoticesView() {
       {composer.open && <Composer key={composer.notice?.id ?? "new"} open onClose={() => setComposer({ open: false })} notice={composer.notice} />}
       <Modal open={!!ack} onClose={() => setAck(null)} title="Acknowledgements" subtitle={ack?.title}
         footer={ack && <Button variant="outline" onClick={() => { downloadCsv(`acknowledgements-${ack.id}`, ["Metric", "Count", "Percent"], [
-          ["Recipients", ack.recipients, "100"], ["Delivered", ack.delivered, pct(ack.delivered, ack.recipients)], ["Read", ack.read, pct(ack.read, ack.recipients)], ["Acknowledged", ack.acked, pct(ack.acked, ack.recipients)]]); }}><Download size={14} />Download CSV</Button>}>
+          ["Recipients", ack.recipients, "100"], ["Delivered", ack.delivered, pct(ack.delivered, ack.recipients)], ["Read", ack.read, pct(ack.read, ack.recipients)], ["Acknowledged", ack.acked ?? 0, pct(ack.acked ?? 0, ack.recipients)]]); }}><Download size={14} />Download CSV</Button>}>
         {ack && <div className="space-y-4">
-          {([["Delivered", ack.delivered, "success"], ["Read", ack.read, "brand"], ["Acknowledged", ack.acked, "warning"]] as const).map(([l, v, t]) => (
+          {([["Delivered", ack.delivered, "success"], ["Read", ack.read, "brand"], ["Acknowledged", ack.acked ?? 0, "warning"]] as const).map(([l, v, t]) => (
             <div key={l}><div className="mb-1 flex justify-between text-sm"><span>{l}</span><span className="font-mono">{v} / {ack.recipients} ({pct(v, ack.recipients)}%)</span></div><ProgressBar value={pct(v, ack.recipients)} tone={t} /></div>
           ))}
           <p className="text-on-surface-variant">Unread recipients: {ack.recipients - ack.read}</p>
@@ -131,12 +131,12 @@ function NoticeCard({ n, onEdit, onAck, onResend, onAct }: { n: Notice; onEdit: 
         <Avatar name={n.author.replace(/^(Dr|Mr|Mrs|Ms)\.? /, "")} size={24} /><span className="font-medium">{n.author}</span>
         <span className="text-outline">•</span><span className="text-outline">Channels:</span>
         {n.channels.map((c) => <span key={c} className={cn("rounded px-1.5 py-0.5 text-xs font-medium", chTone[c])}>{c}</span>)}
-        {published && n.grades && <><span className="text-outline">•</span><span className="font-semibold text-success">{n.read} Read / {n.recipients} ({pct(n.read, n.recipients)}% Engagement)</span></>}
+        {published && n.grades && <><span className="text-outline">•</span><span className="font-semibold text-success">{n.read} Read / {n.recipients} ({pct(n.read, n.recipients)}% Engagement)</span><span className="text-outline">•</span><span className="font-semibold text-secondary">{n.acked ?? 0} Acknowledged ({pct(n.acked ?? 0, n.recipients)}%)</span></>}
       </div>
       {published && !n.grades && (
         <div className="mt-4 flex flex-wrap items-center gap-6 rounded-lg border border-outline-variant/60 bg-surface-container-low p-4">
           <div><div className="text-xs text-on-surface-variant">Delivery Success</div><div className="font-semibold"><span className="font-mono">{n.delivered} / {n.recipients}</span> <span className="text-success">({pct(n.delivered, n.recipients)}%)</span></div></div>
-          <div><div className="text-xs text-on-surface-variant">Acknowledged Receipts</div><div className="font-semibold"><span className="font-mono">{n.acked} Verified</span> <span className="text-secondary">({pct(n.acked, n.recipients)}%)</span></div></div>
+          <div><div className="text-xs text-on-surface-variant">Acknowledged Receipts</div><div className="font-semibold"><span className="font-mono">{n.acked ?? 0} Verified</span> <span className="text-secondary">({pct(n.acked ?? 0, n.recipients)}%)</span></div></div>
           {n.attachment && <div className="ml-auto flex items-center gap-2 rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm"><FileText size={16} className="text-error" />{n.attachment}<span className="t-caption text-outline">{n.attachmentSize}</span></div>}
         </div>
       )}
@@ -144,7 +144,7 @@ function NoticeCard({ n, onEdit, onAck, onResend, onAct }: { n: Notice; onEdit: 
       <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-outline-variant/40 pt-4">
         {published ? (<>
           <Button size="sm" onClick={onAck}>View Acknowledgements</Button>
-          {n.recipients - n.acked > 0 && <Button size="sm" variant="outline" onClick={onResend}>Resend to Unread ({n.recipients - n.acked})</Button>}
+          {n.recipients - (n.acked ?? 0) > 0 && <Button size="sm" variant="outline" onClick={onResend}>Resend to Unread ({n.recipients - (n.acked ?? 0)})</Button>}
         </>) : <Button size="sm" onClick={() => onAct("publish")}><Send size={14} />Send Now</Button>}
         <Button size="sm" variant="ghost" onClick={onEdit}>Edit Notice</Button>
         <div className="relative ml-auto">
@@ -192,9 +192,9 @@ function QuickBroadcast({ onCreate, log }: { onCreate: (b: Omit<Notice, "id">) =
       <CardHeader title={<span className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded bg-info-container text-secondary"><Zap size={16} /></span>Quick Broadcast Console</span>} actions={<Badge tone="warning">Simulated</Badge>} />
       <div className="space-y-4 p-5 pt-2">
         <ul className="space-y-2 text-sm">
-          {/* gateways + parent app are not built yet: say so instead of showing fake quotas */}
-          {[["WhatsApp Meta API", "Not connected"], ["Transactional DLT SMS", "Not connected"], ["Parent Mobile App", "Coming soon"]].map(([a, b]) => (
-            <li key={a} className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-on-surface-variant"><span className="size-2 rounded-full bg-outline" />{a}</span><span className="font-medium text-on-surface-variant">{b}</span></li>
+          {/* SMS/WhatsApp gateways are not built yet: say so instead of showing fake quotas. Parent app acks are live. */}
+          {[["WhatsApp Meta API", "Not connected"], ["Transactional DLT SMS", "Not connected"], ["Parent Mobile App", "Live (acknowledgements)"]].map(([a, b]) => (
+            <li key={a} className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-on-surface-variant"><span className={cn("size-2 rounded-full", a === "Parent Mobile App" ? "bg-success" : "bg-outline")} />{a}</span><span className="font-medium text-on-surface-variant">{b}</span></li>
           ))}
         </ul>
         <div><div className="t-label-caps mb-2 !text-[11px] text-on-surface-variant">Target audience</div>

@@ -38,6 +38,8 @@ export function Composer({ open, onClose, notice }: { open: boolean; onClose: ()
       title: f.title.trim(), category: f.category, audience: f.audience, recipients, sentAt, status, pinned: f.urgent, urgent: f.urgent,
       author: `${me.name}${me.title ? ` (${me.title})` : ""}`, channels: f.channels, delivered, acked: 0, read: 0, body: f.body,
     } as Omit<Notice, "id">;
+    // editing an already published notice must keep the live counters (parents' acks drive `acked`/`read` via a function)
+    if (notice?.status === "Published") { const keep = body as Partial<Notice>; delete keep.acked; delete keep.read; }
     const run = async () => {
       let id = notice?.id;
       if (notice) await update(notice.id, body); else id = (await create(body)).id;
