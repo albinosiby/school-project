@@ -225,8 +225,8 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
         const st = flagged.find((f) => f.student.id === student.id).status;
         return {
           id: `att_${date}_${student.id}_${uid}`, uid, studentId: student.id, type: "attendance",
-          title: st === "A" ? "Absence alert" : "Leave marked",
-          body: `${student.name ?? "Your child"} was marked ${st === "A" ? "absent" : "on leave"} today`, route: "/academics?section=attendance",
+          title: st === "A" ? "Absence alert" : "Late arrival",
+          body: `${student.name ?? "Your child"} was marked ${st === "A" ? "absent" : "late"} today`, route: "/academics?section=attendance",
         };
       }));
     }
@@ -264,7 +264,8 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
     const roster = await classRoster(sid, after.classId);
     const shared = hwShared(after, id);
     const fresh = hwHidden(before) || before.classId !== after.classId;
-    const sharedChanged = fresh || JSON.stringify(hwShared(before, id)) !== JSON.stringify(shared);
+    // backfilledAt (tools/parent_backfill) forces a full refresh of the copies without any push
+    const sharedChanged = fresh || before?.backfilledAt !== after.backfilledAt || JSON.stringify(hwShared(before, id)) !== JSON.stringify(shared);
     const targets = sharedChanged ? roster
       : roster.filter((s) => JSON.stringify(hwSubmission(before, s.id)) !== JSON.stringify(hwSubmission(after, s.id)));
     for (const part of chunk(targets, 450)) {
