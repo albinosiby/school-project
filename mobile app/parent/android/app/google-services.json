@@ -1,0 +1,27 @@
+{
+  "project_info": {
+    "project_number": "845227645501",
+    "project_id": "school-admin-tatos-2610",
+    "storage_bucket": "school-admin-tatos-2610.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:845227645501:android:6a7be14f6073d9a9c0a854",
+        "android_client_info": { "package_name": "tech.tatos.parent_app" }
+      },
+      "oauth_client": [
+        { "client_id": "845227645501-f4fn13hv8td5g1h22nhnqaegbo7r8af0.apps.googleusercontent.com", "client_type": 3 }
+      ],
+      "api_key": [ { "current_key": "AIzaSyCheKR9AdiJhLrKcwc0wTU8dvrTuCGqawk" } ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            { "client_id": "845227645501-f4fn13hv8td5g1h22nhnqaegbo7r8af0.apps.googleusercontent.com", "client_type": 3 }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -42,15 +42,15 @@ import '../modules/timetable/repositories/timetable_repository_interface.dart';
 import '../utils/services/cache_service.dart';
 import '../utils/services/link_launcher.dart';
 import '../utils/services/local_storage_service.dart';
+import 'firebase_repositories.dart';
 
 final GetIt getIt = GetIt.instance;
 
 /// Registers services, repositories (interface -> implementation) and BLoCs.
 /// [linkLauncher] lets tests replace `url_launcher`.
 ///
-/// Backends: only the mock (local) repositories exist today. When a REST or Firestore repository is added
-/// (`<feature>_repository.dart` / `firebase_<feature>_repository.dart`), switch on [AppConfig] in the
-/// matching `_register*` function below; BLoCs and screens do not change.
+/// Backends: mock (local, default) and Firestore (`--dart-define=BACKEND=firebase`, see [registerFirebaseRepositories]).
+/// BLoCs and screens only see the repository interfaces.
 Future<void> configureDependencies({LinkLauncher? linkLauncher}) async {
   await getIt.reset();
 
@@ -85,11 +85,28 @@ Future<void> configureDependencies({LinkLauncher? linkLauncher}) async {
 
 void _registerRepositories() {
   final cache = getIt<CacheService>();
-  // AppConfig.backend: local (default). rest / firebase fall back to the mock until their repositories exist.
-  if (!AppConfig.isLocal)
-    debugPrint(
-      'BACKEND=${AppConfig.backend.name} has no repositories yet: using the mock repositories.',
-    );
+  // AppConfig.backend: local (default) or firebase. rest falls back to the mock until its repositories exist.
+  if (AppConfig.isFirebase) {
+    registerFirebaseRepositories(getIt);
+  } else {
+    if (AppConfig.isRest)
+      debugPrint('BACKEND=rest has no repositories yet: using the mock repositories.');
+    _registerMockRepositories(cache);
+  }
+  // Home composes the other repositories, so it is backend-agnostic.
+  getIt.registerSingleton<IHomeRepository>(
+    HomeRepository(
+      cache: cache,
+      timetable: getIt(),
+      attendance: getIt(),
+      homework: getIt(),
+      notices: getIt(),
+      liveClasses: getIt(),
+    ),
+  );
+}
+
+void _registerMockRepositories(CacheService cache) {
   getIt.registerSingleton<IAuthRepository>(MockAuthRepository(getIt()));
   getIt.registerSingleton<IFamilyRepository>(MockFamilyRepository(cache));
   getIt.registerSingleton<IAttendanceRepository>(
@@ -103,15 +120,4 @@ void _registerRepositories() {
   getIt.registerSingleton<ILeaveRepository>(MockLeaveRepository(cache));
   getIt.registerSingleton<IMessageRepository>(MockMessageRepository(cache));
   getIt.registerSingleton<IFeeRepository>(MockFeeRepository(cache));
-  // Home composes the other repositories, so it is backend-agnostic.
-  getIt.registerSingleton<IHomeRepository>(
-    HomeRepository(
-      cache: cache,
-      timetable: getIt(),
-      attendance: getIt(),
-      homework: getIt(),
-      notices: getIt(),
-      liveClasses: getIt(),
-    ),
-  );
 }
