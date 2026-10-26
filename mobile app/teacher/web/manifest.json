@@ -1,11 +1,11 @@
 {
-    "name": "teacher_app",
-    "short_name": "teacher_app",
+    "name": "EduAdmin Teacher Portal",
+    "short_name": "Teacher Portal",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",
     "theme_color": "#0A3D91",
-    "description": "A new Flutter project.",
+    "description": "EduAdmin Teacher Portal: attendance, timetable, homework and marks.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

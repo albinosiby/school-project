@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show OrdinalSortKey;
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
 import '../components/app_dock.dart';
@@ -82,7 +83,15 @@ class AdaptiveScaffold extends StatelessWidget {
                 );
           return AppNavScope(
             dock: false,
-            child: Scaffold(body: Row(children: [SafeArea(right: false, child: nav), const VerticalDivider(thickness: 1, width: 1), Expanded(child: body)])),
+            child: Scaffold(
+              // The tab navigator's page route blocks the semantics of widgets painted before it, so the body is painted
+              // first (rtl row, laid out right to left) and the side navigation after it; sort keys keep the reading order.
+              body: Row(textDirection: TextDirection.rtl, children: [
+                Expanded(child: Semantics(sortKey: const OrdinalSortKey(1), child: body)),
+                const VerticalDivider(thickness: 1, width: 1),
+                Directionality(textDirection: TextDirection.ltr, child: Semantics(sortKey: const OrdinalSortKey(0), child: SafeArea(right: false, child: nav))),
+              ]),
+            ),
           );
         },
       );

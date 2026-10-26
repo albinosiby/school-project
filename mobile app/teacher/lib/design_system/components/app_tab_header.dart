@@ -84,17 +84,21 @@ class AppTabBody extends StatelessWidget {
       if (!wide) return ListView(padding: padding, children: narrow ?? [...children, ...side]);
       if (side.isEmpty) {
         return ListView(padding: padding, children: [
-          Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: kReadableMaxWidth), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children))),
+          Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: kReadableMaxWidth), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _nodes(children)))),
         ]);
       }
       return ListView(padding: padding, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children)),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _nodes(children))),
           SizedBox(width: S.page),
-          Expanded(flex: sideFlex, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: side)),
+          Expanded(flex: sideFlex, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: _nodes(side))),
         ]),
       ]);
     });
     return onRefresh == null ? list : RefreshIndicator(onRefresh: onRefresh!, child: list);
   }
+
+  /// One semantics node per card, as ListView gives each child on narrow screens; otherwise a screen reader
+  /// gets the whole two-column page merged into a single node.
+  static List<Widget> _nodes(List<Widget> cards) => [for (final c in cards) Semantics(container: true, child: c)];
 }

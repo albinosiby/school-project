@@ -67,4 +67,18 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('Teacher Portal'), findsOneWidget);
   });
+
+  testWidgets('side navigation stays in the semantics tree (rail and desktop drawer)', (t) async {
+    final sem = t.ensureSemantics();
+    await _pumpLandscape(t, RoutePaths.timetable);
+    expect(find.bySemanticsLabel(RegExp(r'^Classes')), findsWidgets);
+    t.view.physicalSize = const Size(1280, 800);
+    await t.pumpAndSettle();
+    expect(find.byType(NavigationDrawer), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp(r'^Classes')), findsWidgets);
+    // each card is its own node: the "now" card does not swallow the timeline column next to it
+    final now = t.getSemantics(find.bySemanticsLabel(RegExp('NOW HAPPENING')).first);
+    expect(now.label, isNot(contains('Lunch Break')));
+    sem.dispose();
+  });
 }
