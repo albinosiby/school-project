@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+dist/
+.env*
+!.env.example
+*.tsbuildinfo
+playwright-report/
+test-results/
+.data/
+.firebase/
+firebase-debug.log
+*-debug.log
+
+# notify test script state (--keep)
+tools/notify_test/.last-run.json

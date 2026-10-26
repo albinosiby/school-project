@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: Inter, -apple-system, system-ui, sans-serif;
+        margin: 0; padding: 12px;
+        color: var(--figma-color-text);
+        background: var(--figma-color-bg);
+      }
+      h1 { font-size: 13px; margin: 0 0 8px; }
+      .tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+      .tab {
+        flex: 1; padding: 7px; font-size: 12px; font-weight: 600; text-align: center;
+        border: 1px solid var(--figma-color-border); border-radius: 6px; cursor: pointer;
+        background: var(--figma-color-bg); color: var(--figma-color-text-secondary);
+      }
+      .tab.active {
+        background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand);
+        border-color: var(--figma-color-bg-brand);
+      }
+      .panel { display: none; }
+      .panel.active { display: block; }
+      label { font-size: 11px; display: block; margin: 8px 0 4px; color: var(--figma-color-text-secondary); }
+      input {
+        width: 100%; padding: 7px 8px; font-size: 12px;
+        border: 1px solid var(--figma-color-border); border-radius: 6px;
+        background: var(--figma-color-bg); color: var(--figma-color-text);
+      }
+      .grid { display: flex; gap: 8px; }
+      .grid .col-keywords { flex: 3; }
+      .grid .col-depth { flex: 1; }
+      .row { display: flex; gap: 8px; margin: 12px 0 8px; align-items: center; }
+      button {
+        flex: 1; padding: 9px 10px; font-size: 12px; font-weight: 600;
+        border: none; border-radius: 6px; cursor: pointer;
+        background: var(--figma-color-bg-brand); color: var(--figma-color-text-onbrand);
+      }
+      button.secondary { background: var(--figma-color-bg-secondary); color: var(--figma-color-text); }
+      .summary { font-size: 12px; margin: 6px 0; color: var(--figma-color-text-secondary); }
+      textarea {
+        width: 100%; height: 300px; font-family: "SF Mono", Menlo, monospace;
+        font-size: 11px; line-height: 1.4; padding: 8px;
+        border: 1px solid var(--figma-color-border); border-radius: 6px; resize: none;
+        background: var(--figma-color-bg-secondary); color: var(--figma-color-text);
+      }
+      .err { color: #d33; white-space: pre-wrap; font-size: 11px; }
+      .status { display: flex; align-items: center; gap: 6px; font-size: 12px; margin: 4px 0; }
+      .dot { width: 9px; height: 9px; border-radius: 50%; background: #c33; }
+      .dot.on { background: #2a2; }
+      #bridgeLog {
+        height: 120px; overflow: auto; font-family: "SF Mono", Menlo, monospace;
+        font-size: 10px; line-height: 1.5; padding: 6px; margin-top: 8px;
+        border: 1px solid var(--figma-color-border); border-radius: 6px;
+        background: var(--figma-color-bg-secondary); color: var(--figma-color-text-secondary);
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Oscarly Design Export</h1>
+
+    <div class="tabs">
+      <div class="tab active" data-panel="tokens">Tokens</div>
+      <div class="tab" data-panel="components">Components</div>
+      <div class="tab" data-panel="bridge">Bridge</div>
+    </div>
+
+    <!-- TOKENS -->
+    <div class="panel active" id="panel-tokens">
+      <p class="summary">Export all local variables, color styles, and text styles.</p>
+      <div class="row"><button id="exportTokens">Export tokens</button></div>
+    </div>
+
+    <!-- COMPONENTS -->
+    <div class="panel" id="panel-components">
+      <div class="grid">
+        <div class="col-keywords">
+          <label>Filter by name (comma-separated, optional)</label>
+          <input id="keywords" placeholder="button, field, input, chip, card" />
+        </div>
+        <div class="col-depth">
+          <label>Depth</label>
+          <input id="depth" type="number" min="1" max="8" value="4" />
+        </div>
+      </div>
+      <div class="row">
+        <button id="scan">Scan components</button>
+        <button id="selection" class="secondary">Export selection</button>
+      </div>
+    </div>
+
+    <!-- BRIDGE -->
+    <div class="panel" id="panel-bridge">
+      <p class="summary">Connect to the local Claude bridge so exports send automatically
+        and Claude can request data / push edits back into Figma.</p>
+      <label>Server URL</label>
+      <input id="bridgeUrl" value="http://localhost:3897" />
+      <div class="row">
+        <button id="connect">Connect to Claude</button>
+      </div>
+      <div class="status"><span class="dot" id="dot"></span><span id="bridgeStatus">Disconnected</span></div>
+      <div id="bridgeLog"></div>
+    </div>
+
+    <p class="summary" id="summary">Ready.</p>
+    <div class="row">
+      <button id="copy" class="secondary">Copy JSON</button>
+      <button id="download" class="secondary">Download .json</button>
+    </div>
+    <textarea id="out" spellcheck="false" readonly></textarea>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const out = $("out");
+      const summary = $("summary");
+      let jsonText = "";
+      let activePanel = "tokens";
+
+      // tabs
+      document.querySelectorAll(".tab").forEach((t) => {
+        t.onclick = () => {
+          document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+          document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+          t.classList.add("active");
+          activePanel = t.dataset.panel;
+          $("panel-" + activePanel).classList.add("active");
+        };
+      });
+
+      // ---- export buttons (user-initiated) ----
+      function send(payload) {
+        summary.textContent = "Working…";
+        parent.postMessage({ pluginMessage: payload }, "*");
+      }
+      $("exportTokens").onclick = () => send({ type: "tokens" });
+      $("scan").onclick = () => send({ type: "components", keywords: $("keywords").value, depth: $("depth").value });
+      $("selection").onclick = () => send({ type: "selection", depth: $("depth").value });
+
+      $("copy").onclick = () => {
+        out.select();
+        document.execCommand("copy");
+        parent.postMessage({ pluginMessage: { type: "notify", message: "JSON copied" } }, "*");
+      };
+      $("download").onclick = () => {
+        const fname = activePanel === "components" ? "oscarly_components.json" : "oscarly_tokens.json";
+        const blob = new Blob([jsonText], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = fname;
+        a.click();
+      };
+
+      // ---- bridge ----
+      const bridge = { connected: false, url: "", timer: null };
+
+      function blog(line) {
+        const el = $("bridgeLog");
+        el.textContent += line + "\n";
+        el.scrollTop = el.scrollHeight;
+      }
+      function setStatus(on, text) {
+        $("dot").classList.toggle("on", !!on);
+        $("bridgeStatus").textContent = text;
+      }
+
+      async function bridgePost(msg) {
+        try {
+          await fetch(bridge.url + "/from-plugin", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(msg),
+          });
+        } catch (e) {
+          blog("✗ post failed: " + e.message);
+        }
+      }
+
+      async function bridgePoll() {
+        if (!bridge.connected) return;
+        try {
+          const res = await fetch(bridge.url + "/to-plugin");
+          const data = await res.json();
+          for (const cmd of data.commands || []) {
+            blog("◀ cmd: " + cmd.type + (cmd.cmdId ? " #" + cmd.cmdId : ""));
+            parent.postMessage({ pluginMessage: cmd }, "*"); // forward to main thread
+          }
+          setStatus(true, "Connected");
+        } catch (e) {
+          setStatus(false, "Connection lost — retrying");
+        }
+      }
+
+      $("connect").onclick = () => {
+        if (bridge.connected) {
+          bridge.connected = false;
+          clearInterval(bridge.timer);
+          setStatus(false, "Disconnected");
+          $("connect").textContent = "Connect to Claude";
+          return;
+        }
+        bridge.url = $("bridgeUrl").value.replace(/\/+$/, "");
+        fetch(bridge.url + "/health")
+          .then((r) => r.json())
+          .then(() => {
+            bridge.connected = true;
+            $("connect").textContent = "Disconnect";
+            setStatus(true, "Connected");
+            blog("✓ connected to " + bridge.url);
+            bridgePost({ type: "hello", page: "ui" });
+            bridge.timer = setInterval(bridgePoll, 1500);
+          })
+          .catch((e) => {
+            setStatus(false, "Cannot reach server");
+            blog("✗ " + e.message + " — is the server running?");
+          });
+      };
+
+      // ---- results from the main thread ----
+      onmessage = (e) => {
+        const msg = e.data.pluginMessage;
+        if (!msg) return;
+        if (msg.type === "error") {
+          summary.innerHTML = '<span class="err">Error: ' + msg.message + "</span>";
+          if (bridge.connected) bridgePost({ id: msg.cmdId || "user", type: "error", error: msg.message });
+          return;
+        }
+        if (msg.type === "result") {
+          jsonText = JSON.stringify(msg.data, null, 2);
+          out.value = jsonText;
+          summary.textContent = msg.summaryText;
+          if (bridge.connected) {
+            bridgePost({ id: msg.cmdId || "user-" + Date.now(), type: msg.type, summaryText: msg.summaryText, data: msg.data });
+            blog("▶ sent result" + (msg.cmdId ? " #" + msg.cmdId : "") + " to Claude");
+          }
+        }
+      };
+    </script>
+  </body>
+</html>

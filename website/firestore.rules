@@ -1,0 +1,119 @@
+rules_version = '2';
+// Role-based rules, see docs/DATA_CONTRACT.md section 7.
+// users/{authUid} = {schoolId, role: "admin"|"teacher"|"parent", staffId?, studentIds?, ...} maps a login to its school.
+// Everything under schools/{schoolId}/** is reachable only by users whose users doc points at that school.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+    function signedIn() { return request.auth != null; }
+    function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function hasUser() { return signedIn() && exists(userPath(request.auth.uid)); }
+    function me() { return get(userPath(request.auth.uid)).data; }
+    function inSchool(sid) { return hasUser() && me().schoolId == sid; }
+    function isAdmin(sid) { return inSchool(sid) && me().role == 'admin'; }
+    function isTeacher(sid) { return inSchool(sid) && me().role == 'teacher' && me().get('staffId', '') != ''; }
+    function myStaffId() { return me().staffId; }
+
+    // teacher owns the existing doc / the doc being written (teacherId field)
+    function ownsExisting() { return resource.data.get('teacherId', '') == myStaffId(); }
+    function ownsIncoming() { return request.resource.data.get('teacherId', '') == myStaffId(); }
+    // staff_attendance / staff_regularizations written by a teacher carry their own staffId (and teacherId)
+    function ownRequest() {
+      return request.resource.data.get('staffId', '') == myStaffId() && request.resource.data.get('teacherId', myStaffId()) == myStaffId();
+    }
+    function ownDay(docId) { return ownRequest() && docId == request.resource.data.get('date', '') + '_' + myStaffId(); }
+    function onlyKeys(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    // marks can be written only while the admin has not locked the paper (Exams > Lock Marks Entry)
+    function paperOpen(sid) {
+      return get(/databases/$(database)/documents/schools/$(sid)/exm_papers/$(request.resource.data.get('paperId', 'none'))).data.get('locked', false) != true;
+    }
+
+    // ---------- users ----------
+    match /users/{uid} {
+      // a user reads their own doc; an admin reads the docs of their school (to see staff accounts)
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin(resource.data.schoolId));
+      // Admin sign-up (and first login of a pre-existing school): a user may create ONLY their own admin doc for the
+      // school whose id is their own uid. That grants nothing beyond their own namespace schools/{uid}.
+      allow create: if signedIn() && (
+        (request.auth.uid == uid && request.resource.data.schoolId == uid && request.resource.data.role == 'admin')
+        || isAdmin(request.resource.data.schoolId));
+      allow update: if isAdmin(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
+      allow delete: if isAdmin(resource.data.schoolId);
+
+      // push notification device tokens (one doc per token); the Cloud Functions read them with admin access
+      match /fcm_tokens/{token} {
+        allow read, write: if signedIn() && request.auth.uid == uid;
+      }
+    }
+
+    match /schools/{sid} {
+
+      // ---------- generic docs: schools/{sid}/{collection}/{docId} ----------
+      match /{col}/{docId} {
+        // admin: everything in the school
+        allow read, write: if isAdmin(sid);
+
+        // teacher: read the master + shared collections (admin writes the master ones)
+        allow read: if isTeacher(sid) && (
+          col in ['school', 'staff', 'classes', 'assignments', 'students', 'ops_periods', 'ops_substitutions',
+                  'exm_cycles', 'exm_papers', 'exm_candidates', 'com_notices', 'calendar_events',
+                  'ops_attendance', 'ops_homework', 'exm_marks', 'live_classes', 'student_leaves',
+                  'exm_duties', 'set_leave_policy']
+          // own leave requests, check-in days and regularization requests only (contract section 12)
+          || (col in ['staff_leaves', 'staff_attendance', 'staff_regularizations'] && resource.data.get('staffId', '') == myStaffId())
+          // own check-in day by id, also when it does not exist yet (the app reads today's doc directly)
+          || (col == 'staff_attendance' && docId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + myStaffId()))
+          // own private data
+          || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting()));
+
+        // teacher: shared records, only for their own staffId
+        allow create: if isTeacher(sid) && (
+          (col in ['ops_attendance', 'ops_homework', 'exm_marks', 'live_classes'] && ownsIncoming() && (col != 'exm_marks' || paperOpen(sid)))
+          || (col == 'staff_leaves' && request.resource.data.get('staffId', '') == myStaffId())
+          // own check-in day: staff_attendance/{date}_{staffId}
+          || (col == 'staff_attendance' && ownDay(docId))
+          // a regularization request always starts pending
+          || (col == 'staff_regularizations' && ownRequest() && request.resource.data.get('status', '') == 'Pending')
+          // the mirrored row that puts a leave request into the admin approvals queue (always starts pending)
+          || (col == 'approvals' && request.resource.data.get('kind', '') == 'leave' && request.resource.data.get('status', '') == 'pending')
+          || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsIncoming()));
+        allow update: if isTeacher(sid) && (
+          (col in ['ops_attendance', 'ops_homework', 'exm_marks', 'live_classes'] && ownsExisting() && ownsIncoming() && (col != 'exm_marks' || paperOpen(sid)))
+          // a leave can be edited or withdrawn only while pending, and cannot be decided by its owner
+          || (col == 'staff_leaves' && resource.data.get('staffId', '') == myStaffId() && resource.data.status == 'Pending'
+              && request.resource.data.get('staffId', '') == myStaffId() && request.resource.data.status == 'Pending')
+          || (col == 'staff_attendance' && resource.data.get('staffId', '') == myStaffId() && ownDay(docId))
+          // a regularization can be edited only while pending, and cannot be decided by its owner
+          || (col == 'staff_regularizations' && resource.data.get('staffId', '') == myStaffId() && resource.data.get('status', '') == 'Pending'
+              && ownRequest() && request.resource.data.get('status', '') == 'Pending')
+          // the substitute accepts or declines their own assignment
+          || (col == 'ops_substitutions' && resource.data.get('substituteTeacherId', '') == myStaffId()
+              && onlyKeys(['status', 'updatedAt', 'updatedBy']) && request.resource.data.status in ['Accepted', 'Declined'])
+          // teachers decide student leave requests (status + note only)
+          || (col == 'student_leaves' && onlyKeys(['status', 'decisionNote', 'decidedBy', 'decidedAt', 'updatedAt', 'updatedBy']))
+          || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting() && ownsIncoming()));
+        // hard delete is admin-only for shared records; teachers may delete their own private docs
+        allow delete: if isTeacher(sid) && (
+          (col in ['staff_leaves', 'staff_regularizations'] && resource.data.get('staffId', '') == myStaffId() && resource.data.get('status', '') == 'Pending')
+          || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting()));
+      }
+
+      // ---------- live class join taps: live_classes/{id}/joins/{authUid} ----------
+      match /live_classes/{lid}/joins/{joinUid} {
+        allow read: if isAdmin(sid) || isTeacher(sid);
+        // any member of the school records their own tap (parents/students use the parent app later)
+        allow create, update: if inSchool(sid) && request.auth.uid == joinUid;
+        allow delete: if isAdmin(sid);
+      }
+
+      // ---------- other nested subcollections (e.g. thread messages): admin only for now ----------
+      match /{col}/{docId}/{sub=**} {
+        allow read, write: if isAdmin(sid);
+      }
+    }
+
+    // everything else is closed
+    match /{document=**} { allow read, write: if false; }
+  }
+}
