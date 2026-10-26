@@ -1,24 +1,31 @@
-// Firestore rules tests for docs/DATA_CONTRACT.md section 7. Run with `npm test` (needs the Firestore emulator, i.e. Java + firebase-tools).
+// Firestore rules tests for docs/DATA_CONTRACT.md sections 7, 12 and 13 (parent app). Run with `npm test` (needs the Firestore emulator, i.e. Java + firebase-tools).
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment } from "@firebase/rules-unit-testing";
-import { deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, setLogLevel, updateDoc, where, writeBatch } from "firebase/firestore";
+
+setLogLevel("silent"); // denied writes are expected; keep the output to ok / FAIL lines
 
 const env = await initializeTestEnvironment({
   projectId: "demo-school-rules",
   firestore: { rules: readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: 8080 },
 });
+await env.clearFirestore(); // a re-run against a long-lived emulator starts clean
 let failed = 0;
-const check = async (name, p) => { try { await p; console.log("  ok  ", name); } catch (e) { failed++; console.log("  FAIL", name, "-", String(e.message ?? e).split("\n")[0]); } };
+let total = 0;
+const check = async (name, p) => { total++; try { await p; console.log("  ok  ", name); } catch (e) { failed++; console.log("  FAIL", name, "-", String(e.message ?? e).split("\n")[0]); } };
 
-// seed: school S1 (admin a1, teachers t1/t2, parent p1), school S2 (admin a2)
+// seed: school S1 (admin a1, teachers t1/t2, parent p1 of stu_101, parent p2 of stu_102), school S2 (admin a2)
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
   await setDoc(doc(db, "users/a1"), { schoolId: "S1", role: "admin" });
   await setDoc(doc(db, "users/t1"), { schoolId: "S1", role: "teacher", staffId: "stf_025" });
   await setDoc(doc(db, "users/t2"), { schoolId: "S1", role: "teacher", staffId: "stf_023" });
-  await setDoc(doc(db, "users/p1"), { schoolId: "S1", role: "parent", studentIds: ["stu_101"] });
+  await setDoc(doc(db, "users/p1"), { schoolId: "S1", role: "parent", studentIds: ["stu_101"], classIds: ["cls_10B"], grns: ["GIS-9201"] });
+  await setDoc(doc(db, "users/p2"), { schoolId: "S1", role: "parent", studentIds: ["stu_102"], classIds: ["cls_10A"], grns: ["GIS-9202"] });
   await setDoc(doc(db, "users/a2"), { schoolId: "S2", role: "admin" });
-  await setDoc(doc(db, "schools/S1/students/stu_101"), { name: "A", classId: "cls_10B" });
+  await setDoc(doc(db, "schools/S1/students/stu_101"), { name: "A", classId: "cls_10B", grn: "GIS-9201", guardianUids: ["p1"] });
+  await setDoc(doc(db, "schools/S1/students/stu_102"), { name: "B", classId: "cls_10A", grn: "GIS-9202", guardianUids: ["p2"] });
+  await setDoc(doc(db, "schools/S1/students/stu_103"), { name: "C", classId: "cls_10B", grn: "GIS-9203", guardianUids: [] });
   await setDoc(doc(db, "schools/S1/fee_invoices/f1"), { amount: 1 });
   await setDoc(doc(db, "schools/S1/exm_cycles/c1"), { title: "T" });
   await setDoc(doc(db, "schools/S1/ops_attendance/2026-10-26_cls_10B_1"), { teacherId: "stf_025", marks: {}, total: 42 });
@@ -28,7 +35,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, "schools/S1/staff_leaves/l1"), { staffId: "stf_025", status: "Pending" });
   await setDoc(doc(db, "schools/S1/staff_leaves/l2"), { staffId: "stf_023", status: "Pending" });
   await setDoc(doc(db, "schools/S1/ops_substitutions/sub_1"), { substituteTeacherId: "stf_025", status: "Assigned", classId: "cls_8C" });
-  await setDoc(doc(db, "schools/S1/live_classes/lv1"), { teacherId: "stf_025", title: "x" });
+  await setDoc(doc(db, "schools/S1/live_classes/lv1"), { teacherId: "stf_025", title: "x", classId: "cls_10B" });
   await setDoc(doc(db, "schools/S2/students/other"), { name: "Z" });
   await setDoc(doc(db, "schools/S1/staff_attendance/2026-10-25_stf_023"), { staffId: "stf_023", teacherId: "stf_023", date: "2026-10-25", in: "08:00", status: "Present" });
   await setDoc(doc(db, "schools/S1/staff_regularizations/r1"), { staffId: "stf_025", teacherId: "stf_025", status: "Pending", date: "2026-10-24" });
@@ -39,7 +46,8 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, "schools/S1/set_leave_policy/policy"), { checkInBy: "08:15", types: [] });
 });
 
-const as = (uid) => env.authenticatedContext(uid).firestore();
+const dbs = new Map();
+const as = (uid) => dbs.get(uid) ?? dbs.set(uid, env.authenticatedContext(uid).firestore()).get(uid);
 const anon = env.unauthenticatedContext().firestore();
 
 console.log("users");
@@ -105,7 +113,7 @@ console.log("live class joins");
 await check("parent records own join", assertSucceeds(setDoc(doc(as("p1"), "schools/S1/live_classes/lv1/joins/p1"), { joinedAt: "2026-10-26T09:00:00" })));
 await check("parent cannot record someone else's join", assertFails(setDoc(doc(as("p1"), "schools/S1/live_classes/lv1/joins/t1"), { joinedAt: "x" })));
 await check("teacher reads joins", assertSucceeds(getDoc(doc(as("t1"), "schools/S1/live_classes/lv1/joins/p1"))));
-await check("parent cannot read school data yet", assertFails(getDoc(doc(as("p1"), "schools/S1/students/stu_101"))));
+await check("parent cannot read another child's record", assertFails(getDoc(doc(as("p1"), "schools/S1/students/stu_102"))));
 
 console.log("section 12: check-in, regularization, duties, leave policy");
 const day = (u, id, v) => setDoc(doc(as(u), `schools/S1/staff_attendance/${id}`), v);
@@ -129,6 +137,171 @@ await check("teacher writes own ed_duty_state", assertSucceeds(setDoc(doc(as("t1
 await check("admin approves regularization", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/staff_regularizations/r1"), { status: "Approved" })));
 await check("admin corrects a day", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/staff_attendance/2026-10-25_stf_023"), { in: "08:20", source: "admin" })));
 
+// parent app data (section 13)
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore();
+  const put = (p, v) => setDoc(doc(db, `schools/S1/${p}`), v);
+  await put("classes/cls_10B", { grade: "10", section: "B", classTeacherId: "stf_025", classTeacher: "Mrs. Anita Sharma" });
+  await put("classes/cls_10A", { grade: "10", section: "A", classTeacherId: "stf_023" });
+  await put("school/school", { name: "Greenfield" });
+  await put("staff/stf_025", { name: "Mrs. Anita Sharma" });
+  await put("ops_periods/per_10B_Mon_1", { classId: "cls_10B", day: "Mon", period: 1, subject: "Maths", teacherId: "stf_025" });
+  await put("ops_periods/per_10A_Mon_1", { classId: "cls_10A", day: "Mon", period: 1, subject: "Maths", teacherId: "stf_025" });
+  await put("ops_homework/hw1", { classId: "cls_10B", teacherId: "stf_025", title: "t", submissions: {} });
+  await put("exm_marks/p1__cand_stu_101", { paperId: "p1", candId: "cand_stu_101", theory: 60 });
+  await put("par_attendance/stu_101_2026-10", { studentId: "stu_101", classId: "cls_10B", month: "2026-10", days: { "2026-10-26": "A" } });
+  await put("par_attendance/stu_102_2026-10", { studentId: "stu_102", classId: "cls_10A", month: "2026-10", days: {} });
+  await put("par_homework/stu_101_hw1", { studentId: "stu_101", homeworkId: "hw1" });
+  await put("par_homework/stu_102_hw2", { studentId: "stu_102", homeworkId: "hw2" });
+  await put("par_results/stu_101_p1", { studentId: "stu_101", paperId: "p1" });
+  await put("fee_invoices/inv_101", { grn: "GIS-9201", amount: 100 });
+  await put("fee_invoices/inv_102", { grn: "GIS-9202", amount: 100 });
+  await put("fee_payments/pay_101", { grn: "GIS-9201", amount: 100 });
+  await put("com_notices/n_par", { title: "Holiday", status: "Published", audience: "All School", parentVisible: true });
+  await put("com_notices/n_staff", { title: "Staff meet", status: "Published", audience: "Staff & Teachers", parentVisible: false });
+  await put("calendar_events/e1", { title: "Sports day", status: "published", parentVisible: true });
+  await put("student_leaves/sl_dec", { studentId: "stu_101", classId: "cls_10B", parentUid: "p1", status: "Approved", from: "2026-10-01", to: "2026-10-01", reason: "x" });
+  await put("student_leaves/sl_102", { studentId: "stu_102", classId: "cls_10A", parentUid: "p2", status: "Pending", from: "2026-10-28", to: "2026-10-28", reason: "y" });
+  await put("msg_threads/thr_stu_101_stf_025", { studentId: "stu_101", classId: "cls_10B", parentUids: ["p1"], teacherId: "stf_025", lastMessage: "hi", unreadParent: 2, unreadTeacher: 1 });
+  await put("msg_threads/thr_stu_102_stf_025", { studentId: "stu_102", classId: "cls_10A", parentUids: ["p2"], teacherId: "stf_025", unreadParent: 0, unreadTeacher: 0 });
+  await put("msg_messages/m1", { threadId: "thr_stu_101_stf_025", studentId: "stu_101", teacherId: "stf_025", parentUids: ["p1"], from: "teacher", uid: "t1", text: "hi" });
+  await put("msg_messages/m2", { threadId: "thr_stu_102_stf_025", studentId: "stu_102", teacherId: "stf_025", parentUids: ["p2"], from: "parent", uid: "p2", text: "hello" });
+  await put("par_notifications/pn1", { uid: "p1", studentId: "stu_101", type: "attendance", title: "Absence alert", read: false });
+  await put("par_notifications/pn2", { uid: "p2", studentId: "stu_102", type: "attendance", title: "Absence alert", read: false });
+  await put("consents/p2", { uid: "p2", studentIds: ["stu_102"], version: 1 });
+  await put("set_audit/a1", { action: "x" });
+});
+
+const q = (u, col, ...w) => getDocs(query(collection(as(u), `schools/S1/${col}`), ...w));
+const P = (path) => doc(as("p1"), `schools/S1/${path}`);
+
+console.log("parent: reads (own children only)");
+await check("parent reads own child", assertSucceeds(getDoc(P("students/stu_101"))));
+await check("parent reads own child's class", assertSucceeds(getDoc(P("classes/cls_10B"))));
+await check("parent reads school", assertSucceeds(getDoc(P("school/school"))));
+await check("parent queries own class timetable", assertSucceeds(q("p1", "ops_periods", where("classId", "==", "cls_10B"))));
+await check("parent queries own class live classes", assertSucceeds(q("p1", "live_classes", where("classId", "==", "cls_10B"))));
+await check("parent reads own child's attendance month", assertSucceeds(getDoc(P("par_attendance/stu_101_2026-10"))));
+await check("parent reads own child's missing month by id", assertSucceeds(getDoc(P("par_attendance/stu_101_2026-09"))));
+await check("parent queries own child's homework", assertSucceeds(q("p1", "par_homework", where("studentId", "==", "stu_101"))));
+await check("parent queries own child's results", assertSucceeds(q("p1", "par_results", where("studentId", "==", "stu_101"))));
+await check("parent queries own fee invoices by grn", assertSucceeds(q("p1", "fee_invoices", where("grn", "==", "GIS-9201"))));
+await check("parent queries own fee payments by grn", assertSucceeds(q("p1", "fee_payments", where("grn", "==", "GIS-9201"))));
+await check("parent queries parent-visible notices", assertSucceeds(q("p1", "com_notices", where("parentVisible", "==", true))));
+await check("parent queries parent-visible calendar", assertSucceeds(q("p1", "calendar_events", where("parentVisible", "==", true))));
+await check("parent queries own child's leave requests", assertSucceeds(q("p1", "student_leaves", where("studentId", "==", "stu_101"))));
+await check("parent queries own threads", assertSucceeds(q("p1", "msg_threads", where("parentUids", "array-contains", "p1"))));
+await check("parent queries own thread messages", assertSucceeds(q("p1", "msg_messages", where("parentUids", "array-contains", "p1"), where("threadId", "==", "thr_stu_101_stf_025"))));
+await check("parent queries own notifications", assertSucceeds(q("p1", "par_notifications", where("uid", "==", "p1"))));
+await check("parent reads own consent (missing)", assertSucceeds(getDoc(P("consents/p1"))));
+await check("parent reads own users doc", assertSucceeds(getDoc(doc(as("p1"), "users/p1"))));
+
+console.log("parent: privacy denials");
+await check("parent cannot read another class", assertFails(getDoc(P("classes/cls_10A"))));
+await check("parent cannot list all students", assertFails(q("p1", "students")));
+await check("parent cannot query students of own class", assertFails(q("p1", "students", where("classId", "==", "cls_10B"))));
+await check("parent cannot query another class timetable", assertFails(q("p1", "ops_periods", where("classId", "==", "cls_10A"))));
+await check("parent cannot read another child's attendance", assertFails(getDoc(P("par_attendance/stu_102_2026-10"))));
+await check("parent cannot read another child's month by id", assertFails(getDoc(P("par_attendance/stu_102_2026-09"))));
+await check("parent cannot query another child's homework", assertFails(q("p1", "par_homework", where("studentId", "==", "stu_102"))));
+await check("parent cannot list all homework copies", assertFails(q("p1", "par_homework")));
+await check("parent cannot read class-wide attendance", assertFails(getDoc(P("ops_attendance/2026-10-26_cls_10B_1"))));
+await check("parent cannot read class-wide homework", assertFails(getDoc(P("ops_homework/hw1"))));
+await check("parent cannot read exm_marks", assertFails(getDoc(P("exm_marks/p1__cand_stu_101"))));
+await check("parent cannot read staff", assertFails(getDoc(P("staff/stf_025"))));
+await check("parent cannot read another family's invoice", assertFails(getDoc(P("fee_invoices/inv_102"))));
+await check("parent cannot list all invoices", assertFails(q("p1", "fee_invoices")));
+await check("parent cannot read a staff-only notice", assertFails(getDoc(P("com_notices/n_staff"))));
+await check("parent cannot list all notices", assertFails(q("p1", "com_notices")));
+await check("parent cannot read another child's leave", assertFails(getDoc(P("student_leaves/sl_102"))));
+await check("parent cannot read another family's thread", assertFails(getDoc(P("msg_threads/thr_stu_102_stf_025"))));
+await check("parent cannot read another family's messages", assertFails(getDoc(P("msg_messages/m2"))));
+await check("parent cannot query messages by thread only", assertFails(q("p1", "msg_messages", where("threadId", "==", "thr_stu_102_stf_025"))));
+await check("parent cannot read another parent's notifications", assertFails(getDoc(P("par_notifications/pn2"))));
+await check("parent cannot read another parent's consent", assertFails(getDoc(P("consents/p2"))));
+await check("parent cannot read another user doc", assertFails(getDoc(doc(as("p1"), "users/p2"))));
+await check("parent cannot read audit", assertFails(getDoc(P("set_audit/a1"))));
+await check("parent cannot write projections", assertFails(setDoc(P("par_attendance/stu_101_2026-11"), { studentId: "stu_101", days: {} })));
+await check("parent cannot write own child's record", assertFails(updateDoc(P("students/stu_101"), { name: "X" })));
+await check("parent cannot link themselves to a child", assertFails(updateDoc(doc(as("p1"), "users/p1"), { studentIds: ["stu_101", "stu_102"] })));
+
+console.log("parent: leave requests");
+// the parent app's exact leave shape (mobile app/parent, commit da6cc17)
+const leave = (v) => ({ studentId: "stu_101", classId: "cls_10B", name: "A", roll: 1, from: "2026-10-30", to: "2026-10-30", days: 1, daysLabel: "1 day", dateText: "30 Oct",
+  reason: "Fever", type: "Sick leave", cat: "sick", by: "Mr. A", status: "Pending", parentUid: "p1", appliedOn: "2026-10-27", createdAt: "2026-10-27T09:00:00Z", updatedAt: "2026-10-27T09:00:00Z", updatedBy: "p1", ...v });
+await check("parent requests leave for own child", assertSucceeds(setDoc(P("student_leaves/sl_1"), leave())));
+await check("parent cannot request leave for another child", assertFails(setDoc(P("student_leaves/sl_2"), leave({ studentId: "stu_102", classId: "cls_10A" }))));
+await check("parent cannot create an approved leave", assertFails(setDoc(P("student_leaves/sl_3"), leave({ status: "Approved" }))));
+await check("parent cannot file leave under another class", assertFails(setDoc(P("student_leaves/sl_4"), leave({ classId: "cls_10A" }))));
+await check("parent cannot file leave as another parent", assertFails(setDoc(P("student_leaves/sl_5"), leave({ parentUid: "p2" }))));
+await check("parent edits own pending leave", assertSucceeds(updateDoc(P("student_leaves/sl_1"), { reason: "Fever and cold" })));
+await check("parent cannot approve own leave", assertFails(updateDoc(P("student_leaves/sl_1"), { status: "Approved" })));
+await check("parent cannot edit a decided leave", assertFails(updateDoc(P("student_leaves/sl_dec"), { reason: "changed" })));
+await check("parent cannot withdraw a decided leave", assertFails(deleteDoc(P("student_leaves/sl_dec"))));
+await check("parent cannot withdraw another family's leave", assertFails(deleteDoc(P("student_leaves/sl_102"))));
+await check("teacher decides a parent's leave (teacher app shape)", assertSucceeds(updateDoc(doc(as("t1"), "schools/S1/student_leaves/sl_1"), { status: "Approved", decisionNote: "Get well", decidedBy: "stf_025", decidedAt: "2026-10-27T10:00:00Z", updatedAt: "2026-10-27T10:00:00Z", updatedBy: "t1" })));
+await check("teacher cannot tag a parent's leave with other fields", assertFails(updateDoc(doc(as("t1"), "schools/S1/student_leaves/sl_102"), { status: "Approved", teacherId: "stf_025", src: "lm" })));
+await check("teacher cannot change the leave dates", assertFails(updateDoc(doc(as("t1"), "schools/S1/student_leaves/sl_102"), { status: "Approved", from: "2026-10-01" })));
+await setDoc(P("student_leaves/sl_6"), leave()).catch(() => {});
+await check("parent withdraws own pending leave", assertSucceeds(deleteDoc(P("student_leaves/sl_6"))));
+
+console.log("parent: messages");
+// the parent app's exact thread shape (commit da6cc17)
+const thread = (v) => ({ studentId: "stu_101", classId: "cls_10B", studentName: "A", parentUids: ["p1"], guardian: "Mr. A", teacherId: "stf_023", teacher: "Mr. X", role: "Subject teacher",
+  lastMessage: "", lastAt: "2026-10-27T10:00:00Z", lastFrom: "parent", unreadParent: 0, unreadTeacher: 0, createdAt: "2026-10-27T10:00:00Z", ...v });
+const msg = (v) => ({ threadId: "thr_stu_101_stf_023", studentId: "stu_101", teacherId: "stf_023", parentUids: ["p1"], from: "parent", uid: "p1", name: "Mr. A", text: "Hello", at: "2026-10-27T10:00:00Z", ...v });
+await check("parent opens a thread and sends the first message in one batch", assertSucceeds((() => {
+  const b = writeBatch(as("p1"));
+  b.set(P("msg_threads/thr_stu_101_stf_023"), thread());
+  b.set(P("msg_messages/pm1"), msg());
+  return b.commit();
+})()));
+await check("parent cannot open a thread with last* filled", assertFails(setDoc(P("msg_threads/thr_stu_101_stf_008"), thread({ teacherId: "stf_008", lastMessage: "x" }))));
+await check("parent cannot open a thread for another child", assertFails(setDoc(P("msg_threads/thr_stu_102_stf_008"), thread({ studentId: "stu_102", classId: "cls_10A", teacherId: "stf_008" }))));
+await check("parent cannot add a non-guardian to a thread", assertFails(setDoc(P("msg_threads/thr_stu_101_stf_008"), thread({ teacherId: "stf_008", parentUids: ["p1", "p2"] }))));
+await check("parent cannot open a thread under a wrong id", assertFails(setDoc(P("msg_threads/thr_x"), thread())));
+await check("parent sends a message in own thread", assertSucceeds(setDoc(P("msg_messages/pm2"), msg({ text: "Second" }))));
+await check("parent opens a thread, then sends a message as a separate write", assertSucceeds(setDoc(P("msg_threads/thr_stu_101_stf_006"), thread({ teacherId: "stf_006" }))
+  .then(() => setDoc(P("msg_messages/pm5"), msg({ threadId: "thr_stu_101_stf_006", teacherId: "stf_006" })))));
+await check("parent cannot open a thread with unread counts", assertFails(setDoc(P("msg_threads/thr_stu_101_stf_010"), thread({ teacherId: "stf_010", unreadTeacher: 3 }))));
+await check("parent cannot send as the teacher", assertFails(setDoc(P("msg_messages/pm3"), msg({ from: "teacher" }))));
+await check("parent cannot post in another family's thread", assertFails(setDoc(P("msg_messages/pm4"), msg({ threadId: "thr_stu_102_stf_025", studentId: "stu_102", teacherId: "stf_025", parentUids: ["p2"] }))));
+await check("parent resets own unread counter", assertSucceeds(updateDoc(P("msg_threads/thr_stu_101_stf_025"), { unreadParent: 0 })));
+await check("parent cannot change the teacher's counter", assertFails(updateDoc(P("msg_threads/thr_stu_101_stf_025"), { unreadTeacher: 0 })));
+await check("parent cannot write lastMessage", assertFails(updateDoc(P("msg_threads/thr_stu_101_stf_025"), { lastMessage: "spoof" })));
+await check("teacher reads own thread", assertSucceeds(getDoc(doc(as("t1"), "schools/S1/msg_threads/thr_stu_101_stf_025"))));
+await check("teacher queries own threads", assertSucceeds(q("t1", "msg_threads", where("teacherId", "==", "stf_025"))));
+await check("other teacher cannot read the thread", assertFails(getDoc(doc(as("t2"), "schools/S1/msg_threads/thr_stu_101_stf_025"))));
+await check("teacher replies in own thread", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/msg_messages/tm1"), msg({ threadId: "thr_stu_101_stf_025", teacherId: "stf_025", from: "teacher", uid: "t1", name: "Mrs. Anita Sharma" }))));
+await check("teacher cannot reply as a parent", assertFails(setDoc(doc(as("t1"), "schools/S1/msg_messages/tm2"), msg({ threadId: "thr_stu_101_stf_025", teacherId: "stf_025", from: "parent", uid: "t1" }))));
+await check("teacher cannot post in another teacher's thread", assertFails(setDoc(doc(as("t2"), "schools/S1/msg_messages/tm3"), msg({ threadId: "thr_stu_101_stf_025", teacherId: "stf_023", from: "teacher", uid: "t2" }))));
+await check("teacher resets own unread counter", assertSucceeds(updateDoc(doc(as("t1"), "schools/S1/msg_threads/thr_stu_101_stf_025"), { unreadTeacher: 0 })));
+await check("teacher cannot reset the parent's counter", assertFails(updateDoc(doc(as("t1"), "schools/S1/msg_threads/thr_stu_102_stf_025"), { unreadParent: 0, lastMessage: "x" })));
+await check("teacher cannot add a non-guardian to a thread", assertFails(setDoc(doc(as("t1"), "schools/S1/msg_threads/thr_stu_103_stf_025"), thread({ studentId: "stu_103", parentUids: ["p1"], teacherId: "stf_025" }))));
+await check("teacher opens a thread with a child's guardians", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/msg_threads/thr_stu_103_stf_025"), thread({ studentId: "stu_103", parentUids: [], teacherId: "stf_025", lastFrom: "teacher" }))));
+await check("teacher sends the first message as a separate write", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/msg_messages/tm4"), msg({ threadId: "thr_stu_103_stf_025", studentId: "stu_103", teacherId: "stf_025", parentUids: [], from: "teacher", uid: "t1" }))));
+
+console.log("parent: acknowledgements, consent, notifications");
+await check("parent acknowledges a visible notice", assertSucceeds(setDoc(P("com_notices/n_par/acks/p1"), { at: "2026-10-27T10:00:00Z", studentIds: ["stu_101"] })));
+await check("parent reads own ack", assertSucceeds(getDoc(P("com_notices/n_par/acks/p1"))));
+await check("parent cannot ack a staff-only notice", assertFails(setDoc(P("com_notices/n_staff/acks/p1"), { at: "x" })));
+await check("parent cannot ack for someone else", assertFails(setDoc(P("com_notices/n_par/acks/p2"), { at: "x" })));
+await check("admin reads acks", assertSucceeds(getDoc(doc(as("a1"), "schools/S1/com_notices/n_par/acks/p1"))));
+await check("parent records own live-class join (parent app shape)", assertSucceeds(setDoc(P("live_classes/lv1/joins/p1"), { joinedAt: "2026-10-27T17:00:00Z", role: "parent", studentIds: ["stu_101"] })));
+await check("admin reads a parent's consent", assertSucceeds(getDoc(doc(as("a1"), "schools/S1/consents/p2"))));
+await check("admin lists the school's parent logins", assertSucceeds(getDocs(query(collection(as("a1"), "users"), where("schoolId", "==", "S1"), where("role", "==", "parent")))));
+await check("parent cannot list the school's parent logins", assertFails(getDocs(query(collection(as("p1"), "users"), where("schoolId", "==", "S1"), where("role", "==", "parent")))));
+await check("parent records own consent", assertSucceeds(setDoc(P("consents/p1"), { uid: "p1", studentIds: ["stu_101"], version: 1, acceptedAt: "2026-10-27", items: { dataProcessing: true, photos: false, notifications: true } })));
+await check("parent cannot write another parent's consent", assertFails(setDoc(P("consents/p2"), { uid: "p2", version: 2 })));
+await check("parent marks a notification read", assertSucceeds(updateDoc(P("par_notifications/pn1"), { read: true })));
+await check("parent cannot edit a notification", assertFails(updateDoc(P("par_notifications/pn1"), { title: "x" })));
+await check("parent cannot mark another parent's notification", assertFails(updateDoc(P("par_notifications/pn2"), { read: true })));
+await check("teacher cannot read parent projections", assertFails(getDoc(doc(as("t1"), "schools/S1/par_attendance/stu_101_2026-10"))));
+await check("teacher cannot read consents", assertFails(getDoc(doc(as("t1"), "schools/S1/consents/p2"))));
+await check("teacher reads guardianUids on students", assertSucceeds(getDoc(doc(as("t1"), "schools/S1/students/stu_101")).then((d) => { if (!d.get("guardianUids")) throw new Error("missing"); })));
+await check("admin reads parent projections", assertSucceeds(getDoc(doc(as("a1"), "schools/S1/par_attendance/stu_101_2026-10"))));
+await check("parent of another school cannot read S1", assertFails(getDoc(doc(as("a2"), "schools/S1/par_attendance/stu_101_2026-10"))));
+
 await env.cleanup();
-console.log(failed ? `\n${failed} FAILED` : "\nall passed");
+console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);
 process.exit(failed ? 1 : 0);

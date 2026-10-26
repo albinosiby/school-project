@@ -1,1 +1,21 @@
-{"indexes":[],"fieldOverrides":[]}
+{
+  "indexes": [
+    {
+      "collectionGroup": "msg_threads",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "parentUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "studentId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "msg_messages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "parentUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "threadId", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
