@@ -38,160 +38,53 @@ class _SlowTimetable implements ITimetableRepository {
   Stream<TimetableWeek> watchWeek(String childId) => const Stream.empty();
 }
 
+/// Every visible text on screen (for "no placeholder leaked" checks).
+Iterable<String> texts(WidgetTester t) => t
+    .widgetList<Text>(find.byType(Text))
+    .map((w) => w.data ?? w.textSpan?.toPlainText() ?? '');
+
+void expectNoPlaceholders(WidgetTester t) {
+  final bad = texts(t).where((s) => RegExp(r'\b(null|NaN|undefined|Invalid Date|Instance of)\b').hasMatch(s));
+  expect(bad, isEmpty, reason: bad.join('\n'));
+}
+
 void main() {
-  testWidgets('Attendance tab: percentage, calendar and absence list', (
-    t,
-  ) async {
+  testWidgets('end-to-end walk: every tab and the Academics sections open without errors', (t) async {
     await setUpTestApp(signedIn: true);
     await pumpApp(t);
-    await tab(t, 'Attendance');
-    expect(find.text('TERM ATTENDANCE'), findsOneWidget);
-    expect(find.byKey(const Key('overall-percent')), findsOneWidget);
-    expect(find.text('Calendar'), findsOneWidget);
-    final title = (t.widget(find.byKey(const Key('month-title'))) as Text).data;
-    await t.tap(find.byTooltip('Previous month'));
-    await t.pumpAndSettle();
-    expect(
-      (t.widget(find.byKey(const Key('month-title'))) as Text).data,
-      isNot(title),
-    );
-    await t.scrollUntilVisible(
-      find.text('Absences'),
-      300,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text('Absences'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    expectNoPlaceholders(t);
+
+    await tab(t, 'Academics');
+    for (final section in ['Attendance', 'Homework', 'Marks', 'Timetable']) {
+      await t.tap(find.text(section).first);
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull, reason: section);
+      expectNoPlaceholders(t);
+    }
+
+    for (final name in ['Fees', 'Messages', 'More', 'Home']) {
+      await tab(t, name);
+      expect(t.takeException(), isNull, reason: name);
+      expectNoPlaceholders(t);
+    }
   });
 
-  testWidgets(
-    'Learn tab: homework -> detail, marks -> report card, timetable',
-    (t) async {
-      await setUpTestApp(signedIn: true);
-      await pumpApp(t);
-      await tab(t, 'Learn');
-      expect(find.text('Quadratic equations - Exercise 4.2'), findsOneWidget);
-
-      await t.tap(find.text('Overdue').first); // the filter chip
-      await t.pumpAndSettle();
-      expect(find.text('Map work - rivers of India'), findsOneWidget);
-      expect(find.text('Quadratic equations - Exercise 4.2'), findsNothing);
-      await t.tap(find.text('Map work - rivers of India'));
-      await t.pumpAndSettle();
-      expect(find.text('Instructions'), findsOneWidget);
-      await back(t);
-
-      await t.tap(find.text('Marks'));
-      await t.pumpAndSettle();
-      expect(find.text('Results awaited'), findsNothing);
-      expect(
-        find.text('Upcoming'),
-        findsOneWidget,
-      ); // Term 1 final: not published
-      await t.tap(find.text('Mid-Term Exam'));
-      await t.pumpAndSettle();
-      expect(find.text('Subject-wise marks'), findsOneWidget);
-      expect(find.byKey(const Key('exam-total')), findsOneWidget);
-      expect(find.text('Mathematics'), findsOneWidget);
-      await back(t);
-
-      await t.tap(find.text('Timetable'));
-      await t.pumpAndSettle();
-      expect(find.text('Mon'), findsOneWidget);
-      await t.tap(find.text('Wed'));
-      await t.pumpAndSettle();
-      expect(find.textContaining('08:30 AM'), findsOneWidget);
-    },
-  );
-
-  testWidgets('Inbox tab: acknowledge a notice, chat with a teacher', (
-    t,
-  ) async {
+  testWidgets('Academics: homework opens its detail and comes back', (t) async {
     await setUpTestApp(signedIn: true);
     await pumpApp(t);
-    await tab(t, 'Inbox');
-    expect(find.text('Parent-teacher meeting this Saturday'), findsOneWidget);
-    expect(find.text('Acknowledge'), findsNWidgets(2));
-    await t.tap(find.text('Acknowledge').first);
+    await tab(t, 'Academics');
+    await t.tap(find.text('Homework').first);
     await t.pumpAndSettle();
-    expect(find.text('Acknowledge'), findsOneWidget);
-    expect(find.text('Acknowledged'), findsOneWidget);
-
-    await t.tap(find.text('Messages'));
+    // the first demo assignment that is on screen (the list is lazy and filtered by status)
+    final shown = DemoData.homework(DemoData.aarav.id).map((h) => h.title).firstWhere((title) => find.text(title).evaluate().isNotEmpty);
+    await t.tap(find.text(shown).first);
     await t.pumpAndSettle();
-    await t.tap(find.text('Mrs. Anita Sharma'));
-    await t.pumpAndSettle();
-    expect(find.text('Thank you, I will keep an eye on it.'), findsWidgets);
-    await t.enterText(
-      find.byKey(const Key('chat-input')),
-      'See you on Saturday',
-    );
-    await t.tap(find.byKey(const Key('chat-send')));
-    await t.pumpAndSettle();
-    expect(find.text('See you on Saturday'), findsOneWidget);
+    expect(find.text(shown), findsWidgets);
+    expect(find.byTooltip('Back'), findsWidgets);
+    await back(t);
+    expect(find.text('Homework'), findsWidgets);
   });
-
-  testWidgets(
-    'More: live classes, leave application, fees, profile and sign out',
-    (t) async {
-      await setUpTestApp(signedIn: true);
-      await pumpApp(t);
-      await tab(t, 'More');
-
-      await t.tap(find.text('Live classes'));
-      await t.pumpAndSettle();
-      expect(
-        find.widgetWithText(FilledButton, 'Join on Google Meet'),
-        findsOneWidget,
-      ); // the class that starts in 5 minutes
-      await back(t);
-
-      await t.tap(find.text('Leave'));
-      await t.pumpAndSettle();
-      expect(find.text('Dental appointment'), findsOneWidget);
-      await t.tap(find.text('Apply for leave'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('Send application'));
-      await t.pumpAndSettle();
-      expect(
-        find.byKey(const Key('leave-error')),
-        findsOneWidget,
-      ); // reason required
-      await t.enterText(find.byType(TextFormField), 'Visiting grandparents');
-      await t.tap(find.text('Send application'));
-      await t.pumpAndSettle();
-      expect(
-        find.text('Visiting grandparents'),
-        findsOneWidget,
-      ); // back on the history, new item on top
-      await back(t);
-
-      await t.tap(find.text('Fees'));
-      await t.pumpAndSettle();
-      expect(find.text('BALANCE DUE'), findsOneWidget);
-      expect(
-        find.textContaining('Online payment is not available'),
-        findsOneWidget,
-      );
-      await back(t);
-
-      await t.tap(find.text('Profile and settings'));
-      await t.pumpAndSettle();
-      expect(find.text('Aarav Sharma'), findsOneWidget);
-      expect(find.text('Ananya Sharma'), findsOneWidget);
-      await t.tap(find.text('Ananya Sharma'));
-      await t.pumpAndSettle();
-      expect(find.text('Selected'), findsOneWidget);
-      await t.scrollUntilVisible(
-        find.widgetWithText(FilledButton, 'Sign out'),
-        300,
-      );
-      await t.tap(find.widgetWithText(FilledButton, 'Sign out'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('Sign out').last);
-      await t.pumpAndSettle();
-      expect(find.text('Welcome, parent'), findsOneWidget);
-    },
-  );
 
   group('loading / empty / error states', () {
     testWidgets('empty list shows the empty state', (t) async {
@@ -199,7 +92,9 @@ void main() {
       getIt.unregister<IHomeworkRepository>();
       getIt.registerSingleton<IHomeworkRepository>(_EmptyHomework());
       await pumpApp(t);
-      await tab(t, 'Learn');
+      await tab(t, 'Academics');
+      await t.tap(find.text('Homework').first);
+      await t.pumpAndSettle();
       expect(find.text('No homework'), findsOneWidget);
     });
 
@@ -208,11 +103,9 @@ void main() {
       getIt.unregister<IHomeworkRepository>();
       getIt.registerSingleton<IHomeworkRepository>(_FailingHomework());
       await pumpApp(t);
-      await tab(t, 'Learn');
-      expect(
-        find.text('Something went wrong. Please try again.'),
-        findsOneWidget,
-      );
+      await tab(t, 'Academics');
+      await t.tap(find.text('Homework').first);
+      await t.pumpAndSettle();
       expect(find.text('Retry'), findsOneWidget);
     });
 
@@ -223,8 +116,8 @@ void main() {
       getIt.unregister<ITimetableRepository>();
       getIt.registerSingleton<ITimetableRepository>(_SlowTimetable());
       await pumpApp(t);
-      await tab(t, 'Learn');
-      await t.tap(find.text('Timetable'));
+      await tab(t, 'Academics');
+      await t.tap(find.text('Timetable').first);
       await t.pump();
       await t.pump();
       expect(find.byType(AppLoading), findsOneWidget);

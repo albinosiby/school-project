@@ -64,7 +64,10 @@ Stream<T> cacheFirst<T extends Object>({
           run(refetch ?? fetch, hasValue: true);
         }
       });
-      run(fetch, hasValue: cached != null);
+      // without a refresh source the stream is finite: cached value (if any), fresh value, done
+      run(fetch, hasValue: cached != null).then((_) {
+        if (refreshOn == null && !out.isClosed) out.close();
+      });
     },
     onCancel: () {
       trigger?.cancel(); // not awaited: some refresh sources never complete their cancel
