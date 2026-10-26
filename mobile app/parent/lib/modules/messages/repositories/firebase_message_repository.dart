@@ -70,7 +70,7 @@ class FirebaseMessageRepository implements IMessageRepository {
       'uid': _session.uid,
       'name': '${_session.user['name'] ?? 'Parent'}',
       'text': body,
-      'at': DateTime.now().toIso8601String(),
+      'at': nowUtc(),
     });
   }
 
@@ -92,11 +92,11 @@ class FirebaseMessageRepository implements IMessageRepository {
       'teacher': teacher,
       'role': role,
       'lastMessage': '',
-      'lastAt': DateTime.now().toIso8601String(),
+      'lastAt': nowUtc(),
       'lastFrom': 'parent',
       'unreadParent': 0,
       'unreadTeacher': 0,
-      'createdAt': DateTime.now().toIso8601String(),
+      'createdAt': nowUtc(),
     });
     return id;
   }

@@ -38,7 +38,10 @@ class FirebaseAuthRepository implements IAuthRepository {
 
   @override
   Future<Guardian?> currentGuardian() async {
-    if (_session.auth.currentUser == null) return null;
+    // the saved session is restored asynchronously: wait for Firebase Auth's first state before deciding
+    final user = _session.auth.currentUser ??
+        await _session.auth.authStateChanges().first.timeout(const Duration(seconds: 10), onTimeout: () => null);
+    if (user == null) return null;
     try {
       return await _guardian();
     } on AppException {

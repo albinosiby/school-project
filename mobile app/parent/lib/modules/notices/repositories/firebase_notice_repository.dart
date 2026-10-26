@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../utils/services/firebase/parent_session.dart';
 import '../models/notice_models.dart';
 import 'notice_repository_interface.dart';
@@ -8,37 +10,65 @@ class FirebaseNoticeRepository implements INoticeRepository {
   FirebaseNoticeRepository(this._session);
   final ParentSession _session;
   final Set<String> _acked = {};
+  final _ackChanges = StreamController<void>.broadcast();
 
   @override
-  Stream<List<Notice>> watchNotices(String childId) async* {
-    final child = await _session.student(childId);
-    final grade = '${child['grade'] ?? ''}';
-    yield* _session.col('com_notices').where('parentVisible', isEqualTo: true).snapshots().asyncMap((q) async {
-      final out = <Notice>[];
-      for (final doc in q.docs) {
-        final d = doc.data();
-        final grades = [for (final g in (d['grades'] as List?) ?? const []) '$g'];
-        if (grades.isNotEmpty && grade.isNotEmpty && !grades.contains(grade) && !grades.contains('Grade $grade')) continue;
-        final requiresAck = d['requiresAck'] == true || d['urgent'] == true;
-        if (requiresAck && !_acked.contains(doc.id)) {
-          try {
-            if ((await doc.reference.collection('acks').doc(_session.uid).get()).exists) _acked.add(doc.id);
-          } catch (_) {} // offline with nothing cached: shown as not acknowledged yet
+  Stream<List<Notice>> watchNotices(String childId) {
+    // re-emits on notice changes and right after this parent acknowledges one
+    late final StreamController<List<Notice>> out;
+    final subs = <StreamSubscription<Object?>>[];
+    QuerySnapshot<Json>? last;
+    var grade = '';
+    Future<void> emit() async {
+      final q = last;
+      if (q != null && !out.isClosed) out.add(await _build(q, grade));
+    }
+
+    out = StreamController<List<Notice>>(
+      onListen: () async {
+        grade = '${(await _session.student(childId))['grade'] ?? ''}';
+        subs
+          ..add(_session.col('com_notices').where('parentVisible', isEqualTo: true).snapshots().listen((q) {
+            last = q;
+            emit();
+          }, onError: out.addError))
+          ..add(_ackChanges.stream.listen((_) => emit()));
+      },
+      onCancel: () async {
+        for (final s in subs) {
+          await s.cancel();
         }
-        out.add(fromDoc(doc.id, d, acknowledged: _acked.contains(doc.id)));
+      },
+    );
+    return out.stream;
+  }
+
+  Future<List<Notice>> _build(QuerySnapshot<Json> q, String grade) async {
+    final out = <Notice>[];
+    for (final doc in q.docs) {
+      final d = doc.data();
+      final grades = [for (final g in (d['grades'] as List?) ?? const []) '$g'];
+      if (grades.isNotEmpty && grade.isNotEmpty && !grades.contains(grade) && !grades.contains('Grade $grade')) continue;
+      final requiresAck = d['requiresAck'] == true || d['urgent'] == true;
+      if (requiresAck && !_acked.contains(doc.id)) {
+        try {
+          if ((await doc.reference.collection('acks').doc(_session.uid).get()).exists) _acked.add(doc.id);
+        } catch (_) {} // offline with nothing cached: shown as not acknowledged yet
       }
-      out.sort((a, b) => b.date.compareTo(a.date));
-      return out;
-    });
+      out.add(fromDoc(doc.id, d, acknowledged: _acked.contains(doc.id)));
+    }
+    out.sort((a, b) => b.date.compareTo(a.date));
+    return out;
   }
 
   @override
   Future<void> acknowledge(String noticeId) async {
     await _session.col('com_notices').doc(noticeId).collection('acks').doc(_session.uid).set({
-      'at': DateTime.now().toIso8601String(),
+      'at': nowUtc(),
       'studentIds': _session.studentIds,
     });
     _acked.add(noticeId);
+    _ackChanges.add(null);
   }
 
   static NoticeCategory categoryOf(Json d) {

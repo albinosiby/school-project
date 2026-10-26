@@ -404,7 +404,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
     if (!vis || noticeVisible(before)) return;
     const parents = await schoolParents(sid, after.grades);
     await notifyParents(sid, parents.map((u) => ({
-      id: `ntc_${id}_${u.id}`, uid: u.id, studentId: "", type: "notice", title: after.urgent ? `Urgent: ${after.title}` : after.title ?? "New notice",
+      id: `ntc_${id}_${u.id}`, uid: u.id, studentId: "", type: "notice", title: after.urgent && !/^urgent\b/i.test(after.title ?? "") ? `Urgent: ${after.title}` : after.title ?? "New notice",
       body: String(after.body ?? "").replace(/\s+/g, " ").slice(0, 140), route: "/notifications",
     })));
   }));

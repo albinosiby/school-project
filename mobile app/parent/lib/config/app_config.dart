@@ -20,6 +20,10 @@ class AppConfig {
       ? BackendType.rest
       : BackendType.local;
 
+  /// BACKEND=firebase against the local Firebase emulators (test builds): `--dart-define=EMULATOR=true`.
+  static const bool useEmulator = bool.fromEnvironment('EMULATOR');
+  static const String emulatorProject = String.fromEnvironment('EMULATOR_PROJECT', defaultValue: 'demo-school-e2e');
+
   static bool get isLocal => backend == BackendType.local;
   static bool get isFirebase => backend == BackendType.firebase;
   static bool get isRest => backend == BackendType.rest;

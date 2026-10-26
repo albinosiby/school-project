@@ -179,6 +179,26 @@ void main() {
     expect(after['unreadTeacher'], 1);
   });
 
+  test('stored UTC times are shown in local time; writes are UTC', () {
+    final t = parseTime('2026-10-26T22:54:17.000Z')!;
+    expect(t.isUtc, isFalse);
+    expect(t, DateTime.utc(2026, 10, 26, 22, 54, 17).toLocal());
+    expect(nowUtc(), endsWith('Z'));
+  });
+
+  test('notices: the open list updates as soon as the parent acknowledges', () async {
+    await school('com_notices').set('n1', {'title': 'Fog advisory', 'parentVisible': true, 'urgent': true, 'sentAt': '2026-10-26T09:00:00Z'});
+    final repo = FirebaseNoticeRepository(session);
+    final seen = <bool>[];
+    final sub = repo.watchNotices(child).listen((l) => seen.add(l.single.acknowledged));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await repo.acknowledge('n1');
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await sub.cancel();
+    expect(seen.first, isFalse);
+    expect(seen.last, isTrue);
+  });
+
   test('push service works without Firebase (tests, web)', () async {
     final push = ParentPushService();
     await push.start(uid);

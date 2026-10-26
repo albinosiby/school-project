@@ -39,7 +39,7 @@ class FirebaseLiveClassRepository implements ILiveClassRepository {
 
   @override
   Future<void> recordJoin(String classId) => _session.col('live_classes').doc(classId).collection('joins').doc(_session.uid).set({
-        'joinedAt': DateTime.now().toIso8601String(),
+        'joinedAt': nowUtc(),
         'role': 'parent',
         'studentIds': _session.studentIds,
       });

@@ -106,7 +106,7 @@ exports.onNoticePublished = onDocumentWritten("schools/{sid}/com_notices/{id}", 
   if (!STAFF_AUDIENCE.test(after.audience ?? "")) return;
   await notify(e.params.sid, null, {
     type: "circular", category: "Academic", tag: after.urgent ? "Urgent Circular" : "Circular", urgent: after.urgent === true,
-    title: after.urgent ? `Urgent: ${after.title}` : `New circular: ${after.title}`,
+    title: after.urgent ? (/^urgent\b/i.test(after.title ?? "") ? after.title : `Urgent: ${after.title}`) : `New circular: ${after.title}`,
     body: String(after.body ?? "").replace(/\s+/g, " ").slice(0, 140), route: "/circulars",
   });
 });

@@ -111,12 +111,16 @@ DateTime? parseDay(Object? date, [Object? time]) {
 }
 
 /// ISO string, Firestore Timestamp or millis -> DateTime.
+/// Times are stored as UTC ISO strings (`...Z`); the result is always local time for display.
 DateTime? parseTime(Object? v) => switch (v) {
       Timestamp t => t.toDate(),
       int ms => DateTime.fromMillisecondsSinceEpoch(ms),
-      String s => DateTime.tryParse(s),
+      String s => DateTime.tryParse(s)?.toLocal(),
       _ => null,
     };
+
+/// Now as a UTC ISO string, the format every app writes (`2026-10-27T04:25:00.000Z`).
+String nowUtc() => DateTime.now().toUtc().toIso8601String();
 
 String isoDay(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';

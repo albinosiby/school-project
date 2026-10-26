@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -19,9 +20,18 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
   if (AppConfig.isFirebase) {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    final options = DefaultFirebaseOptions.currentPlatform;
+    // test builds talk to the emulators' demo project, never the live one
+    await Firebase.initializeApp(
+      options: AppConfig.useEmulator ? options.copyWith(projectId: AppConfig.emulatorProject) : options,
+    );
     // offline cache: reads show cached data at once and refresh from the server (works offline too)
     FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
+    // test builds only (--dart-define=EMULATOR=true): local Firebase emulators, reached through `adb reverse` on a phone
+    if (AppConfig.useEmulator) {
+      await FirebaseAuth.instance.useAuthEmulator('localhost', 9099);
+      FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
+    }
   }
   await configureDependencies();
   final auth = getIt<AuthBloc>()..add(const AuthStarted());

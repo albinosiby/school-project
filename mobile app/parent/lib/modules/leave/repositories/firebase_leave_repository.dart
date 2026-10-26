@@ -43,8 +43,8 @@ class FirebaseLeaveRepository implements ILeaveRepository {
       'status': 'Pending',
       'parentUid': _session.uid,
       'appliedOn': isoDay(now),
-      'createdAt': now.toIso8601String(),
-      'updatedAt': now.toIso8601String(),
+      'createdAt': now.toUtc().toIso8601String(),
+      'updatedAt': now.toUtc().toIso8601String(),
       'updatedBy': _session.uid,
     };
     await ref.set(data);
