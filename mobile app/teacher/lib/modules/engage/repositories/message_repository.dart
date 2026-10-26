@@ -50,7 +50,7 @@ class LocalMessageRepository implements IMessageRepository {
     ];
     for (final id in to) {
       final r = await resolveRecipient(id);
-      if (r == null) continue;
+      if (r == null || !r.available) continue;
       final existing = _db.list(_threads).where((t) => t['key'] == id).firstOrNull;
       if (existing != null) {
         final t = MessageThread.fromJson(existing);
@@ -76,10 +76,16 @@ class LocalMessageRepository implements IMessageRepository {
     return Recipient(id: '${st['id']}', name: '${st['name']}', role: 'Student ($cl)', kind: 'student', sub: 'Class $cl • Roll ${st['roll']}');
   }
 
+  /// Students synced from the school (Firebase mode) carry `guardianUids`; an empty list means no parent app login,
+  /// so the guardian is listed but cannot be messaged. Local seed students have no such field and stay messageable.
+  static const noParentLogin = 'No parent app login';
+
   Recipient _guardian(Rec st) {
     final cl = _clsLabel('${st['classId']}');
+    final uids = st['guardianUids'];
     return Recipient(
       id: 'g_${st['id']}', name: '${st['guardian']} ${'${st['name']}'.split(' ').last}', role: 'Parent ($cl)', kind: 'parent', sub: 'Parent of ${st['name']} (Roll #${st['roll']})',
+      blocked: uids is List && uids.isEmpty ? noParentLogin : '',
     );
   }
 

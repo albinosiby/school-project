@@ -14,6 +14,7 @@ abstract class IMessageRepository {
   Future<void> reply(String threadId, ThreadMessage message);
 
   /// Sends [text] (and [attach]) to every recipient id, appending to the existing thread or starting a new one.
+  /// Recipients that are not [Recipient.available] (guardian without a parent app login) are skipped.
   Future<void> send({required List<String> to, required String text, String subject = '', List<FileRef> attach = const []});
 
   /// Saved contacts followed by every student and guardian (`g_<studentId>`).

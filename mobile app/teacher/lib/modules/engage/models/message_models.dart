@@ -2,18 +2,21 @@ import 'package:equatable/equatable.dart';
 import 'attachment_models.dart';
 
 /// Someone a message can be sent to: a saved contact (`ms_contacts`), a student or a guardian (`g_<studentId>`).
-/// [kind] is parent / staff / student / broadcast.
+/// [kind] is parent / staff / student / broadcast. A non-empty [blocked] says why the recipient cannot be messaged
+/// (a guardian without a parent app login); such recipients are listed but cannot be selected.
 class Recipient extends Equatable {
-  const Recipient({required this.id, required this.name, this.role = '', this.kind = 'parent', this.sub = '', this.extra = '', this.online = false});
-  final String id, name, role, kind, sub, extra;
+  const Recipient({required this.id, required this.name, this.role = '', this.kind = 'parent', this.sub = '', this.extra = '', this.online = false, this.blocked = ''});
+  final String id, name, role, kind, sub, extra, blocked;
   final bool online;
   bool get broadcast => kind == 'broadcast';
+  bool get available => blocked.isEmpty;
   factory Recipient.fromJson(Map<String, dynamic> j) => Recipient(
-      id: '${j['id'] ?? ''}', name: '${j['name'] ?? ''}', role: '${j['role'] ?? ''}', kind: '${j['kind'] ?? 'parent'}', sub: '${j['sub'] ?? ''}', extra: '${j['extra'] ?? ''}', online: j['online'] == true);
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'role': role, 'kind': kind, 'sub': sub, 'extra': extra, 'online': online};
+      id: '${j['id'] ?? ''}', name: '${j['name'] ?? ''}', role: '${j['role'] ?? ''}', kind: '${j['kind'] ?? 'parent'}', sub: '${j['sub'] ?? ''}', extra: '${j['extra'] ?? ''}', online: j['online'] == true,
+      blocked: '${j['blocked'] ?? ''}');
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'role': role, 'kind': kind, 'sub': sub, 'extra': extra, 'online': online, if (blocked.isNotEmpty) 'blocked': blocked};
   Recipient copyWith({bool? online}) => Recipient.fromJson({...toJson(), 'online': ?online});
   @override
-  List<Object?> get props => [id, name, role, kind, sub, extra, online];
+  List<Object?> get props => [id, name, role, kind, sub, extra, online, blocked];
 }
 
 /// One message inside a thread. [from] is `me` or `them`.

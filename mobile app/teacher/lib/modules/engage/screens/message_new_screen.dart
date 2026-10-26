@@ -88,9 +88,11 @@ class _ComposeViewState extends State<_ComposeView> {
         )));
   }
 
-  void _send() {
+  void _send(MessagesState s) {
     final text = body.text.trim();
     if (to.isEmpty) return setState(() => err = 'Select at least one recipient');
+    final blocked = [for (final id in to) if (s.recipient(id) case final r? when !r.available) r];
+    if (blocked.isNotEmpty) return setState(() => err = '${blocked.map((r) => r.name).join(', ')}: ${blocked.first.blocked}. Remove to send.');
     if (text.isEmpty) return setState(() => err = 'Write a message before sending');
     if (text.length > max) return setState(() => err = 'Message is longer than $max characters');
     context.read<MessagesBloc>().add(MessageSent(to: [...to], text: text, subject: subject.text, attach: [...attach], draftId: widget.draftId));
@@ -126,7 +128,7 @@ class _ComposeViewState extends State<_ComposeView> {
     return DetailScaffold(
       title: 'New Message',
       actions: [TextButton(onPressed: () => _saveDraft(s), child: Text('Save Draft', style: T.bodyStrong.copyWith(color: C.primary)))],
-      bottom: AppButton('Send Message', icon: Icons.send_rounded, onPressed: _send),
+      bottom: AppButton('Send Message', icon: Icons.send_rounded, onPressed: () => _send(s)),
       body: s.status != EngageStatus.loaded
           ? EngageStatusBody(status: s.status, error: s.error)
           : ListView(padding: EdgeInsets.all(S.page), children: [
@@ -243,7 +245,7 @@ class _ComposeViewState extends State<_ComposeView> {
               ),
               SectionHeader('Select Recipients', caps: true, action: '${opts.length} Available'),
               if (opts.isEmpty) const AppEmptyState('No recipients found', icon: Icons.person_search_outlined),
-              for (final r in opts.take(30)) _RecipientRow(r, selected: to.contains(r.id), onTap: () => _toggle(r.id)),
+              for (final r in opts.take(30)) _RecipientRow(r, selected: to.contains(r.id), onTap: r.available || to.contains(r.id) ? () => _toggle(r.id) : null),
             ]),
     );
   }
@@ -253,13 +255,15 @@ class _RecipientRow extends StatelessWidget {
   const _RecipientRow(this.r, {required this.selected, required this.onTap});
   final Recipient r;
   final bool selected;
-  final VoidCallback onTap;
+
+  /// Null when the recipient cannot be messaged ([Recipient.blocked]); the row is shown disabled.
+  final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Padding(
         padding: EdgeInsets.only(bottom: 8.h),
         child: Semantics(
-          selected: selected,
-          child: AppCard(
+          selected: selected, enabled: r.available, hint: r.available ? null : r.blocked,
+          child: Opacity(opacity: r.available ? 1 : .55, child: AppCard(
             padding: EdgeInsets.all(10.w), radius: R.lg, color: selected ? C.primarySoft : C.bg, border: selected ? C.primary.withValues(alpha: .4) : C.border, onTap: onTap,
             child: Row(children: [
               RecipientAvatar(name: r.name, kind: r.kind, online: r.online, size: 44),
@@ -271,11 +275,15 @@ class _RecipientRow extends StatelessWidget {
                     if (r.sub.isNotEmpty) ...[SizedBox(width: 6.w), Flexible(child: Pill(r.sub, tone: kindTone(r.kind)))],
                   ]),
                   if (r.extra.isNotEmpty) Text(r.extra, style: T.small.copyWith(fontSize: 11.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  if (!r.available) Text(r.blocked, style: T.small.copyWith(fontSize: 11.sp, color: C.danger, fontWeight: FontWeight.w700)),
                 ]),
               ),
-              Icon(selected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: selected ? C.primary : C.muted, size: 24.r),
+              if (r.available || selected)
+                Icon(selected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded, color: selected ? C.primary : C.muted, size: 24.r)
+              else
+                Icon(Icons.block_rounded, color: C.muted, size: 22.r),
             ]),
-          ),
+          )),
         ),
       );
 }

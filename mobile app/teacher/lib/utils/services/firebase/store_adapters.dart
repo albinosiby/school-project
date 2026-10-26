@@ -323,6 +323,8 @@ class StudentsAdapter extends StoreAdapter {
         {
           'id': s['id'], 'name': s['name'], 'roll': s['roll'], 'classId': localClassId('${s['classId']}'), 'adm': s['grn'] ?? '', 'guardian': s['guardian'] ?? '',
           'phone': s['phone'] ?? '', 'attendance': (s['attendance'] as num?)?.toInt() ?? 0, 'grade': s['perfGrade'] ?? '',
+          // linked parent logins (§13.1): a guardian without one cannot be messaged
+          'guardianUids': MessagesAdapter.guardianUids(s),
         }
     ];
     rows.sort((a, b) {
@@ -887,12 +889,215 @@ class StudentLeavesAdapter extends StoreAdapter {
     return sortByOrd(rows);
   }
 
+  /// Fields a teacher may change on an existing request (the decision); everything else, e.g. the parent's
+  /// `parentUid`, `name` and `reason`, belongs to the requester and is never sent back.
+  static const decisionFields = ['status', 'decisionNote', 'decidedBy', 'decidedAt', 'updatedAt', 'updatedBy'];
+
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
     final status = '${row['status']}';
     final cap = status.isEmpty ? 'Pending' : status[0].toUpperCase() + status.substring(1);
-    final data = {..._withoutId(row), 'classId': remoteClassId('${row['classId']}'), 'status': cap, 'src': src, 'decisionNote': row['note'] ?? row['decisionNote'] ?? ''};
-    return [RemoteWrite('student_leaves', '${row['id']}', {...data, 'teacherId': ctx.staffId, 'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid})];
+    // Leave Management keeps the decision note in `note`; the attendance slips view writes `decisionNote` itself
+    final note = '${(_lm ? row['note'] ?? row['decisionNote'] : row['decisionNote'] ?? row['note']) ?? ''}';
+    final now = ctx.now.toIso8601String();
+    if (_byId(remote, 'student_leaves', '${row['id']}') != null) {
+      // a decision on an existing (usually parent-created) request: only the decision fields, merged into the doc
+      final decided = cap != 'Pending';
+      return [
+        RemoteWrite('student_leaves', '${row['id']}', {
+          'status': cap, 'decisionNote': note, if (decided) 'decidedBy': ctx.staffId, if (decided) 'decidedAt': row['decidedAt'] ?? now,
+          'updatedAt': now, 'updatedBy': ctx.authUid,
+        }),
+      ];
+    }
+    final data = {..._withoutId(row), 'classId': remoteClassId('${row['classId']}'), 'status': cap, 'src': src, 'decisionNote': note};
+    return [RemoteWrite('student_leaves', '${row['id']}', {...data, 'teacherId': ctx.staffId, 'updatedAt': now, 'updatedBy': ctx.authUid})];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Teacher <-> parent messages (§13.3)
+// ---------------------------------------------------------------------------
+
+/// `ms_messages` (the Messages inbox). Two kinds of rows:
+/// - guardian conversations (`key: g_{studentId}`, id `thr_{studentId}_{staffId}`) are the shared `msg_threads` doc
+///   joined with its `msg_messages`. Replies are written as new `msg_messages` docs (the thread doc is created on the
+///   first message); `last*` and the unread counters belong to the Cloud Function, the teacher only resets
+///   `unreadTeacher` to 0 when reading. Pin, delete, "mark unread" and the subject are the teacher's own preferences,
+///   kept in the private overlay `ms_thread_state/{threadId}`.
+/// - every other conversation (staff, students, broadcast groups) stays teacher-private in `ms_messages`.
+class MessagesAdapter extends StoreAdapter {
+  const MessagesAdapter() : super('ms_messages');
+  static const threads = 'msg_threads', messages = 'msg_messages', state = 'ms_thread_state', private = 'ms_messages';
+
+  static String threadId(String studentId, String staffId) => 'thr_${studentId}_$staffId';
+  static bool isShared(String id) => id.startsWith('thr_');
+
+  /// A guardian can be messaged only when the student has a linked parent login (§13.1 `guardianUids`).
+  static List<String> guardianUids(Rec? student) => [for (final u in student?['guardianUids'] as List? ?? const []) '$u'];
+
+  @override
+  Set<String> get sources => {threads, messages, state, private, 'students', 'classes', 'assignments', 'staff'};
+
+  @override
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) {
+    final ids = myClassIds(ctx, remote);
+    return [
+      RemoteQuery(threads, eq: {'teacherId': ctx.staffId}),
+      RemoteQuery(messages, eq: {'teacherId': ctx.staffId}),
+      RemoteQuery(state, eq: {'teacherId': ctx.staffId}),
+      RemoteQuery(private, eq: {'teacherId': ctx.staffId}),
+      RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
+      RemoteQuery('assignments', eq: {'teacherId': ctx.staffId}),
+      RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
+      RemoteQuery('classes', eq: {'classTeacherId': ctx.staffId}),
+      ...inQueries('classes', '__name__', ids),
+      ...inQueries('students', 'classId', ids),
+    ];
+  }
+
+  @override
+  String? newId(AdapterContext ctx, Rec row) {
+    final key = '${row['key'] ?? ''}';
+    return key.startsWith('g_') ? threadId(key.substring(2), ctx.staffId) : null;
+  }
+
+  static DateTime? _at(Rec m) => DateTime.tryParse('${m['at'] ?? ''}');
+
+  /// The thread's messages oldest first, without the ones the teacher deleted (older than the overlay's `clearedAt`).
+  List<Rec> _visible(Remote remote, String tid, Rec over) {
+    final cleared = DateTime.tryParse('${over['clearedAt'] ?? ''}');
+    final epoch = DateTime.fromMillisecondsSinceEpoch(0);
+    final ms = [
+      for (final m in _docs(remote, messages))
+        if (m['threadId'] == tid && (cleared == null || (_at(m) ?? epoch).isAfter(cleared))) m,
+    ];
+    return ms..sort((a, b) {
+        final c = (_at(a) ?? epoch).compareTo(_at(b) ?? epoch);
+        return c != 0 ? c : '${a['id']}'.compareTo('${b['id']}');
+      });
+  }
+
+  @override
+  List<Rec> build(AdapterContext ctx, Remote remote) {
+    final rows = <Rec>[];
+    final sharedKeys = <String>{};
+    for (final t in _docs(remote, threads)) {
+      if (t['teacherId'] != ctx.staffId) continue;
+      final tid = '${t['id']}';
+      final over = _byId(remote, state, tid) ?? const {};
+      final ms = _visible(remote, tid, over);
+      // deleted by the teacher and nothing new since
+      if (over['clearedAt'] != null && ms.isEmpty) continue;
+      final sid = '${t['studentId']}';
+      final stu = _byId(remote, 'students', sid);
+      final remoteUnread = (t['unreadTeacher'] as num?)?.toInt() ?? 0;
+      final unread = remoteUnread > 0 ? remoteUnread : (over['unread'] == true ? 1 : 0);
+      // the newest [remoteUnread] incoming messages are the unread ones
+      var pending = remoteUnread;
+      final msgs = <Rec>[];
+      for (final m in ms.reversed) {
+        final mine = m['from'] == 'teacher';
+        final read = mine || pending <= 0;
+        if (!mine) pending--;
+        msgs.insert(0, {'from': mine ? 'me' : 'them', 'sender': mine ? 'Me' : '${m['name'] ?? t['guardian'] ?? ''}', 'text': '${m['text'] ?? ''}', 'ts': '${m['at'] ?? ''}', 'attach': null, 'read': read});
+      }
+      final label = classLabelOf('${t['classId'] ?? stu?['classId'] ?? ''}');
+      sharedKeys.add('g_$sid');
+      rows.add({
+        'id': tid, 'key': 'g_$sid', 'name': '${t['guardian'] ?? stu?['guardian'] ?? ''}'.trim().isEmpty ? 'Parent of ${t['studentName'] ?? stu?['name'] ?? sid}' : '${t['guardian'] ?? stu?['guardian']}',
+        'role': 'Parent ($label)', 'kind': 'parent', 'pinned': over['pinned'] == true, 'online': false, 'unread': unread, 'subject': '${over['subject'] ?? ''}',
+        'members': 0, 'msgs': msgs, 'studentId': sid, 'studentName': '${t['studentName'] ?? stu?['name'] ?? ''}',
+      });
+    }
+    // private conversations; a guardian conversation from before the shared collections never reached the parent,
+    // so it is not shown (sending to that guardian starts the shared thread)
+    for (final d in sortByOrd([for (final d in _docs(remote, private)) if (d['teacherId'] == ctx.staffId) _stripMeta(d)])) {
+      final key = '${d['key'] ?? ''}';
+      if (key.startsWith('g_') || sharedKeys.contains(key)) continue;
+      rows.add(d);
+    }
+    return rows;
+  }
+
+  /// Message text sent to the parent: attachments are simulated in the teacher app (nothing is uploaded), so a
+  /// file-only message is sent as its file name.
+  static String _text(Rec m) {
+    final text = '${m['text'] ?? ''}';
+    final att = m['attach'];
+    if (att is Map && '${att['name'] ?? ''}'.isNotEmpty) return text.isEmpty ? 'Attachment: ${att['name']}' : '$text\nAttachment: ${att['name']}';
+    return text;
+  }
+
+  /// "Class Teacher" for the student's class teacher, else the subject the teacher teaches that class.
+  static String roleFor(AdapterContext ctx, Remote remote, String classId) {
+    if (_byId(remote, 'classes', classId)?['classTeacherId'] == ctx.staffId) return 'Class Teacher';
+    for (final a in _docs(remote, 'assignments')) {
+      if (a['teacherId'] == ctx.staffId && a['classId'] == classId && '${a['subject'] ?? ''}'.isNotEmpty) return '${a['subject']}';
+    }
+    final staff = staffOf(ctx, remote);
+    return '${staff['subjects'] ?? staff['department'] ?? 'Teacher'}';
+  }
+
+  @override
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
+    final id = '${row['id']}';
+    if (!isShared(id)) return [RemoteWrite(private, id, stamp(ctx, _withoutId(row)))];
+    final t = _byId(remote, threads, id);
+    final over = _byId(remote, state, id) ?? const {};
+    final key = '${row['key'] ?? ''}';
+    final sid = '${t?['studentId'] ?? (key.startsWith('g_') ? key.substring(2) : '')}';
+    final stu = _byId(remote, 'students', sid);
+    final now = ctx.now.toIso8601String();
+    final writes = <RemoteWrite>[];
+
+    // new messages = the row's messages after the ones already shown (only the teacher's own are sent)
+    final shown = _visible(remote, id, over).length;
+    final rowMsgs = [for (final m in row['msgs'] as List? ?? const []) if (m is Map) Map<String, dynamic>.from(m)];
+    final fresh = [for (final m in rowMsgs.skip(shown)) if (m['from'] == 'me' && _text(m).trim().isNotEmpty) m];
+    if (fresh.isNotEmpty) {
+      final parentUids = t == null ? guardianUids(stu) : [for (final u in t['parentUids'] as List? ?? const []) '$u'];
+      if (t == null && (stu == null || parentUids.isEmpty)) return const []; // no parent login: nobody to deliver to
+      final teacher = '${staffOf(ctx, remote)['name'] ?? ''}';
+      if (t == null) {
+        final classId = '${stu!['classId'] ?? ''}';
+        writes.add(RemoteWrite(threads, id, {
+          'studentId': sid, 'classId': classId, 'studentName': '${stu['name'] ?? ''}', 'parentUids': parentUids, 'guardian': '${stu['guardian'] ?? ''}',
+          'teacherId': ctx.staffId, 'teacher': teacher, 'role': roleFor(ctx, remote, classId), 'createdAt': now, 'updatedAt': now, 'updatedBy': ctx.authUid,
+        }));
+      }
+      final base = uid('msg');
+      for (var i = 0; i < fresh.length; i++) {
+        final m = fresh[i];
+        writes.add(RemoteWrite(messages, '${base}_$i', {
+          'threadId': id, 'studentId': sid, 'teacherId': ctx.staffId, 'parentUids': parentUids, 'from': 'teacher', 'uid': ctx.authUid, 'name': teacher,
+          'text': _text(m), 'at': '${m['ts'] ?? ''}'.isEmpty ? now : '${m['ts']}',
+        }));
+      }
+    }
+
+    // reading resets only the teacher's own counter
+    final rowUnread = (row['unread'] as num?)?.toInt() ?? 0;
+    final remoteUnread = (t?['unreadTeacher'] as num?)?.toInt() ?? 0;
+    if (t != null && rowUnread == 0 && remoteUnread != 0) writes.add(RemoteWrite(threads, id, const {'unreadTeacher': 0}));
+
+    // teacher-local preferences
+    final pref = {'pinned': row['pinned'] == true, 'unread': rowUnread > 0 && remoteUnread == 0, 'subject': '${row['subject'] ?? ''}'};
+    final changed = pref.entries.any((e) => (over[e.key] ?? (e.value is bool ? false : '')) != e.value);
+    if (changed && (t != null || writes.isNotEmpty)) writes.add(RemoteWrite(state, id, stamp(ctx, {'threadId': id, ...pref})));
+    return writes;
+  }
+
+  /// Deleting a guardian conversation only hides it for this teacher (messages up to now); a new message shows it again.
+  @override
+  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) {
+    final id = '${row['id']}';
+    if (!isShared(id)) return [RemoteWrite(private, id, const {}, delete: true)];
+    final ms = _visible(remote, id, _byId(remote, state, id) ?? const {});
+    final last = ms.isEmpty ? null : _at(ms.last);
+    final now = ctx.now;
+    final cleared = last != null && last.isAfter(now) ? last : now;
+    return [RemoteWrite(state, id, stamp(ctx, {'threadId': id, 'clearedAt': cleared.toIso8601String(), 'pinned': false, 'unread': false}))];
   }
 }
 
@@ -1184,6 +1389,7 @@ List<StoreAdapter> defaultAdapters() => const [
       StudentLeavesAdapter('lm_student', src: 'lm'),
       StudentLeavesAdapter('att_slips', src: 'slip'),
       LiveClassesAdapter(),
+      MessagesAdapter(),
       CircularsAdapter(),
       ReadOnlyAdapter('calendar_events', 'calendar_events'),
       ReadOnlyAdapter('school', 'school'),

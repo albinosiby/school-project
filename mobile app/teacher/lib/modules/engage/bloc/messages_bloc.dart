@@ -79,9 +79,24 @@ class MessagesBloc extends Bloc<MessagesEvent, MessagesState> {
   }
 
   Future<void> _onSend(MessageSent e, Emitter<MessagesState> emit) async {
-    await _repo.send(to: e.to, text: e.text.trim(), subject: e.subject.trim(), attach: e.attach);
+    // guardians without a parent app login cannot receive messages: say so instead of failing silently
+    final to = <String>[], skipped = <String>[];
+    for (final id in e.to) {
+      final r = await _repo.resolveRecipient(id);
+      if (r != null && !r.available) {
+        skipped.add('${r.name} (${r.blocked})');
+      } else {
+        to.add(id);
+      }
+    }
+    if (to.isEmpty) {
+      emit(state.copyWith(notice: _next('Not sent: ${skipped.join(', ')}')));
+      return;
+    }
+    await _repo.send(to: to, text: e.text.trim(), subject: e.subject.trim(), attach: e.attach);
     if (e.draftId != null) await _repo.deleteDraft(e.draftId!);
-    emit(state.copyWith(notice: _next(e.to.length == 1 ? 'Message sent' : 'Message sent to ${e.to.length} recipients', pop: true)));
+    final sent = to.length == 1 ? 'Message sent' : 'Message sent to ${to.length} recipients';
+    emit(state.copyWith(notice: _next(skipped.isEmpty ? sent : '$sent. Not sent: ${skipped.join(', ')}', pop: true)));
   }
 
   Future<void> _onDraft(DraftSaved e, Emitter<MessagesState> emit) async {

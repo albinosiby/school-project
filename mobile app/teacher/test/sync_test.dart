@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teacher_app/modules/engage/models/exam_duty_models.dart';
+import 'package:teacher_app/modules/engage/repositories/message_repository.dart';
 import 'package:teacher_app/utils/services/data_store.dart';
 import 'package:teacher_app/utils/services/firebase/firestore_data_store.dart';
 import 'package:teacher_app/utils/services/firebase/remote_gateway.dart';
@@ -460,6 +461,192 @@ void main() {
       expect((w.collection, w.id), ('ed_cand_state', 'dut_1__cand_stu_050_stf_025'));
       expect(w.data, allOf(containsPair('malpractice', 'Passed a note'), containsPair('candId', 'cand_stu_050'), containsPair('status', 'present')));
       expect(w.data.containsKey('name'), isFalse);
+    });
+  });
+
+  group('teacher <-> parent messages (§13.3) and parent leave requests', () {
+    const tid = 'thr_stu_101_stf_025';
+    final msgFake = <String, List<Rec>>{
+      ...fake,
+      'students': [
+        {'id': 'stu_101', 'name': 'Aarav Sharma', 'classId': 'cls_10B', 'roll': 1, 'guardian': 'Mr. Sharma', 'guardianUids': ['par_1']},
+        {'id': 'stu_102', 'name': 'Ananya Reddy', 'classId': 'cls_10B', 'roll': 2, 'guardian': 'Mrs. Rao'},
+        {'id': 'stu_201', 'name': 'Dev Malhotra', 'classId': 'cls_8C', 'roll': 12, 'guardian': 'Mr. Vikram', 'guardianUids': ['par_2', 'par_3']},
+      ],
+    };
+    final thread = {
+      'id': tid, 'studentId': 'stu_101', 'classId': 'cls_10B', 'studentName': 'Aarav Sharma', 'parentUids': ['par_1'], 'guardian': 'Mr. Sharma',
+      'teacherId': 'stf_025', 'teacher': 'Mrs. Anita Sharma', 'role': 'Class Teacher', 'lastMessage': 'See you', 'lastAt': '2026-10-26T09:00:00',
+      'lastFrom': 'parent', 'unreadParent': 0, 'unreadTeacher': 1,
+    };
+    final msgs = [
+      {'id': 'm3', 'threadId': tid, 'studentId': 'stu_101', 'teacherId': 'stf_025', 'parentUids': ['par_1'], 'from': 'parent', 'uid': 'par_1', 'name': 'Rohit Sharma', 'text': 'See you', 'at': '2026-10-26T09:00:00'},
+      {'id': 'm1', 'threadId': tid, 'studentId': 'stu_101', 'teacherId': 'stf_025', 'parentUids': ['par_1'], 'from': 'parent', 'uid': 'par_1', 'name': 'Rohit Sharma', 'text': 'Is the test on Monday?', 'at': '2026-10-26T08:00:00'},
+      {'id': 'm2', 'threadId': tid, 'studentId': 'stu_101', 'teacherId': 'stf_025', 'parentUids': ['par_1'], 'from': 'teacher', 'uid': 'uid1', 'name': 'Mrs. Anita Sharma', 'text': 'Yes, chapter 7.', 'at': '2026-10-26T08:30:00'},
+    ];
+    Remote withThread([Rec over = const {}]) => {...msgFake, 'msg_threads': [{...thread, ...over}], 'msg_messages': msgs};
+    const a = MessagesAdapter();
+    const lastKeys = ['lastMessage', 'lastAt', 'lastFrom', 'unreadParent'];
+
+    test('a guardian thread is msg_threads joined with its msg_messages, oldest first; parent messages are incoming', () {
+      final r = withThread();
+      final row = a.build(ctx, r).single;
+      expect(row['id'], tid);
+      expect(row['key'], 'g_stu_101');
+      expect(row['kind'], 'parent');
+      expect(row['name'], 'Mr. Sharma');
+      expect(row['role'], 'Parent (10-B)');
+      expect(row['unread'], 1);
+      final m = (row['msgs'] as List).cast<Rec>();
+      expect(m.map((x) => x['text']), ['Is the test on Monday?', 'Yes, chapter 7.', 'See you']);
+      expect(m.map((x) => x['from']), ['them', 'me', 'them']);
+      expect(m.first['sender'], 'Rohit Sharma');
+      expect(m.map((x) => x['read']), [true, true, false]); // unreadTeacher = 1: the newest incoming one
+      // queries: own threads and messages only, plus the private overlay
+      final qs = a.queries(ctx, r);
+      expect(qs.where((q) => q.collection == 'msg_threads').single.eq, {'teacherId': 'stf_025'});
+      expect(qs.where((q) => q.collection == 'msg_messages').single.eq, {'teacherId': 'stf_025'});
+      expect(qs.any((q) => q.collection == 'ms_thread_state'), isTrue);
+      // another teacher's thread is not shown
+      expect(a.build(ctx, {...r, 'msg_threads': [{...thread, 'teacherId': 'stf_099'}]}), isEmpty);
+    });
+
+    test('a reply writes only a new msg_messages doc (never last* or the counters)', () {
+      final r = withThread({'unreadTeacher': 0});
+      final row = a.build(ctx, r).single;
+      final reply = {'from': 'me', 'sender': 'Me', 'text': 'Thanks', 'ts': '2026-10-26T09:05:00', 'attach': null, 'read': true};
+      final w = a.write(ctx, r, {...row, 'msgs': [...row['msgs'] as List, reply]});
+      expect(w.length, 1);
+      expect(w.single.collection, 'msg_messages');
+      expect(w.single.data, {
+        'threadId': tid, 'studentId': 'stu_101', 'teacherId': 'stf_025', 'parentUids': ['par_1'], 'from': 'teacher', 'uid': 'uid1',
+        'name': 'Mrs. Anita Sharma', 'text': 'Thanks', 'at': '2026-10-26T09:05:00',
+      });
+    });
+
+    test('the first message to a guardian creates thr_{studentId}_{staffId} with the student\'s guardianUids', () {
+      final row = {'key': 'g_stu_101', 'name': 'Mr. Sharma Sharma', 'kind': 'parent', 'pinned': false, 'unread': 0, 'subject': '', 'msgs': [{'from': 'me', 'text': 'Hello', 'ts': '2026-10-26T09:10:00'}]};
+      expect(a.newId(ctx, row), tid);
+      final w = a.write(ctx, msgFake, {...row, 'id': tid});
+      expect(w.map((x) => x.collection), ['msg_threads', 'msg_messages']);
+      final t = w.first.data;
+      expect(w.first.id, tid);
+      expect(t['parentUids'], ['par_1']);
+      expect(t['studentName'], 'Aarav Sharma');
+      expect(t['guardian'], 'Mr. Sharma');
+      expect(t['classId'], 'cls_10B');
+      expect(t['teacher'], 'Mrs. Anita Sharma');
+      expect(t['role'], 'Class Teacher');
+      for (final k in [...lastKeys, 'unreadTeacher']) {
+        expect(t.containsKey(k), isFalse, reason: k);
+      }
+      expect(w.last.data['from'], 'teacher');
+      expect(w.last.data['threadId'], tid);
+      // not the class teacher: the role is the subject taught in that class
+      final w2 = a.write(ctx, msgFake, {...row, 'id': 'thr_stu_201_stf_025', 'key': 'g_stu_201'});
+      expect(w2.first.data['role'], 'Physics');
+      expect(w2.first.data['parentUids'], ['par_2', 'par_3']);
+    });
+
+    test('markRead sets only unreadTeacher: 0; pin, subject and mark-unread stay in the private overlay', () {
+      final r = withThread();
+      final row = a.build(ctx, r).single;
+      final w = a.write(ctx, r, {...row, 'unread': 0});
+      expect(w.single.collection, 'msg_threads');
+      expect(w.single.data, {'unreadTeacher': 0});
+      final pin = a.write(ctx, r, {...row, 'pinned': true}).single;
+      expect(pin.collection, 'ms_thread_state');
+      expect(pin.id, tid);
+      expect(pin.data['pinned'], true);
+      expect(pin.data['teacherId'], 'stf_025');
+      final pinned = {...r, 'ms_thread_state': [{'id': tid, 'teacherId': 'stf_025', 'pinned': true}]};
+      expect(a.build(ctx, pinned).single['pinned'], true);
+      // mark unread after reading: overlay flag, the shared counter is untouched
+      final read = withThread({'unreadTeacher': 0});
+      final un = a.write(ctx, read, {...a.build(ctx, read).single, 'unread': 1});
+      expect(un.single.collection, 'ms_thread_state');
+      expect(un.single.data['unread'], true);
+    });
+
+    test('deleting a guardian thread hides it for this teacher only; a newer message shows it again', () {
+      final r = withThread();
+      final row = a.build(ctx, r).single;
+      final d = a.delete(ctx, r, row).single;
+      expect(d.collection, 'ms_thread_state');
+      expect(d.delete, isFalse);
+      final hidden = {...r, 'ms_thread_state': [{'id': tid, 'teacherId': 'stf_025', ...d.data}]};
+      expect(a.build(ctx, hidden), isEmpty);
+      final later = {...hidden, 'msg_messages': [...msgs, {...msgs.first, 'id': 'm4', 'text': 'One more thing', 'at': '2026-10-26T10:00:00'}]};
+      expect((a.build(ctx, later).single['msgs'] as List).map((m) => (m as Map)['text']), ['One more thing']);
+    });
+
+    test('private conversations (staff, students) stay in ms_messages with teacherId', () {
+      final r = {...withThread(), 'ms_messages': [{'id': 'ms_2', 'teacherId': 'stf_025', 'key': 'ct_rao', 'name': 'Dr. K. V. Rao', 'kind': 'staff', 'msgs': const []}]};
+      expect(a.build(ctx, r).map((x) => x['id']), [tid, 'ms_2']);
+      final w = a.write(ctx, r, {'id': 'ms_2', 'key': 'ct_rao', 'msgs': const []}).single;
+      expect((w.collection, w.id, w.data['teacherId']), ('ms_messages', 'ms_2', 'stf_025'));
+      expect(a.delete(ctx, r, {'id': 'ms_2'}).single.delete, isTrue);
+    });
+
+    test('a student without guardianUids is not messageable (listed as "No parent app login")', () async {
+      final row = {'id': 'thr_stu_102_stf_025', 'key': 'g_stu_102', 'unread': 0, 'msgs': [{'from': 'me', 'text': 'Hello', 'ts': '2026-10-26T09:10:00'}]};
+      expect(a.write(ctx, msgFake, row), isEmpty);
+      final gw = FakeGateway();
+      final store = FirestoreDataStore(gw)..start(ctx);
+      gw.load(msgFake);
+      for (var i = 0; i < 4; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      final repo = LocalMessageRepository(store);
+      expect((await repo.resolveRecipient('g_stu_102'))!.blocked, 'No parent app login');
+      expect((await repo.resolveRecipient('g_stu_101'))!.available, isTrue);
+      await repo.send(to: ['g_stu_102'], text: 'Hi');
+      expect(gw.writes, isEmpty);
+      // a guardian with a parent login: through the store the thread and the message are written
+      await repo.send(to: ['g_stu_101'], text: 'Hi');
+      expect(gw.writes.map((w) => w.collection), ['msg_threads', 'msg_messages']);
+      final t = (await repo.getThreads()).single;
+      expect((t.id, t.key, t.last!.text, t.last!.mine), (tid, 'g_stu_101', 'Hi', true));
+      store.stop();
+    });
+
+    test('parent-created student leave (parentUid, name, no src) shows in both views; deciding writes only the decision', () async {
+      final leave = {
+        'id': 'sl_p1', 'studentId': 'stu_101', 'classId': 'cls_10B', 'from': '2026-10-28', 'to': '2026-10-29', 'reason': 'Family function',
+        'status': 'Pending', 'parentUid': 'par_1', 'name': 'Aarav Sharma',
+      };
+      final r = {...msgFake, 'student_leaves': [leave]};
+      const lm = StudentLeavesAdapter('lm_student', src: 'lm'), slip = StudentLeavesAdapter('att_slips', src: 'slip');
+      final row = lm.build(ctx, r).single;
+      expect(row['status'], 'pending');
+      expect(row['name'], 'Aarav Sharma');
+      expect(row['parentUid'], 'par_1');
+      expect(slip.build(ctx, r).single['status'], 'Pending');
+      final w = lm.write(ctx, r, {...row, 'status': 'approved', 'note': 'Get well soon'}).single;
+      expect(w.collection, 'student_leaves');
+      expect(StudentLeavesAdapter.decisionFields.toSet().containsAll(w.data.keys), isTrue, reason: '${w.data.keys}');
+      expect(w.data['status'], 'Approved');
+      expect(w.data['decisionNote'], 'Get well soon');
+      expect(w.data['decidedBy'], 'stf_025');
+      final ws = slip.write(ctx, r, {...slip.build(ctx, r).single, 'status': 'Rejected', 'decisionNote': 'Exams that week'}).single;
+      expect((ws.data['status'], ws.data['decisionNote']), ('Rejected', 'Exams that week'));
+      expect(ws.data.containsKey('src'), isFalse);
+      // through the store: the merged doc keeps the parent's fields
+      final gw = FakeGateway();
+      final store = FirestoreDataStore(gw)..start(ctx);
+      gw.load(r);
+      for (var i = 0; i < 4; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      store.list('lm_student');
+      for (var i = 0; i < 2; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      store.update('lm_student', 'sl_p1', {'status': 'rejected', 'note': 'Exams'});
+      expect(gw.writes.last.data.containsKey('parentUid'), isFalse);
+      final after = store.byId('lm_student', 'sl_p1')!;
+      expect((after['status'], after['note'], after['parentUid'], after['name']), ('rejected', 'Exams', 'par_1', 'Aarav Sharma'));
+      store.stop();
     });
   });
 
