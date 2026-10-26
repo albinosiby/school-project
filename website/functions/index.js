@@ -1,4 +1,4 @@
-// Push notifications for the teacher app (DATA_CONTRACT section 10).
+// Push notifications for the teacher app (DATA_CONTRACT section 10); parent app functions live in parent.js (section 13).
 // Firestore writes by the admin web trigger these functions; each one
 //   1. adds a row to the teacher's in-app list (schools/{sid}/hm_notifications, teacherId = staff id), and
 //   2. sends an FCM push to every device token at users/{uid}/fcm_tokens/{token} of that teacher.
@@ -346,3 +346,8 @@ exports.onExamDutyAssigned = onDocumentWritten("schools/{sid}/exm_duties/{id}", 
     route: "/exam-duties",
   });
 });
+
+// ---------------------------------------------------------------------------
+// Parent app (DATA_CONTRACT section 13): projections, account links, messages, parent pushes. See parent.js.
+// ---------------------------------------------------------------------------
+Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN }));

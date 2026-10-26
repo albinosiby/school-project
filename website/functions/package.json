@@ -1,7 +1,7 @@
 {
   "name": "school-notify-functions",
   "private": true,
-  "description": "Push notifications (FCM) for the teacher app, triggered by Firestore writes. See docs/DATA_CONTRACT.md section 10.",
+  "description": "Push notifications (FCM) for the teacher and parent apps and the parent projections, triggered by Firestore writes. See docs/DATA_CONTRACT.md sections 10 and 13.",
   "main": "index.js",
   "engines": { "node": "22" },
   "dependencies": {

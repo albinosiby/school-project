@@ -1,0 +1,7 @@
+{
+  "name": "parent-flow-test",
+  "private": true,
+  "type": "module",
+  "description": "Emulator test of the parent app functions (functions/parent.js). Uses firebase-admin from ../../functions.",
+  "scripts": { "test": "../emulator_exec.sh firestore,functions \"node tools/parent_flow_test/test.mjs\"" }
+}
