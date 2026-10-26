@@ -7,10 +7,12 @@ import '../../live_classes/models/live_class_models.dart';
 import '../../live_classes/repositories/live_class_repository_interface.dart';
 import '../../notices/repositories/notice_repository_interface.dart';
 import '../../timetable/repositories/timetable_repository_interface.dart';
+import '../../transport/models/transport_models.dart';
+import '../../transport/repositories/transport_repository_interface.dart';
 import '../models/home_models.dart';
 import 'home_repository_interface.dart';
 
-/// Backend-agnostic: composes the other repository interfaces into the Today summary
+/// Backend-agnostic: composes the other repository interfaces (incl. transport) into the Home summary
 /// (each source is itself cache-first, so `.first` returns instantly when cached).
 class HomeRepository implements IHomeRepository {
   HomeRepository({
@@ -20,6 +22,7 @@ class HomeRepository implements IHomeRepository {
     required IHomeworkRepository homework,
     required INoticeRepository notices,
     required ILiveClassRepository liveClasses,
+    required ITransportRepository transport,
     DateTime Function()? clock,
   }) : _cache = cache, // ignore: prefer_initializing_formals
        _timetable = timetable, // ignore: prefer_initializing_formals
@@ -27,6 +30,7 @@ class HomeRepository implements IHomeRepository {
        _homework = homework, // ignore: prefer_initializing_formals
        _notices = notices, // ignore: prefer_initializing_formals
        _live = liveClasses,
+       _transport = transport, // ignore: prefer_initializing_formals
        _clock = clock ?? DateTime.now;
 
   final CacheService _cache;
@@ -35,6 +39,7 @@ class HomeRepository implements IHomeRepository {
   final IHomeworkRepository _homework;
   final INoticeRepository _notices;
   final ILiveClassRepository _live;
+  final ITransportRepository _transport;
   final DateTime Function() _clock;
 
   @override
@@ -51,6 +56,8 @@ class HomeRepository implements IHomeRepository {
     final homework = await _homework.watchHomework(childId).first;
     final notices = await _notices.watchNotices(childId).first;
     final live = await _live.watchLiveClasses(childId).first;
+    // no bus feed (e.g. tracking not set up): Home simply shows no bus card
+    final bus = await _transport.watchTrip(childId).first.then<BusTrip?>((b) => b).catchError((Object _) => null);
 
     final todayRecord = attendance.on(now);
     final isSchoolDay =
@@ -72,6 +79,16 @@ class HomeRepository implements IHomeRepository {
         if (a.needsAction != b.needsAction) return a.needsAction ? -1 : 1;
         return b.date.compareTo(a.date);
       });
+    final inReview = homework.where((h) => h.submitted && !h.reviewed).toList()
+      ..sort((a, b) => b.due.compareTo(a.due));
+    final attended =
+        todayRecord != null &&
+        const {
+          AttendanceStatus.present,
+          AttendanceStatus.late,
+          AttendanceStatus.halfDay,
+        }.contains(todayRecord.status);
+    final gate = attended ? await _transport.gateEntryOn(childId, now).catchError((Object _) => null) : null;
     final upcoming =
         live.where((c) => c.statusAt(now) != LiveStatus.ended).toList()
           ..sort((a, b) => a.start.compareTo(b.start));
@@ -81,6 +98,10 @@ class HomeRepository implements IHomeRepository {
       attendanceToday: todayRecord,
       isSchoolDay: isSchoolDay,
       homeworkDue: due,
+      homeworkInReview: inReview,
+      termAttendance: attendance.overall.percentage,
+      gateEntry: gate,
+      bus: isSchoolDay ? bus : null,
       notices: sortedNotices.take(3).toList(),
       nextLiveClass: upcoming.isEmpty ? null : upcoming.first,
     );

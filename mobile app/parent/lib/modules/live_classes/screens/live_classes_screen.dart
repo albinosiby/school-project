@@ -4,6 +4,7 @@ import '../../../core/widgets/child_data_view.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
 import '../../family/screens/widgets/child_switcher.dart';
+import '../../home/screens/widgets/parent_page_scaffold.dart';
 import '../bloc/live_classes_bloc.dart';
 import '../models/live_class_models.dart';
 import 'widgets/live_class_card.dart';
@@ -12,9 +13,8 @@ class LiveClassesScreen extends StatelessWidget {
   const LiveClassesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => DetailScaffold(
+  Widget build(BuildContext context) => ParentPageScaffold(
     title: 'Live classes',
-    subtitle: 'Join on Google Meet',
     fallbackRoute: RoutePaths.more,
     body: Column(
       children: [
@@ -54,7 +54,7 @@ class LiveClassesScreen extends StatelessWidget {
                   if (ended.isNotEmpty) SectionHeader('Earlier', caps: true),
                   for (final c in ended) card(c),
                   Text(
-                    'Join opens 10 minutes before the start and closes when the class ends.',
+                    'Join on Google Meet: opens 10 minutes before the start and closes when the class ends.',
                     style: T.small,
                     textAlign: TextAlign.center,
                   ),

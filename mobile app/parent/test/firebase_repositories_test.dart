@@ -12,7 +12,10 @@ import 'package:parent_app/modules/leave/models/leave_models.dart';
 import 'package:parent_app/modules/leave/repositories/firebase_leave_repository.dart';
 import 'package:parent_app/modules/live_classes/repositories/firebase_live_class_repository.dart';
 import 'package:parent_app/modules/marks/repositories/firebase_marks_repository.dart';
+import 'package:parent_app/modules/messages/models/message_models.dart';
 import 'package:parent_app/modules/messages/repositories/firebase_message_repository.dart';
+import 'package:parent_app/utils/services/local_storage_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:parent_app/modules/notices/repositories/firebase_notice_repository.dart';
 import 'package:parent_app/modules/timetable/repositories/firebase_timetable_repository.dart';
 import 'package:parent_app/utils/exceptions/app_exception.dart';
@@ -158,25 +161,42 @@ void main() {
     expect(back.reviewerNote, 'Get well soon');
   });
 
-  test('messages: start a thread with every guardian, send, read resets own counter only', () async {
-    final repo = FirebaseMessageRepository(session);
-    final id = await repo.startThread(childId: child, teacherId: 'stf_025', teacher: 'Mrs. Anita Sharma', role: 'Class Teacher');
-    expect(id, 'thr_${child}_stf_025');
-    final t = (await db.doc('schools/$sid/msg_threads/$id').get()).data()!;
-    expect(t['parentUids'], containsAll([uid, 'par_2']));
-    await repo.send(id, ' Will Aarav need a calculator? ');
+  test('messages: contacts from the timetable, start a thread with every guardian, send, read resets own counter', () async {
+    SharedPreferences.setMockInitialValues({});
+    final storage = LocalStorageService();
+    await storage.init();
+    await school('ops_periods').add({'classId': 'cls_10B', 'day': 'Mon', 'period': 1, 'subject': 'Mathematics', 'teacher': 'Mrs. Anita Sharma', 'teacherId': 'stf_025'});
+    await school('ops_periods').add({'classId': 'cls_10B', 'day': 'Mon', 'period': 2, 'subject': 'English', 'teacher': 'Dr. Isha Joshi', 'teacherId': 'stf_010'});
+    final repo = FirebaseMessageRepository(session, storage);
+    final contacts = await repo.watchContacts(child).first;
+    expect(contacts.first.id, 'stf_025'); // class teacher first
+    expect(contacts.first.kind, ContactKind.classTeacher);
+    expect(contacts.map((c) => c.id), containsAll(['stf_025', 'stf_010']));
+
+    final t = await repo.startThread(const NewMessageRequest(childId: child, contactId: 'stf_025', category: MessageCategory.academic, subject: 'Calculator', body: ' Will Aarav need a calculator? '));
+    expect(t.id, 'thr_${child}_stf_025');
+    final doc = (await db.doc('schools/$sid/msg_threads/${t.id}').get()).data()!;
+    expect(doc['parentUids'], containsAll([uid, 'par_2']));
+    expect(doc['teacher'], 'Mrs. Anita Sharma');
+    expect(doc['role'], 'Class Teacher');
     final m = (await db.collection('schools/$sid/msg_messages').get()).docs.single.data();
     expect(m['from'], 'parent');
-    expect(m['text'], 'Will Aarav need a calculator?');
-    expect(m['teacherId'], 'stf_025');
-    await db.doc('schools/$sid/msg_threads/$id').update({'unreadParent': 2, 'unreadTeacher': 1});
-    final threads = await repo.watchThreads(child).first;
-    expect(threads.single.unread, 2);
-    await repo.watchMessages(id).first;
+    expect(m['text'], '[Academic Query] Calculator\nWill Aarav need a calculator?');
+
+    await db.doc('schools/$sid/msg_threads/${t.id}').update({'unreadParent': 2, 'unreadTeacher': 1});
+    expect(await repo.watchUnreadCount(child).first, 1);
+    await repo.setPinned(t.id, true);
+    expect((await repo.watchOverview(child).first).threads.single.pinned, isTrue);
+    await repo.watchConversation(t.id).first;
     await Future<void>.delayed(Duration.zero);
-    final after = (await db.doc('schools/$sid/msg_threads/$id').get()).data()!;
+    final after = (await db.doc('schools/$sid/msg_threads/${t.id}').get()).data()!;
     expect(after['unreadParent'], 0);
     expect(after['unreadTeacher'], 1);
+
+    final d = await repo.saveDraft(MessageDraft(id: '', childId: child, updatedAt: DateTime.now(), body: 'later'));
+    expect((await repo.watchOverview(child).first).drafts.single.body, 'later');
+    await repo.deleteDraft(d.id);
+    expect((await repo.watchOverview(child).first).drafts, isEmpty);
   });
 
   test('stored UTC times are shown in local time; writes are UTC', () {

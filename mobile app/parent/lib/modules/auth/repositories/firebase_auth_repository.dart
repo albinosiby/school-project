@@ -3,28 +3,51 @@ import '../../../utils/exceptions/app_exception.dart';
 import '../../../utils/services/firebase/parent_session.dart';
 import '../../../utils/services/firebase/push_service.dart';
 import '../../family/models/family_models.dart';
+import '../models/auth_models.dart';
 import 'auth_repository_interface.dart';
 
 /// Email login the school created (data contract §13.1): the guardian sets the password from the invite email.
+/// Mobile passcodes and Google/Apple sign-in need SMS and OAuth set-up that the school has not done yet.
 class FirebaseAuthRepository implements IAuthRepository {
   FirebaseAuthRepository(this._session, this._push);
   final ParentSession _session;
   final ParentPushService _push;
+  Guardian? _signedIn;
 
+  /// Email + password from the school's invite. Firebase has no passcode step, so the returned challenge is
+  /// already [OtpChallenge.verified] and [verifyOtp] just returns the signed-in guardian.
   @override
-  Future<Guardian> login(String email, String password) async {
+  Future<OtpChallenge> requestOtpWithPassword(String email, String password) async {
     try {
       await _session.auth.signInWithEmailAndPassword(email: email.trim(), password: password);
     } on FirebaseAuthException catch (e) {
       throw AppException(message: authMessage(e), statusCode: 401);
     }
     try {
-      return await _guardian();
+      _signedIn = await _guardian();
     } catch (_) {
       await _session.auth.signOut();
       rethrow;
     }
+    final now = DateTime.now();
+    return OtpChallenge(id: 'firebase', phone: _signedIn!.phone, channel: OtpChannel.sms, sentAt: now, expiresAt: now.add(const Duration(minutes: 10)), verified: true);
   }
+
+  @override
+  Future<OtpChallenge> requestOtpForMobile(String mobile) async => throw AppException(
+        message: 'Sign-in with a mobile number is not available yet. Use the email and password from the school\'s invite.',
+      );
+
+  @override
+  Future<OtpChallenge> resendOtp(OtpChallenge challenge, OtpChannel channel) async => challenge;
+
+  @override
+  Future<Guardian> verifyOtp(OtpChallenge challenge, String code) async => _signedIn ?? await _guardian();
+
+  @override
+  Future<Guardian> signInWithProvider(SocialProvider provider) async => throw AppException(
+        message: '${provider.label} sign-in is not set up for this school yet. Use the email and password from the school\'s invite.',
+      );
 
   @override
   Future<void> sendPasswordReset(String email) async {
@@ -54,6 +77,7 @@ class FirebaseAuthRepository implements IAuthRepository {
   Future<void> logout() async {
     await _push.stop();
     await _session.auth.signOut();
+    _signedIn = null;
     _session.clear();
   }
 

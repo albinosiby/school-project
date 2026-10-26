@@ -27,6 +27,35 @@ class C {
   static const dangerSoft = Color(0xFFFFE4E1);
   static const purple = Color(0xFF7C3AED);
   static const purpleSoft = Color(0xFFEDE9FE);
+  // Home / Track Live / Behaviour / Apply Leave (Parent App frames 1, 1.1, 1.2)
+  static const cardBorder = Color(0xFFF1F5F9);
+  static const cardShadow = Color(0x0A0F172A);
+  static const emerald = Color(0xFF059669);
+  static const emeraldSoft = Color(0xFFECFDF5);
+  static const amber = Color(0xFFD97706);
+  static const rose = Color(0xFFF43F5E);
+  static const teal = Color(0xFF004B6D);
+  static const tealSoft = Color(0xFFC9E6FF);
+  static const mapLand = Color(0xFFE9EEF4);
+  static const mapPark = Color(0xFFD5EBD8);
+  static const mapWater = Color(0xFFCFE3F3);
+  static const mapRoad = Color(0xFFFFFFFF);
+  static const mapLandDark = Color(0xFF2B3442);
+  static const mapParkDark = Color(0xFF2F4A3A);
+  static const mapWaterDark = Color(0xFF26445E);
+  static const mapRoadDark = Color(0xFF475467);
+  // Academics & Fees (Parent App frames: Behaviour / Student Profile cards)
+  static const onSurface = Color(0xFF191C1E);
+  static const onSurfaceVariant = Color(0xFF444654);
+  static const indigoSoft = Color(0xFFDEE1FF);
+  static const surfaceLow = Color(0xFFF2F4F6);
+  static const outline = Color(0xFFE6E8EA);
+  // Onboarding / sign-in (Parent App frames Onboarding 1-4)
+  static const slateDark = Color(0xFF334155);
+  static const googleBlue = Color(0xFF4285F4);
+  static const heroSky = Color(0xFF60A5FA);
+  // Profile / notifications (Figma 6, 7): unread bell dot.
+  static const notificationDot = Color(0xFFEF4444);
 }
 
 /// Corner radii. Getters because they depend on ScreenUtil (call after ScreenUtilInit).
