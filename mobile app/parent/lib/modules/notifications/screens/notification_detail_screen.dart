@@ -19,18 +19,21 @@ class NotificationDetailScreen extends StatefulWidget {
   final String id;
 
   @override
-  State<NotificationDetailScreen> createState() => _NotificationDetailScreenState();
+  State<NotificationDetailScreen> createState() =>
+      _NotificationDetailScreenState();
 }
 
 class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
-  late final NotificationsBloc _bloc = findNotificationsBloc(context) ?? getIt<NotificationsBloc>();
+  late final NotificationsBloc _bloc =
+      findNotificationsBloc(context) ?? getIt<NotificationsBloc>();
   String get id => widget.id;
 
   @override
   void initState() {
     super.initState();
     // Mark read on open (the listener covers a cold start where the list arrives later).
-    if (_bloc.state.byId(id)?.read == false) _bloc.add(MarkNotificationRead(id));
+    if (_bloc.state.byId(id)?.read == false)
+      _bloc.add(MarkNotificationRead(id));
   }
 
   @override
@@ -39,7 +42,8 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
       value: _bloc,
       child: BlocConsumer<NotificationsBloc, NotificationsState>(
         listenWhen: (a, b) => a.byId(id) == null && b.byId(id)?.read == false,
-        listener: (context, s) => context.read<NotificationsBloc>().add(MarkNotificationRead(id)),
+        listener: (context, s) =>
+            context.read<NotificationsBloc>().add(MarkNotificationRead(id)),
         builder: (context, state) {
           final n = state.byId(id);
           return DetailScaffold(
@@ -50,7 +54,11 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
                 IconButton(
                   tooltip: 'Delete notification',
                   onPressed: () => _delete(context, n),
-                  icon: Icon(Icons.delete_outline_rounded, color: C.slate, size: 22.r),
+                  icon: Icon(
+                    Icons.delete_outline_rounded,
+                    color: C.slate,
+                    size: 22.r,
+                  ),
                 ),
             ],
             bottom: n == null ? null : _actions(context, n),
@@ -81,8 +89,13 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
               icon: Icons.check_rounded,
               kind: n.actionRoute == null ? BtnKind.primary : BtnKind.outline,
               onPressed: () {
-                context.read<NotificationsBloc>().add(AcknowledgeNotification(n.id));
-                AppDialogs.showSnackBar(context, message: 'Notice acknowledged');
+                context.read<NotificationsBloc>().add(
+                  AcknowledgeNotification(n.id),
+                );
+                AppDialogs.showSnackBar(
+                  context,
+                  message: 'Notice acknowledged',
+                );
               },
             ),
           ),
@@ -136,7 +149,10 @@ class _Body extends StatelessWidget {
               children: [
                 Icon(Icons.schedule_rounded, size: 16.r, color: C.slate),
                 SizedBox(width: 4.w),
-                Text(DateFormat('d MMM yyyy - hh:mm a').format(n.time), style: T.small),
+                Text(
+                  DateFormat('d MMM yyyy - hh:mm a').format(n.time),
+                  style: T.small,
+                ),
               ],
             ),
           ],
@@ -157,12 +173,19 @@ class _Body extends StatelessWidget {
         for (final para in n.body.split('\n\n'))
           Padding(
             padding: EdgeInsets.only(bottom: 12.h),
-            child: Text(para, style: T.body.copyWith(color: C.ink, height: 1.6)),
+            child: Text(
+              para,
+              style: T.body.copyWith(color: C.ink, height: 1.6),
+            ),
           ),
         if (n.requiresAck && n.acknowledged)
           const Align(
             alignment: Alignment.centerLeft,
-            child: Pill('Acknowledged', tone: Tone.success, icon: Icons.check_rounded),
+            child: Pill(
+              'Acknowledged',
+              tone: Tone.success,
+              icon: Icons.check_rounded,
+            ),
           ),
         if (n.needsAction)
           Container(
@@ -173,7 +196,11 @@ class _Body extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.info_outline_rounded, color: C.warningDark, size: 20.r),
+                Icon(
+                  Icons.info_outline_rounded,
+                  color: C.warningDark,
+                  size: 20.r,
+                ),
                 SizedBox(width: 8.w),
                 Expanded(
                   child: Text(

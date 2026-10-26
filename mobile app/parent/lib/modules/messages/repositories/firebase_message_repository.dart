@@ -23,15 +23,24 @@ class FirebaseMessageRepository implements IMessageRepository {
   // ---------------------------------------------------------------- reads
 
   @override
-  Stream<MessagesOverview> watchOverview(String childId) => _withLocal(_threads(childId)).map((threads) {
+  Stream<MessagesOverview> watchOverview(String childId) =>
+      _withLocal(_threads(childId)).map((threads) {
         final pins = _pins();
         final list = [for (final t in threads) _withPin(t, pins)]
-          ..sort((a, b) => a.pinned != b.pinned ? (a.pinned ? -1 : 1) : b.lastAt.compareTo(a.lastAt));
-        return MessagesOverview(threads: list, drafts: _drafts().where((d) => d.childId == childId).toList());
+          ..sort(
+            (a, b) => a.pinned != b.pinned
+                ? (a.pinned ? -1 : 1)
+                : b.lastAt.compareTo(a.lastAt),
+          );
+        return MessagesOverview(
+          threads: list,
+          drafts: _drafts().where((d) => d.childId == childId).toList(),
+        );
       });
 
   @override
-  Stream<int> watchUnreadCount(String childId) => _threads(childId).map((t) => t.where((x) => x.unread > 0).length);
+  Stream<int> watchUnreadCount(String childId) =>
+      _threads(childId).map((t) => t.where((x) => x.unread > 0).length);
 
   @override
   Stream<Conversation> watchConversation(String threadId) {
@@ -55,8 +64,14 @@ class FirebaseMessageRepository implements IMessageRepository {
             at: parseTime(doc.data()['at']) ?? DateTime.now(),
           ),
       ]..sort((a, b) => a.at.compareTo(b.at));
-      if (msgs.isNotEmpty && !msgs.last.fromParent && ((t.data()?['unreadParent'] as num?) ?? 0) > 0) markRead(threadId);
-      return Conversation(thread: _withPin(threadOf(t.id, t.data() ?? const {}), _pins()), messages: msgs);
+      if (msgs.isNotEmpty &&
+          !msgs.last.fromParent &&
+          ((t.data()?['unreadParent'] as num?) ?? 0) > 0)
+        markRead(threadId);
+      return Conversation(
+        thread: _withPin(threadOf(t.id, t.data() ?? const {}), _pins()),
+        messages: msgs,
+      );
     });
   }
 
@@ -68,39 +83,70 @@ class FirebaseMessageRepository implements IMessageRepository {
       yield const [];
       return;
     }
-    final cls = (await _session.col('classes').doc(classId).get()).data() ?? const {};
-    yield* _session.col('ops_periods').where('classId', isEqualTo: classId).snapshots().map((q) {
-      final byTeacher = <String, ({String name, Set<String> subjects})>{};
-      for (final doc in q.docs) {
-        final id = '${doc.data()['teacherId'] ?? ''}';
-        if (id.isEmpty) continue;
-        final e = byTeacher[id] ??= (name: '${doc.data()['teacher'] ?? ''}', subjects: <String>{});
-        e.subjects.add('${doc.data()['subject'] ?? ''}');
-      }
-      final ctId = '${cls['classTeacherId'] ?? ''}';
-      if (ctId.isNotEmpty) byTeacher.putIfAbsent(ctId, () => (name: '${cls['classTeacher'] ?? ''}', subjects: <String>{}));
-      final contacts = [
-        for (final e in byTeacher.entries)
-          MessageContact(
-            id: e.key,
-            name: e.value.name,
-            shortName: shortName(e.value.name),
-            role: e.key == ctId ? 'Class Teacher' : (e.value.subjects.where((s) => s.isNotEmpty).join(', ')),
-            badge: e.key == ctId ? 'Class Teacher' : (e.value.subjects.firstOrNull ?? 'Teacher'),
-            kind: e.key == ctId ? ContactKind.classTeacher : ContactKind.subjectTeacher,
-          ),
-      ]..sort((a, b) => a.kind == b.kind ? a.name.compareTo(b.name) : (a.kind == ContactKind.classTeacher ? -1 : 1));
-      return contacts;
-    });
+    final cls =
+        (await _session.col('classes').doc(classId).get()).data() ?? const {};
+    yield* _session
+        .col('ops_periods')
+        .where('classId', isEqualTo: classId)
+        .snapshots()
+        .map((q) {
+          final byTeacher = <String, ({String name, Set<String> subjects})>{};
+          for (final doc in q.docs) {
+            final id = '${doc.data()['teacherId'] ?? ''}';
+            if (id.isEmpty) continue;
+            final e = byTeacher[id] ??= (
+              name: '${doc.data()['teacher'] ?? ''}',
+              subjects: <String>{},
+            );
+            e.subjects.add('${doc.data()['subject'] ?? ''}');
+          }
+          final ctId = '${cls['classTeacherId'] ?? ''}';
+          if (ctId.isNotEmpty)
+            byTeacher.putIfAbsent(
+              ctId,
+              () =>
+                  (name: '${cls['classTeacher'] ?? ''}', subjects: <String>{}),
+            );
+          final contacts =
+              [
+                for (final e in byTeacher.entries)
+                  MessageContact(
+                    id: e.key,
+                    name: e.value.name,
+                    shortName: shortName(e.value.name),
+                    role: e.key == ctId
+                        ? 'Class Teacher'
+                        : (e.value.subjects
+                              .where((s) => s.isNotEmpty)
+                              .join(', ')),
+                    badge: e.key == ctId
+                        ? 'Class Teacher'
+                        : (e.value.subjects.firstOrNull ?? 'Teacher'),
+                    kind: e.key == ctId
+                        ? ContactKind.classTeacher
+                        : ContactKind.subjectTeacher,
+                  ),
+              ]..sort(
+                (a, b) => a.kind == b.kind
+                    ? a.name.compareTo(b.name)
+                    : (a.kind == ContactKind.classTeacher ? -1 : 1),
+              );
+          return contacts;
+        });
   }
 
   // ---------------------------------------------------------------- writes
 
   @override
-  Future<void> send(String threadId, String text, {List<MessageAttachment> attachments = const []}) async {
+  Future<void> send(
+    String threadId,
+    String text, {
+    List<MessageAttachment> attachments = const [],
+  }) async {
     final body = _withAttachments(text.trim(), attachments);
     if (body.isEmpty) return;
-    final thread = (await _session.col('msg_threads').doc(threadId).get()).data();
+    final thread = (await _session.col('msg_threads').doc(threadId).get())
+        .data();
     if (thread == null) throw StateError('Conversation not found');
     await _session.col('msg_messages').add({
       'threadId': threadId,
@@ -116,7 +162,11 @@ class FirebaseMessageRepository implements IMessageRepository {
   }
 
   @override
-  Future<void> markRead(String threadId) => _session.col('msg_threads').doc(threadId).update({'unreadParent': 0}).catchError((_) {});
+  Future<void> markRead(String threadId) => _session
+      .col('msg_threads')
+      .doc(threadId)
+      .update({'unreadParent': 0})
+      .catchError((_) {});
 
   @override
   Future<void> markAllRead(String childId) async {
@@ -137,7 +187,9 @@ class FirebaseMessageRepository implements IMessageRepository {
   @override
   Future<MessageThread> startThread(NewMessageRequest request) async {
     final contacts = await watchContacts(request.childId).first;
-    final contact = contacts.where((c) => c.id == request.contactId).firstOrNull;
+    final contact = contacts
+        .where((c) => c.id == request.contactId)
+        .firstOrNull;
     final id = 'thr_${request.childId}_${request.contactId}';
     final ref = _session.col('msg_threads').doc(id);
     if (!(await ref.get().then((s) => s.exists).catchError((_) => false))) {
@@ -147,7 +199,12 @@ class FirebaseMessageRepository implements IMessageRepository {
         'classId': '${child['classId'] ?? ''}',
         'studentName': '${child['name'] ?? ''}',
         // every linked guardian of the child sees the conversation
-        'parentUids': {_session.uid, ...[for (final u in (child['guardianUids'] as List?) ?? const []) '$u']}.toList(),
+        'parentUids': {
+          _session.uid,
+          ...[
+            for (final u in (child['guardianUids'] as List?) ?? const []) '$u',
+          ],
+        }.toList(),
         'guardian': '${_session.user['name'] ?? child['guardian'] ?? ''}',
         'teacherId': request.contactId,
         'teacher': contact?.name ?? '',
@@ -161,14 +218,21 @@ class FirebaseMessageRepository implements IMessageRepository {
       });
     }
     final subject = request.subject.trim();
-    await send(id, [if (subject.isNotEmpty) '[${request.category.label}] $subject', request.body.trim()].join('\n'),
-        attachments: request.attachments);
+    await send(
+      id,
+      [
+        if (subject.isNotEmpty) '[${request.category.label}] $subject',
+        request.body.trim(),
+      ].join('\n'),
+      attachments: request.attachments,
+    );
     if (request.draftId != null) await deleteDraft(request.draftId!);
     return threadOf(id, (await ref.get()).data() ?? const {});
   }
 
   @override
-  Future<MessageDraft?> draft(String draftId) async => _drafts().where((d) => d.id == draftId).firstOrNull;
+  Future<MessageDraft?> draft(String draftId) async =>
+      _drafts().where((d) => d.id == draftId).firstOrNull;
 
   @override
   Future<MessageDraft> saveDraft(MessageDraft draft) async {
@@ -189,16 +253,19 @@ class FirebaseMessageRepository implements IMessageRepository {
   }
 
   @override
-  Future<void> deleteDraft(String draftId) => _saveDrafts(_drafts().where((d) => d.id != draftId).toList());
+  Future<void> deleteDraft(String draftId) =>
+      _saveDrafts(_drafts().where((d) => d.id != draftId).toList());
 
   // ---------------------------------------------------------------- helpers
 
-  Stream<List<MessageThread>> _threads(String childId) => _session
-      .col('msg_threads')
-      .where('parentUids', arrayContains: _session.uid)
-      .where('studentId', isEqualTo: childId)
-      .snapshots()
-      .map((q) => [for (final doc in q.docs) threadOf(doc.id, doc.data())]);
+  Stream<List<MessageThread>> _threads(String childId) => _session.whenReady(
+    () => _session
+        .col('msg_threads')
+        .where('parentUids', arrayContains: _session.uid)
+        .where('studentId', isEqualTo: childId)
+        .snapshots()
+        .map((q) => [for (final doc in q.docs) threadOf(doc.id, doc.data())]),
+  );
 
   /// Re-emits the last value whenever a local preference (pin, draft) changes.
   Stream<T> _withLocal<T>(Stream<T> source) {
@@ -208,14 +275,18 @@ class FirebaseMessageRepository implements IMessageRepository {
     var has = false;
     out = StreamController<T>(
       onListen: () => subs
-        ..add(source.listen((v) {
-          last = v;
-          has = true;
-          out.add(v);
-        }, onError: out.addError))
-        ..add(_local.stream.listen((_) {
-          if (has) out.add(last as T);
-        })),
+        ..add(
+          source.listen((v) {
+            last = v;
+            has = true;
+            out.add(v);
+          }, onError: out.addError),
+        )
+        ..add(
+          _local.stream.listen((_) {
+            if (has) out.add(last as T);
+          }),
+        ),
       onCancel: () async {
         for (final s in subs) {
           await s.cancel();
@@ -237,12 +308,15 @@ class FirebaseMessageRepository implements IMessageRepository {
       lastMessage: '${d['lastMessage'] ?? ''}',
       lastAt: parseTime(d['lastAt']) ?? DateTime.fromMillisecondsSinceEpoch(0),
       unread: (d['unreadParent'] as num?)?.toInt() ?? 0,
-      kind: role == 'Class Teacher' ? ContactKind.classTeacher : ContactKind.subjectTeacher,
+      kind: role == 'Class Teacher'
+          ? ContactKind.classTeacher
+          : ContactKind.subjectTeacher,
       verified: true,
     );
   }
 
-  MessageThread _withPin(MessageThread t, Set<String> pins) => pins.contains(t.id)
+  MessageThread _withPin(MessageThread t, Set<String> pins) =>
+      pins.contains(t.id)
       ? MessageThread(
           id: t.id,
           childId: t.childId,
@@ -262,7 +336,10 @@ class FirebaseMessageRepository implements IMessageRepository {
 
   Set<String> _pins() {
     try {
-      return {for (final e in jsonDecode(_storage.getString(_pinKey) ?? '[]') as List) '$e'};
+      return {
+        for (final e in jsonDecode(_storage.getString(_pinKey) ?? '[]') as List)
+          '$e',
+      };
     } catch (_) {
       return {};
     }
@@ -271,19 +348,27 @@ class FirebaseMessageRepository implements IMessageRepository {
   List<MessageDraft> _drafts() {
     try {
       return [
-        for (final e in jsonDecode(_storage.getString(_draftKey) ?? '[]') as List)
+        for (final e
+            in jsonDecode(_storage.getString(_draftKey) ?? '[]') as List)
           if (e is Map)
             MessageDraft(
               id: '${e['id']}',
               childId: '${e['childId']}',
-              updatedAt: DateTime.tryParse('${e['updatedAt']}') ?? DateTime.now(),
+              updatedAt:
+                  DateTime.tryParse('${e['updatedAt']}') ?? DateTime.now(),
               contactId: e['contactId'] as String?,
-              category: MessageCategory.values.asNameMap()['${e['category']}'] ?? MessageCategory.academic,
+              category:
+                  MessageCategory.values.asNameMap()['${e['category']}'] ??
+                  MessageCategory.academic,
               subject: '${e['subject'] ?? ''}',
               body: '${e['body'] ?? ''}',
               attachments: [
                 for (final a in (e['attachments'] as List?) ?? const [])
-                  if (a is Map) MessageAttachment(name: '${a['name']}', sizeKb: (a['sizeKb'] as num?)?.toInt() ?? 0),
+                  if (a is Map)
+                    MessageAttachment(
+                      name: '${a['name']}',
+                      sizeKb: (a['sizeKb'] as num?)?.toInt() ?? 0,
+                    ),
               ],
             ),
       ];
@@ -305,7 +390,10 @@ class FirebaseMessageRepository implements IMessageRepository {
             'category': d.category.name,
             'subject': d.subject,
             'body': d.body,
-            'attachments': [for (final a in d.attachments) {'name': a.name, 'sizeKb': a.sizeKb}],
+            'attachments': [
+              for (final a in d.attachments)
+                {'name': a.name, 'sizeKb': a.sizeKb},
+            ],
           },
       ]),
     );
@@ -313,7 +401,10 @@ class FirebaseMessageRepository implements IMessageRepository {
   }
 
   static String _withAttachments(String text, List<MessageAttachment> files) =>
-      [if (text.isNotEmpty) text, for (final f in files) 'Attachment: ${f.name}'].join('\n');
+      [
+        if (text.isNotEmpty) text,
+        for (final f in files) 'Attachment: ${f.name}',
+      ].join('\n');
 
   /// "Mrs. Anita Sharma" -> "Mrs. Sharma".
   static String shortName(String name) {

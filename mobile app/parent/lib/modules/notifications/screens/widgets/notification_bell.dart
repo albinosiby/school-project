@@ -11,7 +11,9 @@ NotificationsBloc? findNotificationsBloc(BuildContext context) {
   try {
     return BlocProvider.of<NotificationsBloc>(context);
   } catch (_) {
-    return getIt.isRegistered<NotificationsBloc>() ? getIt<NotificationsBloc>() : null;
+    return getIt.isRegistered<NotificationsBloc>()
+        ? getIt<NotificationsBloc>()
+        : null;
   }
 }
 

@@ -24,11 +24,18 @@ class _SelectChildScreenState extends State<SelectChildScreen> {
   void _continue(Child child) {
     context.read<FamilyBloc>().add(SelectChild(child.id));
     AppDialogs.showSnackBar(context, message: 'Now showing ${child.name}');
-    if (context.canPop()) {
+    // back to the screen that opened the picker (child switcher); after sign-in the screen below is a public
+    // page (welcome / login), and going back there would bounce straight here again
+    if (context.canPop() && !_openedAfterSignIn(context)) {
       context.pop();
     } else {
       context.go(RoutePaths.home);
     }
+  }
+
+  static bool _openedAfterSignIn(BuildContext context) {
+    final matches = GoRouter.of(context).routerDelegate.currentConfiguration.matches;
+    return matches.length < 2 || RoutePaths.isPublic(matches[matches.length - 2].matchedLocation);
   }
 
   @override

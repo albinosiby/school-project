@@ -18,7 +18,9 @@ class FirebaseNotificationRepository implements INotificationRepository {
   final Set<String> _acked = {};
 
   String get _hiddenKey => 'notif_hidden:${_session.uid}';
-  Set<String> get _hidden => {...?_storage.getString(_hiddenKey)?.split('\n').where((s) => s.isNotEmpty)};
+  Set<String> get _hidden => {
+    ...?_storage.getString(_hiddenKey)?.split('\n').where((s) => s.isNotEmpty),
+  };
 
   @override
   Stream<List<AppNotification>> watchNotifications() {
@@ -29,16 +31,30 @@ class FirebaseNotificationRepository implements INotificationRepository {
       final q = last;
       if (q == null || out.isClosed) return;
       final hidden = _hidden;
-      out.add([for (final d in q.docs) if (!hidden.contains(d.id)) fromDoc(d.id, d.data(), _session.uid, _acked)]
-        ..sort((a, b) => b.time.compareTo(a.time)));
+      out.add(
+        [
+          for (final d in q.docs)
+            if (!hidden.contains(d.id))
+              fromDoc(d.id, d.data(), _session.uid, _acked),
+        ]..sort((a, b) => b.time.compareTo(a.time)),
+      );
     }
 
     out = StreamController<List<AppNotification>>(
       onListen: () => subs
-        ..add(_session.col('par_notifications').where('uid', isEqualTo: _session.uid).snapshots().listen((q) {
-          last = q;
-          emit();
-        }, onError: out.addError))
+        ..add(
+          _session
+              .whenReady(
+                () => _session
+                    .col('par_notifications')
+                    .where('uid', isEqualTo: _session.uid)
+                    .snapshots(),
+              )
+              .listen((q) {
+                last = q;
+                emit();
+              }, onError: out.addError),
+        )
         ..add(_hiddenChanged.stream.listen((_) => emit())),
       onCancel: () async {
         for (final s in subs) {
@@ -50,14 +66,20 @@ class FirebaseNotificationRepository implements INotificationRepository {
   }
 
   @override
-  Stream<int> watchUnreadCount() => watchNotifications().map((l) => l.where((n) => !n.read).length);
+  Stream<int> watchUnreadCount() =>
+      watchNotifications().map((l) => l.where((n) => !n.read).length);
 
   @override
-  Future<void> markRead(String id) => _session.col('par_notifications').doc(id).update({'read': true});
+  Future<void> markRead(String id) =>
+      _session.col('par_notifications').doc(id).update({'read': true});
 
   @override
   Future<void> markAllRead() async {
-    final q = await _session.col('par_notifications').where('uid', isEqualTo: _session.uid).where('read', isEqualTo: false).get();
+    final q = await _session
+        .col('par_notifications')
+        .where('uid', isEqualTo: _session.uid)
+        .where('read', isEqualTo: false)
+        .get();
     for (final d in q.docs) {
       await d.reference.update({'read': true});
     }
@@ -79,20 +101,29 @@ class FirebaseNotificationRepository implements INotificationRepository {
 
   /// `ntc_{noticeId}_{uid}` -> noticeId.
   static String? noticeIdOf(String id, String uid) =>
-      id.startsWith('ntc_') && id.endsWith('_$uid') ? id.substring(4, id.length - uid.length - 1) : null;
+      id.startsWith('ntc_') && id.endsWith('_$uid')
+      ? id.substring(4, id.length - uid.length - 1)
+      : null;
 
   static NotificationCategory categoryOf(Json d) {
     final title = '${d['title'] ?? ''}'.toLowerCase();
     return switch ('${d['type'] ?? ''}') {
       'fees' => NotificationCategory.fees,
-      'notice' when title.startsWith('urgent') => NotificationCategory.emergency,
+      'notice' when title.startsWith('urgent') =>
+        NotificationCategory.emergency,
       'notice' || 'message' => NotificationCategory.notice,
-      'attendance' when title.contains('absence') => NotificationCategory.emergency,
+      'attendance' when title.contains('absence') =>
+        NotificationCategory.emergency,
       _ => NotificationCategory.academic,
     };
   }
 
-  static AppNotification fromDoc(String id, Json d, String uid, Set<String> acked) {
+  static AppNotification fromDoc(
+    String id,
+    Json d,
+    String uid,
+    Set<String> acked,
+  ) {
     final noticeId = noticeIdOf(id, uid);
     final urgent = '${d['title'] ?? ''}'.toLowerCase().startsWith('urgent');
     final route = '${d['route'] ?? ''}';

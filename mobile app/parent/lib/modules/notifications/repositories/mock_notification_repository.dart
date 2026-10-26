@@ -11,8 +11,11 @@ import 'notification_repository_interface.dart';
 /// In-memory notification centre: demo notifications + school notices from [INoticeRepository].
 /// Read / deleted state lives in memory; notice acknowledgements write through the notice repository.
 class MockNotificationRepository implements INotificationRepository {
-  MockNotificationRepository(this._cache, this._notices, {DateTime Function()? clock})
-    : _clock = clock ?? DateTime.now;
+  MockNotificationRepository(
+    this._cache,
+    this._notices, {
+    DateTime Function()? clock,
+  }) : _clock = clock ?? DateTime.now;
 
   final CacheService _cache;
   final INoticeRepository _notices;
@@ -76,8 +79,9 @@ class MockNotificationRepository implements INotificationRepository {
   );
 
   @override
-  Stream<int> watchUnreadCount() =>
-      watchNotifications().map((l) => l.where((n) => !n.read).length).distinct();
+  Stream<int> watchUnreadCount() => watchNotifications()
+      .map((l) => l.where((n) => !n.read).length)
+      .distinct();
 
   Future<void> _write(void Function() change) async {
     await MockLatency.wait();

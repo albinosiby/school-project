@@ -21,6 +21,14 @@ class ParentSession {
 
   Json _user = const {};
   final Map<String, Json> _students = {};
+  var _ready = Completer<void>();
+
+  /// Completes once the signed-in parent's `users` doc is loaded (screens can subscribe before sign-in ends).
+  Future<void> get ready => _ready.future;
+
+  /// [build] once the session is ready (for streams that start before sign-in, e.g. the header bell).
+  Stream<T> whenReady<T>(Stream<T> Function() build) =>
+      schoolId.isNotEmpty ? build() : Stream.fromFuture(ready).asyncExpand((_) => build());
 
   String get uid => auth.currentUser?.uid ?? '';
   String get schoolId => '${_user['schoolId'] ?? ''}';
@@ -45,6 +53,7 @@ class ParentSession {
       );
     }
     _user = data;
+    if (!_ready.isCompleted) _ready.complete();
     return data;
   }
 
@@ -70,6 +79,7 @@ class ParentSession {
   void clear() {
     _user = const {};
     _students.clear();
+    if (_ready.isCompleted) _ready = Completer<void>();
   }
 
   static List<String> _list(Object? v) => v is List ? [for (final e in v) '$e'] : const [];

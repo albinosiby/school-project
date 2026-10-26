@@ -15,7 +15,15 @@ extension NotificationCategoryX on NotificationCategory {
 }
 
 /// Filter chips of the notification centre.
-enum NotificationFilter { all, unread, academic, transit, fees, emergency, notices }
+enum NotificationFilter {
+  all,
+  unread,
+  academic,
+  transit,
+  fees,
+  emergency,
+  notices,
+}
 
 extension NotificationFilterX on NotificationFilter {
   String get label => switch (this) {

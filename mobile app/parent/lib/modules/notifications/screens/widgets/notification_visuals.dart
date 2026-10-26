@@ -6,14 +6,33 @@ import '../../../../design_system/design_system.dart';
 import '../../../../utils/helpers/date_helper.dart';
 import '../../models/notification_models.dart';
 
-({IconData icon, Tone tone}) notificationVisual(NotificationCategory c) => switch (c) {
-  NotificationCategory.transit => (icon: Icons.directions_bus_outlined, tone: Tone.brand),
-  NotificationCategory.academic => (icon: Icons.assignment_outlined, tone: Tone.purple),
-  NotificationCategory.fees => (icon: Icons.account_balance_wallet_outlined, tone: Tone.success),
-  NotificationCategory.emergency => (icon: Icons.warning_amber_rounded, tone: Tone.danger),
-  NotificationCategory.merit => (icon: Icons.workspace_premium_outlined, tone: Tone.warning),
-  NotificationCategory.notice => (icon: Icons.campaign_outlined, tone: Tone.neutral),
-};
+({IconData icon, Tone tone}) notificationVisual(NotificationCategory c) =>
+    switch (c) {
+      NotificationCategory.transit => (
+        icon: Icons.directions_bus_outlined,
+        tone: Tone.brand,
+      ),
+      NotificationCategory.academic => (
+        icon: Icons.assignment_outlined,
+        tone: Tone.purple,
+      ),
+      NotificationCategory.fees => (
+        icon: Icons.account_balance_wallet_outlined,
+        tone: Tone.success,
+      ),
+      NotificationCategory.emergency => (
+        icon: Icons.warning_amber_rounded,
+        tone: Tone.danger,
+      ),
+      NotificationCategory.merit => (
+        icon: Icons.workspace_premium_outlined,
+        tone: Tone.warning,
+      ),
+      NotificationCategory.notice => (
+        icon: Icons.campaign_outlined,
+        tone: Tone.neutral,
+      ),
+    };
 
 /// "12m ago", "1h ago" today; "Yesterday, 4:30 PM"; "12 Oct, 9:00 AM".
 String notificationTimeLabel(DateTime t, {DateTime? now}) {

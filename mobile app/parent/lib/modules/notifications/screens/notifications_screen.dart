@@ -30,7 +30,9 @@ class NotificationsScreen extends StatelessWidget {
           if (state.status == LoadStatus.error) {
             return AppErrorWidget(
               message: state.error ?? 'Could not load notifications.',
-              onRetry: () => context.read<NotificationsBloc>().add(const LoadNotifications()),
+              onRetry: () => context.read<NotificationsBloc>().add(
+                const LoadNotifications(),
+              ),
             );
           }
           return _NotificationList(state: state);
@@ -65,7 +67,10 @@ class _NotificationList extends StatelessWidget {
                 Container(
                   width: 6.r,
                   height: 6.r,
-                  decoration: const BoxDecoration(color: C.primary, shape: BoxShape.circle),
+                  decoration: const BoxDecoration(
+                    color: C.primary,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ],
               const Spacer(),
@@ -75,12 +80,17 @@ class _NotificationList extends StatelessWidget {
                     ? null
                     : () {
                         bloc.add(const MarkAllNotificationsRead());
-                        AppDialogs.showSnackBar(context, message: 'All notifications marked as read');
+                        AppDialogs.showSnackBar(
+                          context,
+                          message: 'All notifications marked as read',
+                        );
                       },
                 icon: Icon(Icons.done_all_rounded, size: 18.r),
                 label: Text(
                   'Mark all as read',
-                  style: T.smallStrong.copyWith(color: state.unread == 0 ? C.muted : C.primary),
+                  style: T.smallStrong.copyWith(
+                    color: state.unread == 0 ? C.muted : C.primary,
+                  ),
                 ),
                 style: TextButton.styleFrom(
                   foregroundColor: C.primary,
@@ -96,7 +106,9 @@ class _NotificationList extends StatelessWidget {
             Padding(
               padding: EdgeInsets.only(top: 48.h),
               child: AppEmptyState(
-                state.filter == NotificationFilter.unread ? 'You are all caught up' : 'No notifications',
+                state.filter == NotificationFilter.unread
+                    ? 'You are all caught up'
+                    : 'No notifications',
                 hint: state.filter == NotificationFilter.all
                     ? 'School updates, bus alerts and fee reminders will appear here.'
                     : 'Nothing in ${state.filter.label} right now.',
@@ -156,7 +168,9 @@ class _FilterChip extends StatelessWidget {
     child: InkWell(
       key: ValueKey('notification-filter-${filter.name}'),
       borderRadius: BorderRadius.circular(R.pill),
-      onTap: () => context.read<NotificationsBloc>().add(ChangeNotificationFilter(filter)),
+      onTap: () => context.read<NotificationsBloc>().add(
+        ChangeNotificationFilter(filter),
+      ),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         constraints: BoxConstraints(minHeight: 40.h),
@@ -170,7 +184,9 @@ class _FilterChip extends StatelessWidget {
           children: [
             Text(
               filter.label,
-              style: T.bodyStrong.copyWith(color: selected ? Colors.white : C.ink),
+              style: T.bodyStrong.copyWith(
+                color: selected ? Colors.white : C.ink,
+              ),
             ),
             if (count != null) ...[
               SizedBox(width: 6.w),
@@ -179,13 +195,17 @@ class _FilterChip extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: selected
                       ? Colors.white.withValues(alpha: .2)
-                      : (filter == NotificationFilter.unread ? C.primary : C.border),
+                      : (filter == NotificationFilter.unread
+                            ? C.primary
+                            : C.border),
                   borderRadius: BorderRadius.circular(R.pill),
                 ),
                 child: Text(
                   '$count',
                   style: T.smallStrong.copyWith(
-                    color: selected || filter == NotificationFilter.unread ? Colors.white : C.ink,
+                    color: selected || filter == NotificationFilter.unread
+                        ? Colors.white
+                        : C.ink,
                   ),
                 ),
               ),
@@ -198,7 +218,11 @@ class _FilterChip extends StatelessWidget {
 }
 
 class _GroupHeader extends StatelessWidget {
-  const _GroupHeader({required this.day, required this.items, required this.now});
+  const _GroupHeader({
+    required this.day,
+    required this.items,
+    required this.now,
+  });
   final DateTime day;
   final List<AppNotification> items;
   final DateTime now;
@@ -216,7 +240,10 @@ class _GroupHeader extends StatelessWidget {
             Container(
               width: 6.r,
               height: 6.r,
-              decoration: const BoxDecoration(color: C.primary, shape: BoxShape.circle),
+              decoration: const BoxDecoration(
+                color: C.primary,
+                shape: BoxShape.circle,
+              ),
             ),
           ],
           const Spacer(),
@@ -259,7 +286,11 @@ class _NotificationCard extends StatelessWidget {
             color: C.dangerSoft,
             borderRadius: BorderRadius.circular(R.lg),
           ),
-          child: Icon(Icons.delete_outline_rounded, color: C.danger, size: 24.r),
+          child: Icon(
+            Icons.delete_outline_rounded,
+            color: C.danger,
+            size: 24.r,
+          ),
         ),
         child: Material(
           color: C.bg,
@@ -269,13 +300,17 @@ class _NotificationCard extends StatelessWidget {
             onTap: () => context.push(RoutePaths.notification(n.id)),
             child: Container(
               decoration: BoxDecoration(
-                border: Border.all(color: n.read ? C.border : C.primary.withValues(alpha: .25)),
+                border: Border.all(
+                  color: n.read ? C.border : C.primary.withValues(alpha: .25),
+                ),
                 borderRadius: BorderRadius.circular(R.lg),
               ),
               foregroundDecoration: n.read
                   ? null
                   : BoxDecoration(
-                      border: Border(left: BorderSide(color: C.primary, width: 3.w)),
+                      border: Border(
+                        left: BorderSide(color: C.primary, width: 3.w),
+                      ),
                     ),
               padding: EdgeInsets.fromLTRB(12.w, 12.h, 4.w, 12.h),
               child: Row(
@@ -292,7 +327,10 @@ class _NotificationCard extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 n.category.label.toUpperCase(),
-                                style: T.caps.copyWith(color: tone.fg, fontSize: 10.5.sp),
+                                style: T.caps.copyWith(
+                                  color: tone.fg,
+                                  fontSize: 10.5.sp,
+                                ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -301,11 +339,17 @@ class _NotificationCard extends StatelessWidget {
                               Container(
                                 width: 6.r,
                                 height: 6.r,
-                                decoration: const BoxDecoration(color: C.primary, shape: BoxShape.circle),
+                                decoration: const BoxDecoration(
+                                  color: C.primary,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
                               SizedBox(width: 4.w),
                             ],
-                            Text(notificationTimeLabel(n.time, now: now), style: T.small),
+                            Text(
+                              notificationTimeLabel(n.time, now: now),
+                              style: T.small,
+                            ),
                           ],
                         ),
                         SizedBox(height: 4.h),
@@ -313,14 +357,22 @@ class _NotificationCard extends StatelessWidget {
                           n.title,
                           style: T.bodyStrong.copyWith(
                             fontSize: 15.sp,
-                            fontWeight: n.read ? FontWeight.w600 : FontWeight.w700,
+                            fontWeight: n.read
+                                ? FontWeight.w600
+                                : FontWeight.w700,
                           ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                         if (n.summary != null)
-                          Text(n.summary!, style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
-                        if (n.needsAction || (n.actionRoute != null && !n.read)) ...[
+                          Text(
+                            n.summary!,
+                            style: T.small,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        if (n.needsAction ||
+                            (n.actionRoute != null && !n.read)) ...[
                           SizedBox(height: 8.h),
                           Wrap(
                             spacing: 8.w,
@@ -333,8 +385,13 @@ class _NotificationCard extends StatelessWidget {
                                   expand: false,
                                   icon: Icons.check_rounded,
                                   onPressed: () {
-                                    context.read<NotificationsBloc>().add(AcknowledgeNotification(n.id));
-                                    AppDialogs.showSnackBar(context, message: 'Notice acknowledged');
+                                    context.read<NotificationsBloc>().add(
+                                      AcknowledgeNotification(n.id),
+                                    );
+                                    AppDialogs.showSnackBar(
+                                      context,
+                                      message: 'Notice acknowledged',
+                                    );
                                   },
                                 ),
                               if (n.actionRoute != null && !n.read)
@@ -344,8 +401,13 @@ class _NotificationCard extends StatelessWidget {
                                   expand: false,
                                   icon: Icons.arrow_forward_rounded,
                                   onPressed: () {
-                                    context.read<NotificationsBloc>().add(MarkNotificationRead(n.id));
-                                    openNotificationRoute(context, n.actionRoute!);
+                                    context.read<NotificationsBloc>().add(
+                                      MarkNotificationRead(n.id),
+                                    );
+                                    openNotificationRoute(
+                                      context,
+                                      n.actionRoute!,
+                                    );
                                   },
                                 ),
                             ],

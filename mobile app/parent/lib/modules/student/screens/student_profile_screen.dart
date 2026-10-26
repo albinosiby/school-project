@@ -264,28 +264,33 @@ class _IdentityCard extends StatelessWidget {
             ],
           ),
         ),
-        SizedBox(height: 6.h),
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
-          decoration: BoxDecoration(
-            color: C.indigoSoft,
-            borderRadius: BorderRadius.circular(R.pill),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.shield_outlined, size: 15.r, color: C.primaryDark),
-              SizedBox(width: 6.w),
-              Flexible(
-                child: Text(
-                  '${p.house} • ${p.houseRole}',
-                  overflow: TextOverflow.ellipsis,
-                  style: T.smallStrong.copyWith(color: C.primaryDark),
+        // house chip only when the school records a house
+        if (p.house.isNotEmpty) ...[
+          SizedBox(height: 6.h),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
+            decoration: BoxDecoration(
+              color: C.indigoSoft,
+              borderRadius: BorderRadius.circular(R.pill),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shield_outlined, size: 15.r, color: C.primaryDark),
+                SizedBox(width: 6.w),
+                Flexible(
+                  child: Text(
+                    p.houseRole.isEmpty
+                        ? p.house
+                        : '${p.house} • ${p.houseRole}',
+                    overflow: TextOverflow.ellipsis,
+                    style: T.smallStrong.copyWith(color: C.primaryDark),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
         SizedBox(height: 8.h),
         Text('Admission No. ${p.child.admissionNo}', style: T.small),
       ],
