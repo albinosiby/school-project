@@ -77,3 +77,20 @@ node tools/notify_test/notify-test.mjs --keep          # leave the test data; un
 ```
 Put the teacher app in the background first: with the app open, pushes show as an in-app banner instead of the tray.
 
+
+## Parent app backend tests (emulator only)
+Rules (`tools/rules_test`, 171 checks incl. parent reads, privacy denials and the parent/teacher message and leave shapes) and an
+end-to-end test of the parent functions (`tools/parent_flow_test`: seeds a 2-student school, writes attendance, homework, a
+published paper, notices, a leave, messages, a live class, fees and a consent, then checks `par_*`, `users/{uid}` arrays, unread
+counters, `par_notifications`, `hm_notifications` and `set_audit`). Both use a `demo-*` project id and never reach the live project.
+```bash
+cd website
+(cd functions && npm ci) && (cd tools/rules_test && npm ci)
+EMULATOR_PROJECT=demo-school-rules tools/emulator_exec.sh firestore "cd tools/rules_test && node test.mjs"
+tools/emulator_exec.sh firestore,functions "node tools/parent_flow_test/test.mjs"
+```
+`tools/emulator_exec.sh` works around a JDK older than 21 (firebase-tools 14+ refuses it) by using the cached Firestore emulator
+jar through a version shim; with JDK 21 it just runs `firebase emulators:exec`. On a busy machine raise `FUNCTIONS_DISCOVERY_TIMEOUT`
+(seconds, default 120 in the script) and `WAIT_MS` (per-check wait of the flow test, default 90000).
+Deploying the parent backend needs: `firebase deploy --only firestore` (rules + the two `msg_*` composite indexes) and
+`firebase deploy --only functions:notify` (17 new functions in `functions/parent.js`).

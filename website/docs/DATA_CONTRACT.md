@@ -177,3 +177,105 @@ Everything else in the teacher app (`tt_*` extras, `tk_*` tasks/duties/syllabus,
 - Notifications: a duty row created or moved to a teacher → push (`type: "exam"`, route `/exam-duties`).
 - Rules: teachers read `exm_duties`, `staff_attendance` / `staff_regularizations` of their own staffId, `set_leave_policy`; write their own
   `staff_attendance` and Pending `staff_regularizations`; `ed_duty_state` / `ed_cand_state` are teacher-private (`ed_` prefix).
+
+## 13. Parent app (guardian logins, per-child data, two-way flows)
+
+Parents see **only their own children**. Class-wide records (`ops_attendance`, `ops_homework`, `exm_marks`) hold every
+student of a class, so parents never read them directly: Cloud Functions copy each child's slice into `par_*` collections
+that only that child's guardians can read. Everything a parent writes is either their own request (leave, message,
+acknowledgement, consent) or nothing.
+
+### 13.1 Accounts
+- `students` gain `guardianEmail?` and `guardianUids: string[]` (auth uids of linked parent logins; siblings share a uid).
+- Admin web > Students > student > **Parent login**: enter the guardian email → if a parent login with that email already
+  exists in this school it is linked (uid added to `guardianUids`), else the admin web creates the Auth account the same way as
+  staff (§1: secondary app, random password, password-reset invite), writes `users/{uid} = {schoolId, role:"parent", email,
+  name, studentIds:[], classIds:[], grns:[]}` and links it. Unlink removes the uid.
+- Function `onStudentWritten` keeps every linked parent's `users/{uid}.studentIds / classIds / grns` equal to the students
+  whose `guardianUids` contain the uid (recomputed from a query, so moves between classes and unlinks are covered). Rules read
+  only these arrays. Parents sign in with that email (password set from the invite) or Google with the same email.
+- Classes carry `classTeacher` (name) next to `classTeacherId`; the function keeps it in sync so parents never read `staff`.
+
+### 13.2 What a parent reads (all under `schools/{sid}`)
+| Data | Source | Parent query |
+|---|---|---|
+| child profile | `students/{id}` | get by id (`id in studentIds`) |
+| class, class teacher | `classes/{classId}` | get by id (`classId in classIds`) |
+| school | `school/school` | get |
+| timetable | `ops_periods` | `classId == X` (`X in classIds`) |
+| live classes | `live_classes` | `classId == X`; join tap writes `live_classes/{id}/joins/{uid}` (§6) |
+| attendance | `par_attendance/{studentId}_{YYYY-MM}` (function) | get by id / `studentId == X` |
+| homework | `par_homework/{studentId}_{homeworkId}` (function) | `studentId == X` |
+| results | `par_results/{studentId}_{paperId}` (function, only after the class is published) | `studentId == X` |
+| fees | `fee_invoices`, `fee_payments` | `grn == G` (`G in grns`) |
+| notices | `com_notices` with `parentVisible == true` (function sets it: Published and audience mentions parents/all/school) | `parentVisible == true` |
+| calendar | `calendar_events` with `parentVisible == true` (function: published events) | `parentVisible == true` |
+| leave requests | `student_leaves` | `studentId == X` |
+| messages | `msg_threads`, `msg_messages` | `parentUids array-contains uid` |
+| in-app notifications | `par_notifications` | `uid == auth.uid` |
+
+Projection shapes (written only by functions):
+- `par_attendance/{studentId}_{YYYY-MM}`: `{studentId, classId, month, days: {"YYYY-MM-DD": "P"|"A"|"L"|"E"}, updatedAt}`. A day's
+  status is the student's mark in that class's newest record of the day (§9: newest `updatedAt`, ties higher period); no mark = `P`.
+- `par_homework/{studentId}_{homeworkId}`: `{studentId, homeworkId, classId, title, subject, description, teacher, teacherId, assigned,
+  due, maxMarks, status, attachments?, submission: {status, marks?, feedback?, gradedAt?}, updatedAt}`; removed when the homework is.
+- `par_results/{studentId}_{paperId}`: `{studentId, paperId, cycleId, exam (cycle title), subject, code, date, theory, internal,
+  theoryMax, internalMax, obtained, max, medical, updatedAt}`; written when `exm_papers.published` gains the child's class label and
+  updated if marks change after that.
+
+### 13.3 What a parent writes
+- `student_leaves/{id}`: create with `{studentId (in studentIds), classId (the child's class), from, to, reason, status:"Pending",
+  parentUid: auth.uid, name}` plus the teacher app's display fields `roll, days, daysLabel ("2 Days"), dateText ("Oct 28 – Oct 29"),
+  type ("Personal Leave"|"Medical Leave"), cat ("leave"|"medical"), by ("Mr. X (Father)"), appliedOn`; edit or withdraw (delete) only while Pending. The class teacher decides (teacher app, §4) →
+  `status` Approved/Rejected + `decisionNote`.
+- Messages: `msg_threads/thr_{studentId}_{staffId}` = `{studentId, classId, studentName, parentUids, guardian, teacherId, teacher,
+  role, lastMessage, lastAt, lastFrom:"parent"|"teacher", unreadParent, unreadTeacher}` and `msg_messages/{id}` = `{threadId,
+  studentId, teacherId, parentUids, from:"parent"|"teacher", uid, name, text, at}`. Either side creates the thread and adds
+  messages; only the function updates `last*` and the unread counters (on message create). Reading resets your own counter.
+  The teacher app shows them in Messages (local `ms_messages`), the parent app in Messages.
+- `com_notices/{id}/acks/{uid}` = `{at, studentIds}`; the function increments the notice's `acked` / `read`.
+- `consents/{uid}` = `{uid, studentIds, version, acceptedAt, items: {dataProcessing, photos, notifications}}`, written at
+  first sign-in; the admin web shows each student's consent state.
+- `par_notifications/{id}`: parent may only set `read`.
+- `users/{uid}/fcm_tokens/{token}` with `app:"parent"` (§10 layout).
+
+### 13.4 Parent notifications (push + `par_notifications` row: `{uid, studentId, type, title, body, route, read, at}`)
+| Trigger | Message | Route |
+|---|---|---|
+| child marked A/L in a submitted `ops_attendance` (once per child per day) | "{name} was marked absent today" | `/academics?section=attendance` |
+| homework created for the class / submission graded | "New homework: {title}" / "{title} reviewed" | `/academics/homework/{homeworkId}` |
+| class published in `exm_papers.published` | "{exam} results: {subject}" | `/academics` |
+| notice becomes parent-visible | notice title | `/notifications` |
+| `student_leaves` decided | "Leave approved/rejected" | `/more/leave` |
+| teacher message | teacher name + text | `/messages/thread/{threadId}` |
+| live class scheduled for the class | title + time | `/more/live` |
+| `fee_invoices` created / `fee_payments` created | invoice due / receipt | `/fees` |
+Teachers get a push for a new parent message (setting `parentMessages`, §10) and for a new leave request of their class.
+
+### 13.5 Audit
+Functions append to `set_audit` (`{at, actor, action, detail, kind}`) when a parent login is linked/unlinked, a consent is
+recorded or withdrawn, and a student record is created/deleted, so children's data changes are traceable in Settings > Audit.
+
+### 13.6 Implementation notes (functions/parent.js, firestore.rules)
+Where the backend had to pick a detail the sections above leave open:
+- **Attendance**: records with `submitted: false` (drafts) and `deleted: true` are ignored by the day rule. The absence alert is sent
+  only when the record's `date` is today (India time), so back-filled days update `par_attendance` without a "today" push.
+  Dedupe id `att_{date}_{studentId}_{uid}`; `E` (excused) updates the projection but sends no alert.
+- **Homework**: a homework with `deleted: true` or a draft `status` has no `par_homework` copies; publishing it later counts as "new".
+- **Results**: `par_results` also carries `classId`. When a class label is removed from `exm_papers.published` (the admin web does
+  this when marks are edited after publishing) that class's `par_results` for the paper are deleted until it is published again;
+  marks are matched by `exm_marks.studentId`, else `candId` = `cand_{studentId}`. Students without a mark get no row.
+- **Notices**: parent-visible = `status == "Published"` and `audience` matches `parent|guardian|all school|whole school|everyone`
+  ("Staff & Teachers" and "Transport Routes" are not); the flag is always written, `true` or `false`, and only when it changes. The push goes to all parent logins of the school, narrowed by the notice's
+  `grades` labels ("Grade 8-A", "Grade 9") when present. Calendar: `status == "published"`. No calendar push.
+- **Messages**: a new thread must have `lastMessage == ""` and both unread counters 0 (`lastAt` / `lastFrom` may be set for
+  sorting). The function marks each counted message `counted: true` (clients cannot set it), so retries never double-count.
+  Parents query messages with `parentUids array-contains uid` **and** `threadId == X` (a `threadId`-only query is denied);
+  composite indexes for both thread and message queries are in `firestore.indexes.json`.
+- **Leave decisions**: the teacher may change only `status` (Pending/Approved/Rejected), `decisionNote`, `decidedBy`, `decidedAt`,
+  `updatedAt`, `updatedBy` of a `student_leaves` doc.
+- **Class teacher name**: kept by a separate trigger `onClassTeacherNameSync` (a deployed `onDocumentUpdated` function such as
+  `onClassTeacherChanged` cannot change its event type), plus `onStaffRenamed` for staff renames.
+- **Audit**: `set_audit` rows written by functions carry `kind: "parent"`, `source: "functions"`; `actor` is the user named by the
+  student's `updatedBy` (else "System"), or the parent for consents. A consent doc with `withdrawn: true` (or deleted) logs "Consent withdrawn".
+- **Accounts**: `onStudentWritten` updates only `users` docs with `role == "parent"` in the same school; it never creates them.
