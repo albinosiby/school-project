@@ -1,0 +1,117 @@
+"use client";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import {
+  createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail,
+  signInWithEmailAndPassword, signOut, updateProfile, type User as FbUser,
+} from "firebase/auth";
+import { deleteDoc, doc, getDoc, getDocs, setDoc, collection, limit, query } from "firebase/firestore";
+import { auth, db } from "./firebase";
+import { bootstrapSchool } from "./bootstrap";
+import { setCollectionScope } from "./useCollection";
+
+/** users/{uid} (data contract section 1): maps a login to its school and role. */
+interface User { id: string; email: string; organizationName: string; schoolId: string; role: "admin" }
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  /** set when a signed-in account was refused (e.g. teacher account); shown on the login page */
+  blockedMessage: string;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, organizationName: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const NOT_ADMIN = "This account is not an administrator account. Teachers and parents must use the mobile app.";
+const NO_SCHOOL = "No school is linked to this account. Contact your school administrator.";
+
+class Blocked extends Error {}
+
+/**
+ * Reads users/{uid} and returns the school scope. A school created before the users collection existed
+ * (no doc yet, but data under schools/{uid}) gets its admin doc created on first login.
+ */
+async function loadProfile(u: FbUser): Promise<User> {
+  const ref = doc(db, "users", u.uid);
+  let snap = await getDoc(ref).catch(() => null);
+  let p = snap?.exists() ? (snap.data() as { schoolId?: string; role?: string }) : null;
+  if (!p) {
+    // legacy school: self-create {schoolId: uid, role: admin}, keep it only if schools/{uid} really has data
+    await setDoc(ref, { schoolId: u.uid, role: "admin", email: u.email ?? "", name: u.displayName ?? "", createdAt: new Date().toISOString() });
+    const has = await getDocs(query(collection(db, "schools", u.uid, "school"), limit(1))).then((r) => !r.empty).catch(() => false);
+    if (!has) { await deleteDoc(ref).catch(() => {}); throw new Blocked(NO_SCHOOL); }
+    snap = await getDoc(ref); p = snap.data() as { schoolId?: string; role?: string };
+  }
+  if (p.role !== "admin") throw new Blocked(NOT_ADMIN);
+  if (!p.schoolId) throw new Blocked(NO_SCHOOL);
+  return { id: u.uid, email: u.email ?? "", organizationName: u.displayName ?? "", schoolId: p.schoolId, role: "admin" };
+}
+/** true while signup is writing users/{uid} + the starter data; the auth observer must not resolve a profile yet */
+let signingUp = false;
+const profiles = new Map<string, Promise<User>>();
+const profileFor = (u: FbUser) => { let p = profiles.get(u.uid); if (!p) { p = loadProfile(u); profiles.set(u.uid, p); p.catch(() => profiles.delete(u.uid)); } return p; };
+
+function friendly(e: unknown): Error {
+  const code = (e as { code?: string })?.code ?? "";
+  const map: Record<string, string> = {
+    "auth/invalid-credential": "Incorrect email or password.",
+    "auth/invalid-email": "Enter a valid email address.",
+    "auth/user-not-found": "No account found for this email.",
+    "auth/wrong-password": "Incorrect email or password.",
+    "auth/email-already-in-use": "An account with this email already exists. Sign in instead.",
+    "auth/weak-password": "Password must be at least 6 characters.",
+    "auth/too-many-requests": "Too many attempts. Try again in a few minutes.",
+    "auth/network-request-failed": "Network error. Check your connection.",
+  };
+  return new Error(map[code] ?? (e instanceof Error ? e.message : "Something went wrong"));
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [blockedMessage, setBlocked] = useState("");
+
+  useEffect(() => onAuthStateChanged(auth, (u) => {
+    if (!u) { profiles.clear(); setCollectionScope(null); setUser(null); setIsLoading(false); return; }
+    if (signingUp) return;
+    setIsLoading(true);
+    profileFor(u).then((p) => { setBlocked(""); setCollectionScope(p.schoolId); setUser(p); })
+      .catch((e) => { setCollectionScope(null); setUser(null); setBlocked(e instanceof Blocked ? e.message : "Could not load your account. Check your connection and try again."); signOut(auth); })
+      .finally(() => setIsLoading(false));
+  }), []);
+
+  const login = async (email: string, password: string) => {
+    let cred;
+    try { cred = await signInWithEmailAndPassword(auth, email.trim(), password); } catch (e) { throw friendly(e); }
+    try { await profileFor(cred.user); } catch (e) { await signOut(auth); throw e instanceof Blocked ? e : friendly(e); }
+  };
+
+  const signup = async (email: string, password: string, organizationName: string) => {
+    if (!organizationName.trim()) throw new Error("Organization name is required");
+    signingUp = true;
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      await updateProfile(cred.user, { displayName: organizationName.trim() });
+      await bootstrapSchool(cred.user.uid, organizationName.trim(), email.trim());
+      const p = await profileFor(cred.user);
+      setCollectionScope(p.schoolId); setUser(p);
+    } catch (e) { throw friendly(e); } finally { signingUp = false; }
+  };
+
+  const resetPassword = async (email: string) => {
+    try { await sendPasswordResetEmail(auth, email.trim()); } catch (e) { throw friendly(e); }
+  };
+
+  const logout = async () => { await signOut(auth); };
+
+  return <AuthContext.Provider value={{ user, isLoading, blockedMessage, login, signup, resetPassword, logout }}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) throw new Error("useAuth must be used within AuthProvider");
+  return context;
+}

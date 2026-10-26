@@ -1,26 +1,99 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Design tokens — generated from Figma "Founder OS Institutional Tokens".
+   Single source of truth: components use these via Tailwind utilities
+   (bg-surface, text-on-surface, bg-secondary, rounded-lg, ...). */
+@theme {
+  --font-sans: var(--font-geist), "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-inter), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --color-success: #0F9D76;
+  --color-success-container: #D9F5EA;
+  --color-warning: #B45309;
+  --color-warning-container: #FEF0D5;
+  --color-info-container: #E3EBFF;
+  --shadow-card: 0 1px 2px rgb(24 28 35 / 0.05), 0 1px 3px rgb(24 28 35 / 0.04);
+  --shadow-pop: 0 12px 32px rgb(24 28 35 / 0.14);
+  --color-surface: #F9F9FF;
+  --color-surface-dim: #D7DAE4;
+  --color-surface-bright: #F9F9FF;
+  --color-surface-container-lowest: #FFFFFF;
+  --color-surface-container-low: #F0F3FD;
+  --color-surface-container: #EBEEF8;
+  --color-surface-container-high: #E5E8F2;
+  --color-surface-container-highest: #DFE2EC;
+  --color-on-surface: #181C23;
+  --color-on-surface-variant: #44474E;
+  --color-inverse-surface: #2C3138;
+  --color-inverse-on-surface: #EEF0FB;
+  --color-outline: #74777F;
+  --color-outline-variant: #C4C6CF;
+  --color-surface-tint: #4B5F81;
+  --color-primary: #000000;
+  --color-on-primary: #FFFFFF;
+  --color-primary-container: #041B3A;
+  --color-on-primary-container: #7184A9;
+  --color-inverse-primary: #B3C7EF;
+  --color-secondary: #0051D5;
+  --color-on-secondary: #FFFFFF;
+  --color-secondary-container: #346CEF;
+  --color-on-secondary-container: #FEFCFF;
+  --color-tertiary: #000000;
+  --color-on-tertiary: #FFFFFF;
+  --color-tertiary-container: #351004;
+  --color-on-tertiary-container: #B17561;
+  --color-error: #BA1A1A;
+  --color-on-error: #FFFFFF;
+  --color-error-container: #FFDAD6;
+  --color-on-error-container: #93000A;
+  --color-primary-fixed: #D6E3FF;
+  --color-primary-fixed-dim: #B3C7EF;
+  --color-on-primary-fixed: #041B3A;
+  --color-on-primary-fixed-variant: #344768;
+  --color-secondary-fixed: #DBE1FF;
+  --color-secondary-fixed-dim: #B4C5FF;
+  --color-on-secondary-fixed: #00174B;
+  --color-on-secondary-fixed-variant: #003EA7;
+  --color-tertiary-fixed: #FFDBCF;
+  --color-tertiary-fixed-dim: #FBB6A0;
+  --color-on-tertiary-fixed: #351004;
+  --color-on-tertiary-fixed-variant: #6A3A29;
+  --color-background: #F9F9FF;
+  --color-on-background: #181C23;
+  --color-surface-variant: #DFE2EC;
+  --color-navy-900: #001736;
+  --color-navy-800: #00285A;
+  --color-navy-700: #00397E;
+  --color-navy-600: #004AA2;
+  --color-navy-500: #005BC6;
+  --color-navy-100: #D6E3FF;
+  --color-slate-blue: #43474F;
+  --color-slate-border: #C4C6CF;
+  --color-cool-white: #F8F9FF;
+  --spacing-margin-page: 20px;
+  --spacing-gutter-card: 16px;
+  --spacing-stack-sm: 8px;
+  --spacing-stack-md: 16px;
+  --spacing-stack-lg: 32px;
+  --spacing-section-gap: 48px;
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+html { background: var(--color-background); color: var(--color-on-background); }
+body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; -webkit-font-smoothing: antialiased; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer utilities {
+  .t-display { font-family: var(--font-sans); font-size: 48px; line-height: 56px; font-weight: 700; letter-spacing: -0.64px; }
+  .t-headline-lg { font-size: 30px; line-height: 38px; font-weight: 700; letter-spacing: -0.32px; }
+  .t-headline-md { font-family: var(--font-display); font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -0.16px; }
+  .t-body-lg { font-size: 16px; line-height: 24px; }
+  .t-body-md { font-size: 14px; line-height: 20px; }
+  .t-label-caps { font-family: var(--font-display); font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; }
+  .t-caption { font-size: 11px; line-height: 14px; font-weight: 500; }
 }
