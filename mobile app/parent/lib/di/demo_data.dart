@@ -5,7 +5,6 @@ import '../modules/homework/models/homework_models.dart';
 import '../modules/leave/models/leave_models.dart';
 import '../modules/live_classes/models/live_class_models.dart';
 import '../modules/marks/models/marks_models.dart';
-import '../modules/messages/models/message_models.dart';
 import '../modules/notices/models/notice_models.dart';
 import '../modules/timetable/models/timetable_models.dart';
 import '../utils/helpers/date_helper.dart';
@@ -473,79 +472,6 @@ class DemoData {
         appliedOn: plusDays(-52, from: t),
         status: LeaveStatus.rejected,
         reviewerNote: 'Exam day: please reschedule.',
-      ),
-    ];
-  }
-
-  // ---- Messages --------------------------------------------------------------------------------
-  static List<MessageThread> threads(String childId, {DateTime? now}) {
-    final n = now ?? DateTime.now();
-    final aarav = _isAarav(childId);
-    return [
-      MessageThread(
-        id: 'th_${childId}_ct',
-        childId: childId,
-        teacher: aarav ? 'Mrs. Anita Sharma' : 'Mr. Vikram Nair',
-        role: 'Class teacher',
-        lastMessage: 'Thank you, I will keep an eye on it.',
-        lastAt: n.subtract(const Duration(hours: 3)),
-        unread: 1,
-      ),
-      MessageThread(
-        id: 'th_${childId}_st',
-        childId: childId,
-        teacher: aarav ? 'Mr. Imran Khan' : 'Ms. Priya Menon',
-        role: aarav ? 'Computer Science' : 'English',
-        lastMessage: 'Project submission has been extended by two days.',
-        lastAt: n.subtract(const Duration(days: 2)),
-      ),
-    ];
-  }
-
-  static List<ChatMessage> chat(String threadId, {DateTime? now}) {
-    final n = now ?? DateTime.now();
-    final classTeacher = threadId.endsWith('_ct');
-    if (classTeacher) {
-      return [
-        ChatMessage(
-          id: '${threadId}_1',
-          threadId: threadId,
-          fromParent: true,
-          text:
-              'Good morning, ma\'am. Could you share how my child is doing in class this month?',
-          at: n.subtract(const Duration(hours: 5)),
-        ),
-        ChatMessage(
-          id: '${threadId}_2',
-          threadId: threadId,
-          fromParent: false,
-          text:
-              'Good morning Mr. Sharma. Very good participation. Needs a little more practice with word problems.',
-          at: n.subtract(const Duration(hours: 4)),
-        ),
-        ChatMessage(
-          id: '${threadId}_3',
-          threadId: threadId,
-          fromParent: true,
-          text: 'Thank you, I will keep an eye on it.',
-          at: n.subtract(const Duration(hours: 3)),
-        ),
-      ];
-    }
-    return [
-      ChatMessage(
-        id: '${threadId}_1',
-        threadId: threadId,
-        fromParent: true,
-        text: 'Is the project deadline still Friday?',
-        at: n.subtract(const Duration(days: 2, hours: 1)),
-      ),
-      ChatMessage(
-        id: '${threadId}_2',
-        threadId: threadId,
-        fromParent: false,
-        text: 'Project submission has been extended by two days.',
-        at: n.subtract(const Duration(days: 2)),
       ),
     ];
   }

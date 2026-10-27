@@ -8,19 +8,19 @@ import 'chat_states.dart';
 export 'chat_events.dart';
 export 'chat_states.dart';
 
-/// One conversation with a teacher.
+/// One conversation (Figma 4.1). Opening it marks it read; new messages arrive through the
+/// repository's cache-first stream.
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc(this._repo) : super(const ChatState()) {
     on<OpenChat>((event, emit) async {
       emit(ChatState(threadId: event.threadId));
       await emit.forEach(
-        _repo.watchMessages(event.threadId),
-        onData: (m) => ChatState(
-          status: LoadStatus.loaded,
-          messages: m,
-          threadId: event.threadId,
-        ),
-        onError: (e, _) => state.messages.isNotEmpty
+        _repo.watchConversation(event.threadId),
+        onData: (c) {
+          if (c.thread.unread > 0) _repo.markRead(event.threadId);
+          return state.copyWith(status: LoadStatus.loaded, conversation: c);
+        },
+        onError: (e, _) => state.conversation != null
             ? state
             : ChatState(
                 status: LoadStatus.error,
@@ -32,10 +32,10 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     on<SendChatMessage>((event, emit) async {
       final id = state.threadId;
       final text = event.text.trim();
-      if (id == null || text.isEmpty) return;
+      if (id == null || (text.isEmpty && event.attachments.isEmpty)) return;
       emit(state.copyWith(sending: true, clearError: true));
       try {
-        await _repo.send(id, text);
+        await _repo.send(id, text, attachments: event.attachments);
         emit(state.copyWith(sending: false));
       } catch (e) {
         emit(state.copyWith(sending: false, error: errorMessage(e)));

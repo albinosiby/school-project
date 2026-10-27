@@ -1,12 +1,72 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:parent_app/config/routes/routes.dart';
 import 'package:parent_app/core/bloc/child_data_bloc.dart';
+import 'package:parent_app/design_system/design_system.dart';
 import 'package:parent_app/di/demo_data.dart';
 import 'package:parent_app/di/injection.dart';
 import 'package:parent_app/modules/attendance/bloc/attendance_bloc.dart';
+import 'package:parent_app/modules/auth/bloc/auth_bloc.dart';
 import 'package:parent_app/modules/family/bloc/family_bloc.dart';
+import 'package:parent_app/modules/family/screens/select_child_screen.dart';
+import 'package:parent_app/modules/family/screens/widgets/parent_tab_header.dart';
 import 'package:parent_app/modules/homework/bloc/homework_bloc.dart';
 import 'helpers/pump_app.dart';
+
+/// A tab-like page with the parent header, plus the routes the header opens (stubs except Select Student).
+Future<GoRouter> _pumpHeader(WidgetTester t) async {
+  ignoreOverflow();
+  t.view.physicalSize = const Size(402, 874);
+  t.view.devicePixelRatio = 1;
+  addTearDown(t.view.reset);
+  getIt<FamilyBloc>().add(const LoadFamily());
+  Widget stub(String s) => Scaffold(body: Center(child: Text('stub $s')));
+  final router = GoRouter(
+    initialLocation: RoutePaths.home,
+    routes: [
+      GoRoute(
+        path: RoutePaths.home,
+        builder: (_, _) => Scaffold(
+          body: Column(
+            children: [
+              const ParentTabHeader(title: 'Home'),
+              Expanded(
+                child: BlocBuilder<FamilyBloc, FamilyState>(
+                  builder: (_, s) => Text('showing ${s.selected?.name}'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.selectChild,
+        builder: (_, _) => const SelectChildScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.notifications,
+        builder: (_, _) => stub('notifications'),
+      ),
+      GoRoute(path: RoutePaths.profile, builder: (_, _) => stub('profile')),
+    ],
+  );
+  await t.pumpWidget(
+    ScreenUtilInit(
+      designSize: const Size(402, 874),
+      builder: (_, _) => MultiBlocProvider(
+        providers: [
+          BlocProvider.value(value: getIt<AuthBloc>()),
+          BlocProvider.value(value: getIt<FamilyBloc>()),
+        ],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    ),
+  );
+  await t.pumpAndSettle();
+  return router;
+}
 
 void main() {
   group('FamilyBloc', () {
@@ -40,6 +100,17 @@ void main() {
         expect(bloc.state.selected?.id, DemoData.ananya.id);
       },
     );
+
+    test('ClearFamily forgets the family and the selection', () async {
+      await setUpTestApp(signedIn: true);
+      final bloc = getIt<FamilyBloc>()..add(const LoadFamily());
+      await bloc.stream.firstWhere((s) => s.status == LoadStatus.loaded);
+      bloc.add(SelectChild(DemoData.ananya.id));
+      await bloc.stream.firstWhere((s) => s.selectedId == DemoData.ananya.id);
+      bloc.add(const ClearFamily());
+      final s = await bloc.stream.firstWhere((s) => s.family == null);
+      expect(s.selected, isNull);
+    });
   });
 
   group('child scoped data', () {
@@ -65,35 +136,75 @@ void main() {
       final s = await bloc.stream.firstWhere(
         (s) => s.childId == DemoData.ananya.id && s.hasData,
       );
-      expect(
-        s.data!.on(DateTime.now()),
-        isNull,
-      ); // Ananya is "not marked yet" today
+      expect(s.data!.on(DateTime.now()), isNull); // Ananya: not marked yet
     });
   });
 
-  group('child switcher UI', () {
-    testWidgets('tapping Ananya changes the Today header and class', (t) async {
+  test('academic year label starts in April', () {
+    expect(academicYearLabel(DateTime(2026, 3, 31)), 'AY 2025–26');
+    expect(academicYearLabel(DateTime(2026, 4, 1)), 'AY 2026–27');
+  });
+
+  group('parent tab header + child switcher', () {
+    testWidgets('chips switch the child; bell and avatar open their screens', (
+      t,
+    ) async {
       await setUpTestApp(signedIn: true);
-      await pumpApp(t);
-      expect(find.textContaining('for Aarav - Grade 10-B'), findsOneWidget);
+      final router = await _pumpHeader(t);
+      expect(find.text('EduAdmin'), findsOneWidget);
+      expect(find.text('showing Aarav Sharma'), findsOneWidget);
 
       await t.tap(find.byKey(ValueKey('child-chip-${DemoData.ananya.id}')));
       await t.pumpAndSettle();
-      expect(find.textContaining('for Ananya - Grade 8-C'), findsOneWidget);
-      expect(find.textContaining('for Aarav'), findsNothing);
+      expect(find.text('showing Ananya Sharma'), findsOneWidget);
+
+      await t.tap(find.byKey(const Key('header-bell')));
+      await t.pumpAndSettle();
+      expect(find.text('stub notifications'), findsOneWidget);
+      router.pop();
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const Key('header-avatar')));
+      await t.pumpAndSettle();
+      expect(find.text('stub profile'), findsOneWidget);
     });
 
-    testWidgets('selection carries to other tabs', (t) async {
+    testWidgets(
+      '"Switch profile" opens Select Student and returns with the new child',
+      (t) async {
+        final launcher = await setUpTestApp(signedIn: true);
+        await _pumpHeader(t);
+        await t.ensureVisible(find.byKey(const Key('switch-profile')));
+        await t.tap(find.byKey(const Key('switch-profile')));
+        await t.pumpAndSettle();
+
+        expect(find.text('Select Student Profile'), findsOneWidget);
+        expect(find.text('Active'), findsOneWidget);
+        expect(find.text('Linked Child'), findsOneWidget);
+        expect(find.text('Continue with Aarav Sharma'), findsOneWidget);
+
+        await t.tap(find.text('Contact Registrar'));
+        await t.pumpAndSettle();
+        expect(launcher.opened, hasLength(1));
+
+        await t.tap(find.byKey(ValueKey('select-child-${DemoData.ananya.id}')));
+        await t.pump();
+        await t.tap(find.text('Continue with Ananya Sharma'));
+        await t.pumpAndSettle();
+        expect(find.text('showing Ananya Sharma'), findsOneWidget);
+        expect(find.text('Now showing Ananya Sharma'), findsOneWidget);
+      },
+    );
+
+    testWidgets('pushed Select Student has a working back button', (t) async {
       await setUpTestApp(signedIn: true);
-      await pumpApp(t);
-      await t.tap(find.byKey(ValueKey('child-chip-${DemoData.ananya.id}')));
+      await _pumpHeader(t);
+      await t.tap(find.byKey(const Key('switch-profile')));
       await t.pumpAndSettle();
-      await t.tap(find.text('Learn'));
+      // Back button is shown because the screen was pushed.
+      expect(find.byTooltip('Back'), findsOneWidget);
+      await t.tap(find.byTooltip('Back'));
       await t.pumpAndSettle();
-      // Ananya's homework, not Aarav's.
-      expect(find.text('Linear equations worksheet'), findsOneWidget);
-      expect(find.text('Quadratic equations - Exercise 4.2'), findsNothing);
+      expect(find.text('showing Aarav Sharma'), findsOneWidget);
     });
   });
 }

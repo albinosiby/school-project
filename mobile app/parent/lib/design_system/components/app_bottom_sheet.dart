@@ -3,13 +3,16 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../tokens/app_tokens.dart';
 
 /// Standard modal bottom sheet with drag handle and title (used for every "Popup" frame).
+/// From a tab screen pass [useRootNavigator] so the sheet covers the floating dock.
 Future<V?> showAppSheet<V>(
   BuildContext context, {
   required String title,
   String? subtitle,
   required Widget Function(BuildContext) builder,
+  bool useRootNavigator = false,
 }) => showModalBottomSheet<V>(
   context: context,
+  useRootNavigator: useRootNavigator,
   isScrollControlled: true,
   useSafeArea: true,
   backgroundColor: C.bg,

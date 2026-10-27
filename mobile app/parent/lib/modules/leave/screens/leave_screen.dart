@@ -6,6 +6,7 @@ import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
 import '../../../utils/helpers/date_helper.dart';
 import '../../family/screens/widgets/child_switcher.dart';
+import '../../home/screens/widgets/parent_page_scaffold.dart';
 import '../bloc/leave_bloc.dart';
 import '../models/leave_models.dart';
 
@@ -19,9 +20,8 @@ class LeaveScreen extends StatelessWidget {
   const LeaveScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => DetailScaffold(
-    title: 'Leave',
-    subtitle: 'Applications and history',
+  Widget build(BuildContext context) => ParentPageScaffold(
+    title: 'Leave history',
     fallbackRoute: RoutePaths.more,
     bottom: AppButton(
       'Apply for leave',
@@ -45,7 +45,7 @@ class LeaveScreen extends StatelessWidget {
                 for (final r in data)
                   Padding(
                     padding: EdgeInsets.only(bottom: 10.h),
-                    child: AppCard(
+                    child: AppElevatedCard(
                       padding: EdgeInsets.all(14.w),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,11 +69,19 @@ class LeaveScreen extends StatelessWidget {
                           ),
                           SizedBox(height: 2.h),
                           Text(
-                            '${r.days} day${r.days == 1 ? '' : 's'} - applied ${fmtShort(r.appliedOn)}',
+                            '${r.type.label} • ${r.days} day${r.days == 1 ? '' : 's'} • applied ${fmtShort(r.appliedOn)}',
                             style: T.small,
                           ),
                           SizedBox(height: 8.h),
                           Text(r.reason, style: T.body.copyWith(color: C.ink)),
+                          if (r.attachment != null) ...[
+                            SizedBox(height: 8.h),
+                            AppFileChip(
+                              name: r.attachment!,
+                              sub: 'Attached',
+                              tone: Tone.brand,
+                            ),
+                          ],
                           if (r.reviewerNote != null) ...[
                             SizedBox(height: 8.h),
                             AppInfoTile(

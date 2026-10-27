@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../models/message_models.dart';
 
 sealed class ChatEvent extends Equatable {
   const ChatEvent();
@@ -6,6 +7,7 @@ sealed class ChatEvent extends Equatable {
   List<Object?> get props => [];
 }
 
+/// Load a conversation (and mark it read).
 class OpenChat extends ChatEvent {
   const OpenChat(this.threadId);
   final String threadId;
@@ -14,8 +16,9 @@ class OpenChat extends ChatEvent {
 }
 
 class SendChatMessage extends ChatEvent {
-  const SendChatMessage(this.text);
+  const SendChatMessage(this.text, {this.attachments = const []});
   final String text;
+  final List<MessageAttachment> attachments;
   @override
-  List<Object?> get props => [text];
+  List<Object?> get props => [text, attachments];
 }

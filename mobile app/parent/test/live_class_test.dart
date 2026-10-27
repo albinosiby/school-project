@@ -67,7 +67,7 @@ void main() {
     ignoreOverflow();
     await t.pumpWidget(
       ScreenUtilInit(
-        designSize: const Size(390, 844),
+        designSize: const Size(402, 874),
         builder: (_, _) => MaterialApp(
           theme: AppTheme.light,
           home: Scaffold(
@@ -120,7 +120,7 @@ void main() {
         BlocProvider<LiveClassesBloc>(
           create: (_) => getIt<LiveClassesBloc>(),
           child: ScreenUtilInit(
-            designSize: const Size(390, 844),
+            designSize: const Size(402, 874),
             builder: (_, _) => MaterialApp(
               home: Builder(
                 builder: (ctx) => TextButton(
@@ -148,7 +148,7 @@ void main() {
         BlocProvider<LiveClassesBloc>(
           create: (_) => getIt<LiveClassesBloc>(),
           child: ScreenUtilInit(
-            designSize: const Size(390, 844),
+            designSize: const Size(402, 874),
             builder: (_, _) => MaterialApp(
               theme: AppTheme.light,
               home: Builder(

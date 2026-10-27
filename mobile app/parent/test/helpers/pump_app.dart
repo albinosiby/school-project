@@ -54,7 +54,7 @@ void ignoreOverflow() {
 /// Pumps the whole app (router + guard) at the phone design size.
 Future<void> pumpApp(WidgetTester tester, {String? location}) async {
   ignoreOverflow();
-  tester.view.physicalSize = const Size(390, 844);
+  tester.view.physicalSize = const Size(402, 874);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final router = createRouter(

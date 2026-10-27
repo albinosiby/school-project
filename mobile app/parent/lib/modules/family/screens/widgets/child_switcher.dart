@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+import '../../../../config/routes/routes.dart';
 import '../../../../design_system/design_system.dart';
 import '../../bloc/family_bloc.dart';
 import '../../models/family_models.dart';
 
-/// Header child switcher: one chip per child (name + class). Tapping switches the data of every tab.
+/// Header child switcher: one chip per child (name + class) and a "Switch profile" chip that opens
+/// Select Student Profile. Tapping a child switches the data of every tab.
 class ChildSwitcher extends StatelessWidget {
   const ChildSwitcher({super.key});
 
@@ -15,15 +18,23 @@ class ChildSwitcher extends StatelessWidget {
       return Container(
         height: 64.h,
         color: C.bg,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          padding: EdgeInsets.symmetric(horizontal: S.page, vertical: 8.h),
-          itemCount: state.children.length,
-          separatorBuilder: (_, _) => SizedBox(width: 10.w),
-          itemBuilder: (_, i) => _ChildChip(
-            child: state.children[i],
-            selected: state.children[i].id == state.selected?.id,
-          ),
+        child: Row(
+          children: [
+            Expanded(
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.fromLTRB(S.page, 8.h, 8.w, 8.h),
+                itemCount: state.children.length,
+                separatorBuilder: (_, _) => SizedBox(width: 10.w),
+                itemBuilder: (_, i) => _ChildChip(
+                  child: state.children[i],
+                  selected: state.children[i].id == state.selected?.id,
+                ),
+              ),
+            ),
+            const _SwitchProfileButton(),
+            SizedBox(width: S.page - 4.w),
+          ],
         ),
       );
     },
@@ -82,5 +93,23 @@ class _ChildChip extends StatelessWidget {
         ),
       ),
     ),
+  );
+}
+
+/// Opens Select Student Profile (Figma "Onboarding 4": "switch profiles anytime").
+class _SwitchProfileButton extends StatelessWidget {
+  const _SwitchProfileButton();
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    key: const Key('switch-profile'),
+    tooltip: 'Switch profile',
+    onPressed: () => context.push(RoutePaths.selectChild),
+    style: IconButton.styleFrom(
+      backgroundColor: C.surface,
+      side: const BorderSide(color: C.border),
+      minimumSize: Size(44.r, 44.r),
+    ),
+    icon: Icon(Icons.swap_horiz_rounded, size: 20.r, color: C.primary),
   );
 }

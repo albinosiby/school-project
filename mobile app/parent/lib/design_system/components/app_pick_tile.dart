@@ -80,6 +80,7 @@ class AppPickTile extends StatelessWidget {
 }
 
 /// Picks one of [items] in a standard bottom sheet; returns null when dismissed.
+/// From a tab screen pass [useRootNavigator] so the sheet covers the floating dock.
 Future<V?> showPickSheet<V>(
   BuildContext context, {
   required String title,
@@ -87,9 +88,11 @@ Future<V?> showPickSheet<V>(
   required String Function(V) label,
   String Function(V)? sub,
   V? selected,
+  bool useRootNavigator = false,
 }) => showAppSheet<V>(
   context,
   title: title,
+  useRootNavigator: useRootNavigator,
   builder: (ctx) => Column(
     children: [
       for (final i in items)

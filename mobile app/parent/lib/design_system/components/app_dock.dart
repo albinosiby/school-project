@@ -5,9 +5,14 @@ import '../tokens/app_tokens.dart';
 
 /// One tab of the floating dock / rail / drawer.
 class AppNavItem {
-  const AppNavItem(this.icon, this.selectedIcon, this.label);
+  const AppNavItem(this.icon, this.selectedIcon, this.label, {this.badge});
   final IconData icon, selectedIcon;
   final String label;
+
+  /// Optional wrapper around the icon (e.g. an unread-count badge).
+  final Widget Function(Widget icon)? badge;
+
+  Widget wrap(Widget icon) => badge == null ? icon : badge!(icon);
 }
 
 /// Floating dock bottom navigation bar (Figma "Modern Floating Dock Navigation Bar"):
@@ -141,11 +146,15 @@ class _DockItem extends StatelessWidget {
                     child: c,
                   ),
                 ),
-                child: Icon(
-                  selected ? item.selectedIcon : item.icon,
+                child: KeyedSubtree(
                   key: ValueKey(selected),
-                  size: 23.r,
-                  color: selected ? C.primary : C.slate,
+                  child: item.wrap(
+                    Icon(
+                      selected ? item.selectedIcon : item.icon,
+                      size: 23.r,
+                      color: selected ? C.primary : C.slate,
+                    ),
+                  ),
                 ),
               ),
             ),
