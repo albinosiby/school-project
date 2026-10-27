@@ -63,16 +63,8 @@ class RoutePaths {
   /// PTM screen with the booking sheet opened for [teacherId] (Teachers list -> "Book PTM").
   static String ptmWith(String teacherId) => '$ptm?teacher=$teacherId';
 
-  // Deprecated aliases for the pre-Figma tabs; remove once no module uses them.
-  static const attendance = '/academics?section=attendance';
-  static const learn = academics;
-  static const inbox = messages;
-  static String learnSection(String s) => academicsSection(s);
-  static String inboxSection(String s) => s == 'notices' ? notifications : messages;
-
   /// Auth guard targets: signed-out users land on Onboarding 1 (Welcome); a guardian who has just signed in
   /// (still on a public onboarding route) goes to Onboarding 4 (Select Student Profile).
-  /// `authRedirect` in routes_config.dart should return these instead of [login] / [home].
   static const signedOutHome = welcome;
   static const signedInHome = selectChild;
 

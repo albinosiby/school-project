@@ -34,6 +34,7 @@ Stream<T> cacheFirst<T extends Object>({
   late final StreamController<T> out;
   StreamSubscription<void>? trigger;
   var loading = false, pending = false;
+  var initialFailed = false;
 
   Future<void> run(Future<T> Function() load, {required bool hasValue}) async {
     loading = true;
@@ -43,7 +44,10 @@ Stream<T> cacheFirst<T extends Object>({
       if (!out.isClosed) out.add(fresh);
     } catch (e, st) {
       // Keep whatever is on screen; only surface the error when nothing was shown.
-      if (!hasValue && !out.isClosed) out.addError(e, st);
+      if (!hasValue && !out.isClosed) {
+        out.addError(e, st);
+        initialFailed = true;
+      }
     } finally {
       loading = false;
     }
@@ -64,9 +68,14 @@ Stream<T> cacheFirst<T extends Object>({
           run(refetch ?? fetch, hasValue: true);
         }
       });
-      // without a refresh source the stream is finite: cached value (if any), fresh value, done
       run(fetch, hasValue: cached != null).then((_) {
-        if (refreshOn == null && !out.isClosed) out.close();
+        // Like a one-shot read: end after the first fetch when nothing can refresh the stream,
+        // or when that fetch failed with nothing to show.
+        if (refreshOn == null || initialFailed) {
+          trigger?.cancel();
+          trigger = null;
+          if (!out.isClosed) out.close();
+        }
       });
     },
     onCancel: () {
