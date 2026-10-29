@@ -420,6 +420,33 @@ figma.ui.onmessage = async (msg) => {
       });
     }
 
+    // Read-only batch export avoids one PNG rasterization round trip per icon.
+    if (msg.type === "export_nodes") {
+      const p = msg.payload || {};
+      const ids = Array.isArray(p.nodeIds) ? p.nodeIds.slice(0, 80) : [];
+      const assets = [];
+      for (const id of ids) {
+        const node = await figma.getNodeByIdAsync(id);
+        if (!node || !("exportAsync" in node)) {
+          assets.push({ nodeId: id, error: "Node cannot be exported" });
+          continue;
+        }
+        try {
+          const hasImage = p.format !== "SVG" && "fills" in node && node.fills !== figma.mixed &&
+            node.fills.some((paint) => paint.type === "IMAGE");
+          const format = hasImage ? "PNG" : "SVG";
+          const options = hasImage
+            ? { format: "PNG", constraint: { type: "SCALE", value: 2 } }
+            : { format: "SVG" };
+          const bytes = await node.exportAsync(options);
+          assets.push({ nodeId: id, format, data_base64: figma.base64Encode(bytes) });
+        } catch (error) {
+          assets.push({ nodeId: id, error: String(error) });
+        }
+      }
+      return reply({ summaryText: "Exported " + assets.length + " design assets", data: { assets } });
+    }
+
     if (msg.type === "inspect") {
       const p = msg.payload || {};
       const node = p.nodeId
@@ -429,6 +456,56 @@ figma.ui.onmessage = async (msg) => {
       const depth = p.depth || 8;
       const s = await spec(node, 0, depth);
       return reply({ summaryText: "inspected " + node.name, data: { spec: s } });
+    }
+
+    if (msg.type === "view_properties") {
+      const root = await figma.getNodeByIdAsync(msg.payload.nodeId);
+      if (!root) return fail("Design section not found");
+      const nodes = {};
+      function collect(node) {
+        const info = { visible: node.visible !== false };
+        if ("clipsContent" in node) info.clips = node.clipsContent;
+        if (node.type === "TEXT") {
+          info.align = node.textAlignHorizontal;
+          info.verticalAlign = node.textAlignVertical;
+        }
+        if ("absoluteBoundingBox" in node && node.absoluteBoundingBox && node.absoluteRenderBounds) {
+          info.paintOffset = {
+            x: node.absoluteRenderBounds.x - node.absoluteBoundingBox.x,
+            y: node.absoluteRenderBounds.y - node.absoluteBoundingBox.y,
+          };
+        }
+        if ("fills" in node && node.fills !== figma.mixed) {
+          const gradient = node.fills.find((paint) => paint.visible !== false && paint.type.indexOf("GRADIENT_") === 0);
+          if (gradient) info.gradientTransform = gradient.gradientTransform;
+        }
+        nodes[node.id] = info;
+        if ("children" in node) for (const child of node.children) collect(child);
+      }
+      collect(root);
+      return reply({ summaryText: "Read layout properties for " + Object.keys(nodes).length + " nodes", data: nodes });
+    }
+
+    if (msg.type === "text_runs") {
+      const nodes = {};
+      for (const id of (msg.payload.nodeIds || []).slice(0, 100)) {
+        const node = await figma.getNodeByIdAsync(id);
+        if (!node || node.type !== "TEXT") continue;
+        nodes[id] = node.getStyledTextSegments(["fontName", "fontSize", "fills", "letterSpacing"]).map((segment) => {
+          const paint = segment.fills.find((fill) => fill.type === "SOLID");
+          return {
+            text: segment.characters,
+            family: segment.fontName.family,
+            style: segment.fontName.style,
+            size: segment.fontSize,
+            color: paint ? rgbaToHex(paint.color) : "#191C1E",
+            spacing: segment.letterSpacing.unit === "PERCENT"
+              ? segment.letterSpacing.value * segment.fontSize / 100
+              : segment.letterSpacing.value,
+          };
+        });
+      }
+      return reply({ summaryText: "Read styled text for " + Object.keys(nodes).length + " nodes", data: nodes });
     }
 
     if (msg.type === "export_assets") {

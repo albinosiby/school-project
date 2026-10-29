@@ -60,8 +60,15 @@ and read `.runtime/last.json` / `.runtime/inbox/`.
 | `tokens` | — | export variables + styles |
 | `components` | `{keywords, depth}` | scan master components |
 | `selection` | `{depth}` | export current canvas selection |
+| `inspect` | `{payload:{nodeId, depth}}` | read a node tree |
+| `render` | `{payload:{nodeId, scale}}` | export a reference PNG |
+| `export_nodes` | `{payload:{nodeIds, format}}` | export up to 80 graphic nodes; SVG can be requested explicitly |
+| `view_properties` | `{payload:{nodeId}}` | read recursive visibility, text alignment, clipping and paint bounds |
+| `text_runs` | `{payload:{nodeIds}}` | read up to 100 text nodes with styled text segments |
 | `apply.rename` | `{payload:{nodeId, name}}` | rename a node in Figma |
 | `apply.setFill` | `{payload:{nodeId, hex}}` | set a node's solid fill |
 
 `apply.*` ops are intentionally small/safe; extend `applyOp()` in
 `tools/figma_token_export/code.js` for more write-back operations.
+
+Figma may throttle polling while its window is in the background. If `request.js` times out after 25 seconds, a late response can still appear in `.runtime/inbox/`; match its `id` to the command before retrying. Large bridge results are relayed intact while the plugin displays only a compact summary.

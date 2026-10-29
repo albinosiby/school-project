@@ -1,0 +1,63 @@
+role	node_id	figma_frame
+assistant	1174:4	2 Assistant Home
+assistant	1174:330	14 Notifications
+assistant	1174:475	13.1 Module Detail
+assistant	1174:729	14.1 Notifications Detail
+assistant	1174:788	15 Profile
+assistant	1174:1058	16 Digital Pass / ID
+assistant	1174:1289	5 Student care notes (on-bus)
+assistant	1174:1433	6 Guardian Handover
+assistant	1174:1720	2.1 View Stops (8 Stops)
+assistant	1174:2296	2.2. Seat & Count
+assistant	1174:2707	7 Unknown / extra child handling
+assistant	1174:2980	8 Attendant end-of-trip check
+assistant	1174:3322	9 On-bus incident report (attendant)
+assistant	1174:3631	10 Crew quick messages
+assistant	1174:3868	11 My scan & verification log
+assistant	1174:4193	12 Attendant duty roster
+assistant	1174:4589	12.1 Swap (Popup)
+assistant	1174:4772	13 Students
+assistant	1174:5017	13 Attendant onboarding & training
+driver	1174:5271	1.Home
+driver	1174:5638	2. Trips
+driver	1174:6027	2.1 Afternoon Drop
+driver	1174:6416	3. Live
+driver	1174:6922	4. Profile
+driver	1174:7347	5. Notifications
+driver	1174:7566	Onboarding 5
+driver	1174:7629	Onboarding 6
+driver	1174:7759	Onboarding 7
+driver	1174:7892	Onboarding 8
+driver	1174:8132	1.11 Apply Leave
+driver	1174:8359	1.11.1 Change Driver (Popup)
+driver	1174:8483	1.11.1 Leave History
+driver	1174:8717	1.11.1.1 Leave View Details
+driver	1174:8829	5.1 Notification Detail
+driver	1174:8924	4.1 Edit Profile
+driver	1174:9182	4.2 Settings
+driver	1174:9379	4.1.1 Change Profile Image (Popup)
+driver	1174:9484	4.11 Show Digital Pass / ID
+driver	1174:9679	4.11.1 QR Code (Popup)
+driver	1174:9783	1.1 Pre - Trip Checklist
+driver	1174:10127	1.2 Student Manifest
+driver	1174:10392	1.4 Trip History
+driver	1174:10742	1.4.1 View History
+driver	1174:11153	1.12 Lost & Found
+driver	1174:11370	1.12.1 Returned
+driver	1174:11710	1.12.1 Returned Item Detail
+driver	1174:11926	1.12.3  Report Found Item
+driver	1174:12168	1.12.2.1  Message Office
+driver	1174:12354	1.12.2 Lost Item Detail
+driver	1174:12538	1.13 Fuel Log
+driver	1174:12802	1.14 Transport Notices
+driver	1174:12995	1.14.1 Transport Notice Detail
+driver	1174:13069	1.3.1 View Service Schedule
+driver	1174:13368	1.4.11 Score Analysis
+driver	1174:13666	1.4.12 View All (Payslips
+driver	1174:13983	1.3.2 Report Vehicle Fault
+driver	1174:14244	1.15 End Active TripvSubmit
+driver	1174:14506	1.4.1.1 View Boarded Students (Popup)
+driver	1174:14717	1.3 Vehicle Details
+driver	1174:15003	1 Crew Role & Pairing
+driver	1174:15282	1.1 Crew Role & Pairing
+driver	1174:15553	3 Pair to driver's trip / take over

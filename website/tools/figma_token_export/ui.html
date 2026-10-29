@@ -228,7 +228,9 @@
           return;
         }
         if (msg.type === "result") {
-          jsonText = JSON.stringify(msg.data, null, 2);
+          // Large bridge exports are relayed intact without laying out megabytes
+          // of image bytes in the plugin's textarea.
+          jsonText = JSON.stringify(msg.cmdId ? { summary: msg.summaryText } : msg.data, null, 2);
           out.value = jsonText;
           summary.textContent = msg.summaryText;
           if (bridge.connected) {
