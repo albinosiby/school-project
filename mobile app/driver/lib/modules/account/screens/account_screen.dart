@@ -10,6 +10,27 @@ class AccountScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scene = SceneScreen<AccountCubit>(id: id);
+    if (id == '330') {
+      return Stack(
+        children: [
+          scene,
+          Positioned(
+            top: 50,
+            right: 105,
+            child: PopupMenuButton<String>(
+              tooltip: 'Notification options',
+              onSelected: (id) => context.push(AppRoutes.path(id)),
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: '729',
+                  child: Text('Route diversion bulletin'),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     if (id != '6922' && id != '788') return scene;
     return Stack(
       children: [
@@ -28,6 +49,10 @@ class AccountScreen extends StatelessWidget {
               const PopupMenuItem(
                 value: '15003',
                 child: Text('Change crew role'),
+              ),
+              const PopupMenuItem(
+                value: '15553',
+                child: Text('Pair or take over trip'),
               ),
               PopupMenuItem(
                 value: id == '788' ? '1058' : '9484',

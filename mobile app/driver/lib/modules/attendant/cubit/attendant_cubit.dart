@@ -1,4 +1,5 @@
 import '../../../core/cubit/action_cubit.dart';
+import '../../../core/models/view_model.dart';
 import '../../transport/repositories/trip_repository.dart';
 import '../repositories/attendant_view_repository.dart';
 
@@ -30,17 +31,24 @@ class AttendantCubit extends ActionCubit {
       return;
     }
     if (lower.contains('complete sweep')) {
-      if (state.selected.length < 3) {
+      if (!state.selected.containsAll({
+        '1174_3138',
+        '1174_3150',
+        '1174_3162',
+      })) {
         notify('Check all cabin zones before completing the sweep.');
         return;
       }
-      await save();
+      if (!await save()) return;
       navigate('4193');
       return;
     }
-    if (lower.contains('submit') &&
-        state.values.values.any((v) => v.trim().isEmpty)) {
+    if (lower.contains('submit') && hasMissingRequiredFields) {
       notify('Complete the required report details.');
+      return;
+    }
+    if (state.screen?.id == '4589' && lower.startsWith('submit')) {
+      if (await save()) emit(state.copy(effect: const CloseView()));
       return;
     }
     await super.handle(label, nodeId);

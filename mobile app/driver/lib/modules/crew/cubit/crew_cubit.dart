@@ -20,6 +20,17 @@ class CrewCubit extends ActionCubit {
         navigate('15003');
         return;
       }
+      if (state.screen?.id == '15553' && text.contains('authorize handshake')) {
+        final pin = state.values.values
+            .where((v) => RegExp(r'^\d$').hasMatch(v))
+            .join();
+        if (pin != '842910') {
+          notify(
+            'Use demo pairing PIN 842910. No hardware handshake is performed.',
+          );
+          return;
+        }
+      }
       if (text.contains('confirm pairing') ||
           text.contains('authorize handshake')) {
         final role = text.contains('driver')

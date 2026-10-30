@@ -32,7 +32,10 @@ class ViewNode {
     this.lineHeight,
     this.action,
     this.input = false,
+    this.readOnly = false,
     this.inputHint,
+    this.interaction,
+    this.toggleFor,
     this.fieldPadding = const [10, 8, 10, 8],
     this.multiline = false,
     this.scroll = false,
@@ -54,8 +57,8 @@ class ViewNode {
       binding,
       semanticLabel;
   final double? lineHeight, assetWidth, assetHeight;
-  final bool input, multiline, scroll;
-  final String? inputHint;
+  final bool input, multiline, scroll, readOnly;
+  final String? inputHint, interaction, toggleFor;
   final List<double> fieldPadding;
   final List<ViewNode> children;
   final List<ViewTextRun> textRuns;
@@ -72,11 +75,13 @@ class ScreenModel extends Equatable {
     required this.root,
     required this.modal,
     this.initialValues = const {},
+    this.initialSelected = const {},
   });
   final String id, title, role, feature;
   final ViewNode root;
   final bool modal;
   final Map<String, String> initialValues;
+  final Set<String> initialSelected;
   @override
   List<Object?> get props => [id, role];
 }

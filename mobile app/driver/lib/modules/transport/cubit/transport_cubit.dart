@@ -44,9 +44,14 @@ class TransportCubit extends ActionCubit {
         notify('Student boarding recorded.');
         return;
       }
-      if (lower.contains('complete') ||
-          lower.contains('end trip') ||
-          lower.contains('submit') && state.screen?.id == '14244') {
+      if (state.screen?.id == '14244' && lower.startsWith('submit summary')) {
+        const checks = {'1174_14349', '1174_14359', '1174_14369', '1174_14379'};
+        if (!state.selected.containsAll(checks)) {
+          notify(
+            'Confirm all four end-of-trip checks before closing the session.',
+          );
+          return;
+        }
         trips.finish();
         notify('Trip completed and saved in this demo session.');
         navigate('10392');

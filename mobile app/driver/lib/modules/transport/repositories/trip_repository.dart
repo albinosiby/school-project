@@ -28,6 +28,12 @@ class LocalTripRepository implements TripRepository {
 
   @override
   TripSnapshot start() {
+    if (_state.status == TripStatus.active) return _state;
+    if (_state.status == TripStatus.completed) {
+      throw StateError(
+        'This demo trip is complete. Start a new demo session to reset it.',
+      );
+    }
     if (_state.checked.length < 2) {
       throw StateError('Complete the two manual pre-trip safety checks first.');
     }

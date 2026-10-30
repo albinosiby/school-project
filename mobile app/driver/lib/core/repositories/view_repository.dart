@@ -4,7 +4,11 @@ import '../models/view_model.dart';
 
 abstract interface class ViewRepository {
   Future<ScreenModel> load(String id);
-  Future<void> save(String id, Map<String, String> values);
+  Future<void> save(
+    String id,
+    Map<String, String> values, {
+    Set<String> selected = const {},
+  });
   void clear();
 }
 
@@ -12,6 +16,7 @@ abstract interface class ViewRepository {
 class LocalViewRepository implements ViewRepository {
   final Map<String, ScreenModel> _cache = {};
   final Map<String, Map<String, String>> _drafts = {};
+  final Map<String, Set<String>> _selectedDrafts = {};
   @override
   Future<ScreenModel> load(String id) async {
     if (_cache.containsKey(id)) return _cache[id]!;
@@ -25,6 +30,7 @@ class LocalViewRepository implements ViewRepository {
       feature: raw['feature'] as String,
       root: _node(raw['root'] as Map<String, dynamic>),
       modal: raw['modal'] as bool,
+      initialSelected: _selectedDrafts[id] ?? const {},
       initialValues: Map<String, String>.from(raw['initialValues'] as Map)
         ..addAll(_drafts[id] ?? {}),
     );
@@ -77,7 +83,10 @@ class LocalViewRepository implements ViewRepository {
     lineHeight: (n['lineHeight'] as num?)?.toDouble(),
     action: n['action'] as String?,
     input: n['input'] as bool? ?? false,
+    readOnly: n['readOnly'] as bool? ?? false,
     inputHint: n['inputHint'] as String?,
+    interaction: n['interaction'] as String?,
+    toggleFor: n['toggleFor'] as String?,
     fieldPadding: (n['fieldPadding'] as List? ?? [10, 8, 10, 8])
         .map((v) => (v as num).toDouble())
         .toList(),
@@ -99,7 +108,12 @@ class LocalViewRepository implements ViewRepository {
         .toList(),
   );
   @override
-  Future<void> save(String id, Map<String, String> values) async {
+  Future<void> save(
+    String id,
+    Map<String, String> values, {
+    Set<String> selected = const {},
+  }) async {
+    _selectedDrafts[id] = Set.unmodifiable(selected);
     _drafts[id] = Map.unmodifiable(values);
     _cache.remove(id);
   }
@@ -108,5 +122,6 @@ class LocalViewRepository implements ViewRepository {
   void clear() {
     _cache.clear();
     _drafts.clear();
+    _selectedDrafts.clear();
   }
 }

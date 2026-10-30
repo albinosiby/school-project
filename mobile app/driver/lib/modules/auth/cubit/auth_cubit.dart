@@ -10,7 +10,7 @@ class AuthCubit extends ActionCubit {
   Future<void> handle(String label, String nodeId) async {
     final lower = label.toLowerCase();
     try {
-      if (lower.contains('verify')) {
+      if (lower == 'verify & sign in') {
         final code = state.values.values
             .where((v) => RegExp(r'^\d$').hasMatch(v))
             .join();
@@ -29,12 +29,16 @@ class AuthCubit extends ActionCubit {
         return;
       }
       if (lower.contains('resend') || lower.contains('voice call')) {
-        await session.requestCode(session.state.phone);
+        await session.requestCode(session.requestedPhone);
         notify('Demo code: 482916. No SMS was sent.');
         return;
       }
       if (lower == 'sign up') {
-        await save();
+        if (hasMissingRequiredFields) {
+          notify('Complete the registration fields before saving.');
+          return;
+        }
+        if (!await save()) return;
         notify('Demo registration saved for review. Sign in to continue.');
         return;
       }

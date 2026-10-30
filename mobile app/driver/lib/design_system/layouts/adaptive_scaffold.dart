@@ -21,7 +21,7 @@ class AdaptiveScaffold extends StatelessWidget {
         ScreenType.desktop => 520.0,
       };
       return Scaffold(
-        extendBody: true,
+        extendBody: false,
         body: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: width),

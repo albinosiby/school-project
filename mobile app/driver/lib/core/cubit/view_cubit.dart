@@ -18,6 +18,7 @@ class ViewCubit extends Cubit<ViewState> {
             screen: screen,
             loading: false,
             values: screen.initialValues,
+            selected: screen.initialSelected,
           ),
         );
       }
@@ -45,16 +46,36 @@ class ViewCubit extends Cubit<ViewState> {
 
   void navigate(String id) => emit(state.copy(effect: NavigateTo(id)));
   void notify(String message) => emit(state.copy(effect: ShowMessage(message)));
-  Future<void> save() async {
+  bool get hasMissingRequiredFields {
+    Iterable<ViewNode> inputs(ViewNode node) sync* {
+      if (node.input &&
+          !(node.inputHint ?? '').toLowerCase().startsWith('search')) {
+        yield node;
+      }
+      for (final child in node.children) {
+        yield* inputs(child);
+      }
+    }
+
     final screen = state.screen;
-    if (screen == null) return;
+    return screen != null &&
+        inputs(
+          screen.root,
+        ).any((n) => (state.values[n.id] ?? '').trim().isEmpty);
+  }
+
+  Future<bool> save() async {
+    final screen = state.screen;
+    if (screen == null) return false;
     try {
-      await repository.save(screen.id, state.values);
+      await repository.save(screen.id, state.values, selected: state.selected);
       if (!isClosed) notify('Saved for this demo session.');
+      return true;
     } catch (_) {
       if (!isClosed) {
         notify('Unable to save. Your changes are still here; please retry.');
       }
+      return false;
     }
   }
 }

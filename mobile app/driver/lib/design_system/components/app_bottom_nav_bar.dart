@@ -47,6 +47,7 @@ class AppBottomNavBar extends StatelessWidget {
                   child: Semantics(
                     selected: i == index,
                     child: InkWell(
+                      key: ValueKey('nav:$i'),
                       borderRadius: BorderRadius.circular(16),
                       onTap: () => onTap(i),
                       child: Padding(

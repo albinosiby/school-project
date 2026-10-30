@@ -32,6 +32,12 @@ class TripSessionCubit extends Cubit<TripSnapshot> implements TripRepository {
 
   Map<String, String> get bindings => {
     'trip.boarded': state.boarded.length.toString(),
+    'trip.onboardLabel':
+        '${state.boarded.length} Student${state.boarded.length == 1 ? '' : 's'} Onboard',
+    'trip.seats':
+        'Total Vehicle Seats: 34 (${34 - state.boarded.length} Seats Available)',
+    'trip.capacity': '${(state.boarded.length / 34 * 100).round()}% CAP',
+    'trip.stopBoarded': '${state.boarded.length.clamp(0, 6)} / 6',
     'trip.boardedRatio': '${state.boarded.length} / 34',
     'trip.pendingChecks': '${2 - state.checked.length.clamp(0, 2)} Pending',
     'trip.checked': '${14 + state.checked.length.clamp(0, 2)} of 16 Done',

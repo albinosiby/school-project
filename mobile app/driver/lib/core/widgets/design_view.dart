@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../models/view_model.dart';
@@ -26,67 +27,88 @@ class DesignView extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) {
       final scale = box.maxWidth / 402;
-      final delta = box.maxHeight - screen.root.height * scale;
-      bool pinned(ViewNode n) =>
-          n.y > screen.root.height * .75 && n.height < 160 && !n.scroll;
-      double top(ViewNode n) => n.y * scale + (pinned(n) ? delta : 0);
-      final pinnedTops = screen.root.children.where(pinned).map(top);
-      final bottom = pinnedTops.isEmpty
-          ? box.maxHeight - 16
-          : pinnedTops.reduce(math.min) - 12;
+      final safeBottom = MediaQuery.paddingOf(context).bottom;
+      final availableHeight = box.maxHeight - safeBottom;
+      final delta = availableHeight - screen.root.height * scale;
       bool header(ViewNode n) => n.y < 120 && n.height < 100;
-      bool needsScroll(ViewNode n) =>
-          n.scroll ||
-          (n.asset == null &&
-              n.text == null &&
-              n.children.isNotEmpty &&
-              n.height * scale > bottom - top(n) + 6 &&
-              n.height > 160);
-      final headerBottom = screen.root.children
-          .where(header)
-          .fold<double>(
-            0,
-            (edge, n) => math.max(edge, top(n) + n.height * scale),
-          );
-      double inset(ViewNode n) =>
-          needsScroll(n) ? math.max(0, headerBottom - top(n)) : 0;
-      final ordered = [
-        ...screen.root.children.where((n) => !header(n)),
-        ...screen.root.children.where(header),
-      ];
+      bool pinned(ViewNode n) =>
+          n.y > screen.root.height * .75 &&
+          n.y < screen.root.height &&
+          n.height < 160 &&
+          !n.scroll;
+      final headers = screen.root.children.where(header).toList();
+      final footers = screen.root.children.where(pinned).toList();
+      final body = screen.root.children
+          .where((n) => !header(n) && !pinned(n))
+          .toList();
+      final top = headers.fold<double>(
+        0,
+        (v, n) => math.max(v, (n.y + n.height) * scale),
+      );
+      double footerTop(ViewNode n) => n.y * scale + delta;
+      final bottom = footers.fold<double>(
+        availableHeight - 16,
+        (v, n) => math.min(v, footerTop(n) - 12),
+      );
+      double extent(ViewNode n) => math.max(
+        n.height,
+        n.children.fold<double>(0, (v, c) => math.max(v, c.y + c.height)),
+      );
+      final bodyEnd = body.fold<double>(
+        top,
+        (v, n) => math.max(v, (n.y + extent(n)) * scale),
+      );
       return ColoredBox(
         color: _color(screen.root.fill, const Color(0xFFF7F9FB)),
         child: ClipRect(
           child: SizedBox.expand(
             child: Stack(
-              clipBehavior: Clip.none,
               children: [
-                for (final child in ordered)
+                Positioned(
+                  left: 0,
+                  top: top,
+                  width: box.maxWidth,
+                  height: math.max(1, bottom - top),
+                  child: Scrollbar(
+                    child: SingleChildScrollView(
+                      key: PageStorageKey('${screen.id}/page'),
+                      primary: false,
+                      physics: const ClampingScrollPhysics(),
+                      child: SizedBox(
+                        width: box.maxWidth,
+                        height: math.max(bottom - top, bodyEnd - top),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            for (final n in body)
+                              Positioned(
+                                left: n.x * scale,
+                                top: n.y * scale - top,
+                                width: n.width * scale,
+                                height: extent(n) * scale,
+                                child: _node(
+                                  context,
+                                  n,
+                                  scale,
+                                  expandViewport: true,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                for (final n in [...headers, ...footers])
                   Positioned(
-                    left: child.x * scale,
-                    top: top(child) + inset(child),
-                    width: child.width * scale,
-                    height: needsScroll(child)
-                        ? math.min(
-                            child.height * scale,
-                            math.max(100, bottom - top(child) - inset(child)),
-                          )
-                        : child.height * scale,
-                    child: header(child)
-                        ? ColoredBox(
-                            color: _color(
-                              screen.root.fill,
-                              const Color(0xFFF7F9FB),
-                            ),
-                            child: _node(context, child, scale),
-                          )
-                        : _node(
-                            context,
-                            child,
-                            scale,
-                            forceScroll: needsScroll(child),
-                            scrollInset: inset(child) / scale,
-                          ),
+                    left: n.x * scale,
+                    top: header(n) ? n.y * scale : footerTop(n),
+                    width: n.width * scale,
+                    height: n.height * scale,
+                    child: ColoredBox(
+                      color: _color(screen.root.fill, const Color(0xFFF7F9FB)),
+                      child: _node(context, n, scale),
+                    ),
                   ),
               ],
             ),
@@ -144,12 +166,20 @@ class DesignView extends StatelessWidget {
     BuildContext context,
     ViewNode n,
     double s, {
-    bool forceScroll = false,
-    double scrollInset = 0,
+    bool expandViewport = false,
   }) {
     if (n.width <= 0 || n.height <= 0) return const SizedBox.shrink();
     Widget child;
-    if (n.asset != null) {
+    if (n.toggleFor != null) {
+      child = FittedBox(
+        child: Checkbox(
+          value: selected.contains(n.toggleFor),
+          onChanged: (_) => onAction('toggle', n.toggleFor!),
+          activeColor: const Color(0xFF2F4FD8),
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      );
+    } else if (n.asset != null) {
       final assetWidth = (n.assetWidth ?? n.width) * s;
       final assetHeight = (n.assetHeight ?? n.height) * s;
       child = OverflowBox(
@@ -180,69 +210,31 @@ class DesignView extends StatelessWidget {
         ),
         child: child,
       );
+      if (n.children.isNotEmpty) {
+        child = Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(child: child),
+            for (final hotspot in n.children)
+              Positioned(
+                left: hotspot.x * s,
+                top: hotspot.y * s,
+                width: hotspot.width * s,
+                height: hotspot.height * s,
+                child: _node(context, hotspot, s),
+              ),
+          ],
+        );
+      }
     } else if (n.input) {
-      child = TextFormField(
-        key: ValueKey(n.id),
-        initialValue: values[n.id] ?? n.text ?? '',
-        onChanged: (v) {
-          onChanged(n.id, v);
-          if (n.width < 60 && v.length == 1) FocusScope.of(context).nextFocus();
-        },
-        maxLength: n.width < 60 ? 1 : null,
-        textAlign: n.width < 60 ? TextAlign.center : TextAlign.start,
-        textInputAction: n.width < 60
-            ? TextInputAction.next
-            : TextInputAction.done,
-        keyboardType: n.width < 60
-            ? TextInputType.number
-            : n.multiline
-            ? TextInputType.multiline
-            : RegExp(r'^\+?[\d\s]+$').hasMatch(n.text ?? '')
-            ? TextInputType.phone
-            : TextInputType.text,
-        maxLines: n.multiline ? null : 1,
-        minLines: n.multiline ? 2 : 1,
-        style: GoogleFonts.plusJakartaSans(
-          fontSize:
-              (n.width < 60
-                  ? 20
-                  : n.multiline
-                  ? 12
-                  : 14) *
-              s,
-          color: const Color(0xFF191C1E),
-        ),
-        decoration: InputDecoration(
-          isDense: true,
-          contentPadding: EdgeInsets.fromLTRB(
-            n.fieldPadding[0] * s,
-            n.fieldPadding[1] * s,
-            n.fieldPadding[2] * s,
-            n.fieldPadding[3] * s,
-          ),
-          filled: n.fill != null,
-          fillColor: _color(n.fill),
-          border: InputBorder.none,
-          enabledBorder: n.stroke == null
-              ? InputBorder.none
-              : OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(n.radius * s),
-                  borderSide: BorderSide(color: _color(n.stroke)),
-                ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(math.max(8, n.radius) * s),
-            borderSide: const BorderSide(color: Color(0xFF2F4FD8)),
-          ),
-          hintText:
-              n.inputHint ??
-              (n.width < 60
-                  ? ''
-                  : n.multiline
-                  ? 'Add your notes…'
-                  : 'Enter value'),
-          semanticCounterText: n.name,
-          counterText: '',
-        ),
+      child = _ViewInput(
+        key: ValueKey('field:${n.id}'),
+        node: n,
+        scale: s,
+        value: values[n.id] ?? n.text ?? '',
+        onChanged: onChanged,
+        fill: _color(n.fill),
+        stroke: n.stroke == null ? null : _color(n.stroke),
       );
     } else if (n.text != null) {
       final override = values[n.id] ?? bindings[n.binding];
@@ -308,21 +300,23 @@ class DesignView extends StatelessWidget {
         n.height,
         n.children.fold<double>(0, (v, c) => math.max(v, c.y + c.height)),
       );
+      final horizontalExtent = n.children.fold<double>(
+        n.width,
+        (v, c) => math.max(v, c.x + c.width),
+      );
+      final horizontal =
+          horizontalExtent > n.width + 6 && n.height < 140 && n.width > 100;
+      final vertical = n.scroll && !expandViewport && !horizontal;
       Widget content = SizedBox(
-        width: n.width * s,
-        height:
-            math.max(
-              0,
-              ((n.scroll || forceScroll) ? extent : n.height) - scrollInset,
-            ) *
-            s,
+        width: (horizontal ? horizontalExtent : n.width) * s,
+        height: (vertical || expandViewport ? extent : n.height) * s,
         child: Stack(
           clipBehavior: Clip.none,
           children: [
             for (final c in n.children)
               Positioned(
                 left: c.x * s,
-                top: (c.y - scrollInset) * s,
+                top: c.y * s,
                 width: c.width * s,
                 height: c.height * s,
                 child: _node(context, c, s),
@@ -330,10 +324,11 @@ class DesignView extends StatelessWidget {
           ],
         ),
       );
-      if (n.scroll || forceScroll) {
+      if (vertical || horizontal) {
         content = Scrollbar(
           child: SingleChildScrollView(
             key: PageStorageKey('${screen.id}/${n.id}'),
+            scrollDirection: horizontal ? Axis.horizontal : Axis.vertical,
             primary: false,
             physics: const ClampingScrollPhysics(),
             child: content,
@@ -370,7 +365,7 @@ class DesignView extends StatelessWidget {
         child: content,
       );
     }
-    if (n.clips && !n.scroll && !forceScroll && n.asset == null) {
+    if (n.clips && !n.scroll && !expandViewport && n.asset == null) {
       child = ClipRRect(
         borderRadius: BorderRadius.circular(n.radius * s),
         child: child,
@@ -379,9 +374,13 @@ class DesignView extends StatelessWidget {
     if (n.action != null) {
       final active = selected.contains(n.id);
       child = Semantics(
+        key: ValueKey('action:${n.id}'),
         button: true,
-        label: n.asset != null ? n.semanticLabel : null,
+        label: n.asset != null || n.children.isEmpty && n.text == null
+            ? n.semanticLabel
+            : null,
         selected: active,
+        checked: n.interaction == 'toggle' ? active : null,
         child: Material(
           color: Colors.transparent,
           child: InkWell(
@@ -401,5 +400,126 @@ class DesignView extends StatelessWidget {
       );
     }
     return n.opacity < 1 ? Opacity(opacity: n.opacity, child: child) : child;
+  }
+}
+
+class _ViewInput extends StatefulWidget {
+  const _ViewInput({
+    super.key,
+    required this.node,
+    required this.scale,
+    required this.value,
+    required this.onChanged,
+    required this.fill,
+    required this.stroke,
+  });
+  final ViewNode node;
+  final double scale;
+  final String value;
+  final Color fill;
+  final Color? stroke;
+  final void Function(String, String) onChanged;
+  @override
+  State<_ViewInput> createState() => _ViewInputState();
+}
+
+class _ViewInputState extends State<_ViewInput> {
+  late final _controller = TextEditingController(text: widget.value);
+  @override
+  void didUpdateWidget(covariant _ViewInput oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controller.text != widget.value) {
+      _controller.value = TextEditingValue(
+        text: widget.value,
+        selection: TextSelection.collapsed(offset: widget.value.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final n = widget.node;
+    final s = widget.scale;
+    return TextFormField(
+      key: ValueKey(n.id),
+      controller: _controller,
+      readOnly: n.readOnly,
+      inputFormatters: n.width < 60 || (n.inputHint ?? '').contains('OTP')
+          ? [FilteringTextInputFormatter.digitsOnly]
+          : null,
+      onChanged: (v) {
+        widget.onChanged(n.id, v);
+        if (n.width < 60 && v.length == 1) FocusScope.of(context).nextFocus();
+      },
+      maxLength: n.width < 60
+          ? 1
+          : (n.inputHint ?? '').contains('4-digit OTP')
+          ? 4
+          : null,
+      textAlign: n.width < 60 ? TextAlign.center : TextAlign.start,
+      textInputAction: n.width < 60
+          ? TextInputAction.next
+          : TextInputAction.done,
+      keyboardType: n.width < 60 || (n.inputHint ?? '').contains('OTP')
+          ? TextInputType.number
+          : n.multiline
+          ? TextInputType.multiline
+          : RegExp(r'^\+?[\d\s-]{10,}$').hasMatch(n.text ?? '')
+          ? TextInputType.phone
+          : RegExp(r'^[\d,.]+$').hasMatch(n.text ?? '')
+          ? const TextInputType.numberWithOptions(decimal: true)
+          : TextInputType.text,
+      maxLines: n.multiline ? null : 1,
+      minLines: n.multiline ? 2 : 1,
+      style: GoogleFonts.plusJakartaSans(
+        fontSize:
+            (n.width < 60
+                ? 20
+                : n.multiline
+                ? 12
+                : 14) *
+            s,
+        color: const Color(0xFF191C1E),
+      ),
+      decoration: InputDecoration(
+        isDense: true,
+        contentPadding: EdgeInsets.fromLTRB(
+          n.fieldPadding[0] * s,
+          n.fieldPadding[1] * s,
+          n.fieldPadding[2] * s,
+          n.fieldPadding[3] * s,
+        ),
+        filled: n.fill != null,
+        fillColor: widget.fill,
+        border: InputBorder.none,
+        enabledBorder: n.stroke == null
+            ? InputBorder.none
+            : OutlineInputBorder(
+                borderRadius: BorderRadius.circular(n.radius * s),
+                borderSide: BorderSide(
+                  color: widget.stroke ?? Colors.transparent,
+                ),
+              ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(math.max(8, n.radius) * s),
+          borderSide: const BorderSide(color: Color(0xFF2F4FD8)),
+        ),
+        hintText:
+            n.inputHint ??
+            (n.width < 60
+                ? ''
+                : n.multiline
+                ? 'Add your notes…'
+                : 'Enter value'),
+        semanticCounterText: n.name,
+        counterText: '',
+      ),
+    );
   }
 }

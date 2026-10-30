@@ -1,4 +1,6 @@
 import '../../design_system/design_system.dart';
+import '../../modules/auth/cubit/session_cubit.dart';
+import '../../modules/auth/models/auth_models.dart';
 import '../../modules/transport/cubit/trip_session_cubit.dart';
 import '../../modules/transport/models/trip_models.dart';
 import 'package:flutter/material.dart';
@@ -42,8 +44,16 @@ class _SceneScreenState<Controller extends ActionCubit>
   void _effect(BuildContext context, ViewState state) {
     switch (state.effect) {
       case NavigateTo(:final id):
-        final path = AppRoutes.path(id);
-        if (AppRoutes.primary.contains(id) ||
+        final assistant =
+            GetIt.I<SessionCubit>().state.role == CrewRole.assistant;
+        final resolved = id == '@profile'
+            ? (assistant ? '788' : '6922')
+            : id == '@notifications'
+            ? (assistant ? '330' : '7347')
+            : id;
+        final path = AppRoutes.path(resolved);
+        if (GoRouterState.of(context).uri.path == path) return;
+        if (AppRoutes.primary.contains(resolved) ||
             ['7566', '15003', '15282'].contains(id)) {
           context.go(path);
         } else {
@@ -92,7 +102,10 @@ class _SceneScreenState<Controller extends ActionCubit>
       return BlocBuilder<TripSessionCubit, TripSnapshot>(
         bloc: GetIt.I<TripSessionCubit>(),
         builder: (context, trip) => DesignView(
-          bindings: GetIt.I<TripSessionCubit>().bindings,
+          bindings: {
+            ...GetIt.I<TripSessionCubit>().bindings,
+            ...GetIt.I<SessionCubit>().bindings,
+          },
           screen: state.screen!,
           values: state.values,
           selected: state.selected,
