@@ -28,3 +28,22 @@ class ReceiptDownloadRequested extends FeePaymentEvent {
   @override
   List<Object?> get props => [receipt];
 }
+
+/// Report a payment made to the school account (bank transfer / UPI) for the office to verify.
+class PaymentReported extends FeePaymentEvent {
+  const PaymentReported({
+    required this.childId,
+    required this.invoiceId,
+    required this.amount,
+    required this.mode,
+    required this.reference,
+    required this.paidOn,
+    this.note = '',
+  });
+  final String childId, invoiceId, reference, note;
+  final double amount;
+  final TransferMode mode;
+  final DateTime paidOn;
+  @override
+  List<Object?> get props => [childId, invoiceId, amount, mode, reference, paidOn, note];
+}

@@ -45,6 +45,44 @@ service cloud.firestore {
         && request.resource.data.get('parentUid', '') == request.auth.uid
         && request.resource.data.get('classId', '') == studentDoc(sid, request.resource.data.studentId).get('classId', '');
     }
+    // a parent's booking of ptm_slots/{slotId} (contract 13.7): own child and class, a future slot, the slot's own details
+    function slotDoc(sid, slotId) { return get(/databases/$(database)/documents/schools/$(sid)/ptm_slots/$(slotId)).data; }
+    function parentBookingOk(sid, slotId) {
+      let d = request.resource.data;
+      let slot = slotDoc(sid, slotId);
+      return exists(/databases/$(database)/documents/schools/$(sid)/ptm_slots/$(slotId))
+        && isParent(sid, d.get('studentId', ''))
+        && d.get('parentUid', '') == request.auth.uid
+        && d.get('classId', '') == studentDoc(sid, d.studentId).get('classId', '')
+        && d.get('slotId', '') == slotId
+        && d.get('status', '') == 'Scheduled'
+        && d.get('teacherId', '') == slot.teacherId && d.get('startMs', 0) == slot.startMs && d.get('start', '') == slot.start
+        && d.get('mins', 0) == slot.mins && d.get('room', '') == slot.get('room', '') && d.get('link', '') == slot.get('link', '')
+        && d.get('mode', '') in slot.get('modes', [])
+        && slot.startMs > request.time.toMillis()
+        && !d.keys().hasAny(['minutes', 'joinedAt', 'cancelledBy', 'cancelReason', 'cancelledAt']);
+    }
+    // a parent's certificate request (contract 13.7): own child and class, own uid, no issue fields
+    function parentCertificateOk(sid) {
+      let d = request.resource.data;
+      return isParent(sid, d.get('studentId', ''))
+        && d.get('parentUid', '') == request.auth.uid
+        && d.get('classId', '') == studentDoc(sid, d.studentId).get('classId', '')
+        && d.get('status', '') == 'Requested'
+        && d.get('type', '') in ['bonafide', 'character', 'transfer', 'feeReceipt', 'other']
+        && !d.keys().hasAny(['refNo', 'issuedOn', 'validTill', 'issuer', 'fileUrl', 'note', 'rejectReason', 'downloadedAt']);
+    }
+    // a payment the parent made to the school account and reports for verification (contract 13.8)
+    function parentClaimOk(sid) {
+      let d = request.resource.data;
+      return isParent(sid, d.get('studentId', ''))
+        && d.get('grn', '') == studentDoc(sid, d.studentId).get('grn', '')
+        && d.get('parentUid', '') == request.auth.uid
+        && d.get('status', '') == 'Pending'
+        && d.get('amount', 0) is number && d.amount > 0
+        && d.get('reference', '') is string && d.reference.size() >= 4
+        && !d.keys().hasAny(['receiptNo', 'paymentId', 'verifiedBy', 'verifiedAt', 'rejectReason']);
+    }
     // a parent opens thr_{studentId}_{staffId} for their own child, listing themselves (and only that child's guardians)
     function parentThreadOk(sid, docId) {
       return isParent(sid, request.resource.data.get('studentId', ''))
@@ -99,7 +137,10 @@ service cloud.firestore {
           || (col == 'classes' && docId in myClasses())
           || col == 'school'
           || (col in ['ops_periods', 'live_classes'] && resource.data.get('classId', '') in myClasses())
-          || (col in ['par_attendance', 'par_homework', 'par_results', 'student_leaves'] && resource.data.get('studentId', '') in myStudents())
+          || (col in ['par_attendance', 'par_homework', 'par_results', 'student_leaves', 'ptm_bookings', 'certificates', 'fee_claims']
+              && resource.data.get('studentId', '') in myStudents())
+          // meeting slots carry no student data (contract 13.7)
+          || col == 'ptm_slots'
           // a month of attendance by id ({studentId}_{YYYY-MM}), also before the function has written it
           || (col == 'par_attendance' && docId.matches('.+_[0-9]{4}-[0-9]{2}') && docId[0:docId.size() - 8] in myStudents())
           || (col in ['fee_invoices', 'fee_payments'] && resource.data.get('grn', '') in myGrns())
@@ -114,18 +155,34 @@ service cloud.firestore {
           || (col == 'msg_threads' && parentThreadOk(sid, docId) && newThreadOk())
           || (col == 'msg_messages' && request.resource.data.get('from', '') == 'parent' && request.resource.data.get('uid', '') == request.auth.uid
               && request.auth.uid in threadAfter(sid, request.resource.data.get('threadId', 'none')).get('parentUids', []) && messageMatchesThread(sid))
-          || (col == 'consents' && docId == request.auth.uid && request.resource.data.get('uid', '') == request.auth.uid));
+          || (col == 'consents' && docId == request.auth.uid && request.resource.data.get('uid', '') == request.auth.uid)
+          || (col == 'ptm_bookings' && parentBookingOk(sid, docId))
+          || (col == 'certificates' && parentCertificateOk(sid))
+          || (col == 'fee_claims' && parentClaimOk(sid)));
         allow update: if isParentIn(sid) && (
+          // meetings: re-book a cancelled slot, cancel a scheduled meeting of own child, record the join tap
+          (col == 'ptm_bookings' && resource.data.get('status', '') == 'Cancelled' && parentBookingOk(sid, docId))
+          || (col == 'ptm_bookings' && isParent(sid, resource.data.get('studentId', '')) && resource.data.get('status', '') == 'Scheduled'
+              && onlyKeys(['status', 'cancelledBy', 'cancelledAt', 'updatedAt', 'updatedBy'])
+              && request.resource.data.status == 'Cancelled' && request.resource.data.get('cancelledBy', '') == 'parent')
+          || (col == 'ptm_bookings' && isParent(sid, resource.data.get('studentId', '')) && onlyKeys(['joinedAt', 'updatedAt', 'updatedBy']))
+          // certificates: note the download of an issued one
+          || (col == 'certificates' && isParent(sid, resource.data.get('studentId', '')) && resource.data.get('status', '') == 'Issued'
+              && onlyKeys(['downloadedAt', 'updatedAt', 'updatedBy']))
           // edit own leave only while pending; cannot decide it or move it to another child
-          (col == 'student_leaves' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending'
+          || (col == 'student_leaves' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending'
               && parentLeaveOk(sid) && request.resource.data.get('status', '') == 'Pending' && request.resource.data.studentId == resource.data.studentId)
           // reading a thread resets the parent's own unread counter, nothing else
           || (col == 'msg_threads' && request.auth.uid in resource.data.get('parentUids', [])
               && onlyKeys(['unreadParent', 'updatedAt', 'updatedBy']) && request.resource.data.get('unreadParent', 0) == 0)
           || (col == 'consents' && docId == request.auth.uid && request.resource.data.get('uid', '') == request.auth.uid)
           || (col == 'par_notifications' && resource.data.get('uid', '') == request.auth.uid && onlyKeys(['read'])));
-        allow delete: if isParentIn(sid)
-          && col == 'student_leaves' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending';
+        allow delete: if isParentIn(sid) && (
+          (col == 'student_leaves' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending')
+          // withdraw a reported payment before the office checks it
+          || (col == 'fee_claims' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending')
+          // withdraw a certificate request before the office handles it
+          || (col == 'certificates' && isParent(sid, resource.data.get('studentId', '')) && resource.data.get('status', '') == 'Requested'));
 
         // teacher: read the master + shared collections (admin writes the master ones)
         allow read: if isTeacher(sid) && (
@@ -139,8 +196,8 @@ service cloud.firestore {
           || (col == 'staff_attendance' && docId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + myStaffId()))
           // own private data
           || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting())
-          // parent message threads addressed to this teacher (contract 13.3)
-          || (col in ['msg_threads', 'msg_messages'] && ownsExisting()));
+          // parent message threads addressed to this teacher (contract 13.3), own meeting slots and bookings (13.7)
+          || (col in ['msg_threads', 'msg_messages', 'ptm_slots', 'ptm_bookings'] && ownsExisting()));
 
         // teacher: shared records, only for their own staffId
         allow create: if isTeacher(sid) && (

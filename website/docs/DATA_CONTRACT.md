@@ -213,6 +213,9 @@ acknowledgement, consent) or nothing.
 | leave requests | `student_leaves` | `studentId == X` |
 | messages | `msg_threads`, `msg_messages` | `parentUids array-contains uid` |
 | in-app notifications | `par_notifications` | `uid == auth.uid` |
+| meeting slots / own bookings | `ptm_slots` / `ptm_bookings` (§13.7) | `startMs >= now` / `studentId == X` |
+| certificates | `certificates` (§13.7) | `studentId == X` |
+| reported fee payments, school account | `fee_claims`, `school/school.bank` (§13.8) | `studentId == X` / get |
 
 Projection shapes (written only by functions):
 - `par_attendance/{studentId}_{YYYY-MM}`: `{studentId, classId, month, days: {"YYYY-MM-DD": "P"|"A"|"L"|"E"}, updatedAt}`. A day's
@@ -255,6 +258,51 @@ Teachers get a push for a new parent message (setting `parentMessages`, §10) an
 ### 13.5 Audit
 Functions append to `set_audit` (`{at, actor, action, detail, kind}`) when a parent login is linked/unlinked, a consent is
 recorded or withdrawn, and a student record is created/deleted, so children's data changes are traceable in Settings > Audit.
+
+### 13.7 Parent-teacher meetings and certificates (2026-10-27)
+**Meetings.** The school office publishes bookable time slots per teacher in the admin web (Students > Meetings); parents
+book one from the parent app (More > Parent-Teacher Meeting).
+- `ptm_slots/{id}` (admin writes; id `pts_{staffId}_{YYYYMMDDHHmm}`): `{teacherId, teacher, start (ISO, UTC), startMs, mins,
+  modes: ["In-Person"|"Virtual"], room, link?, booked}`. `booked` is kept by the function from the slot's booking. Every parent
+  login of the school may read slots (no student data on them); the app asks for `startMs >= now` and keeps its child's teachers.
+- `ptm_bookings/{slotId}` (the slot id is the doc id, so a slot holds one booking): `{slotId, teacherId, teacher, studentId,
+  classId, studentName, parentUid, parentName, mode, agenda, start, startMs, mins, room, link, status, bookedAt}` with
+  `status` "Scheduled" | "Cancelled" | "Attended" | "Missed"; later `cancelledBy` ("parent"|"school"), `cancelReason`,
+  `cancelledAt`, `minutes` (notes shared with the parent), `joinedAt`.
+  - Parent create (or re-book a slot whose booking is "Cancelled"): own child, own uid, the child's class, a future slot,
+    `teacherId / start / startMs / mins / room / link` equal to the slot's, `mode` in `slot.modes`, `status:"Scheduled"`.
+  - Parent update: cancel (`status` "Cancelled", `cancelledBy:"parent"`, `cancelledAt`) while Scheduled, or `joinedAt`.
+    Reschedule = cancel the old booking and book the new slot in one batch.
+  - Admin: everything (mark Attended / Missed, add `minutes`, set the Meet `link`, cancel with `cancelledBy:"school"`).
+  - Function `onPtmBookingWritten`: sets `ptm_slots.booked`; pushes the teacher on a new booking or a parent cancellation
+    (route `/notifications`), the child's guardians on a school cancellation and when minutes are shared (route `/more/ptm`).
+    `onPtmSlotDeleted` cancels a Scheduled booking of a withdrawn slot (`cancelReason` "The slot was withdrawn").
+- **Certificates.** `certificates/{id}`: `{studentId, classId, studentName, grn, type ("bonafide"|"character"|"transfer"|
+  "feeReceipt"|"other"), title, category ("bonafide"|"academic"|"sports"), purpose, status ("Requested"|"Issued"|"Rejected"),
+  requestedBy, requestedAt, parentUid?}`; on issue `refNo` (`CERT/{year}/{0001}`), `issuedOn` (YYYY-MM-DD), `validTill?`,
+  `issuer`, `note?`, `fileUrl?` (link to the signed PDF); on rejection `rejectReason`.
+  - Parent create: own child and class, own uid, `status:"Requested"`, no issue fields. Parent update: only `downloadedAt` of an
+    Issued one. Parent delete: withdraw while Requested. Parents read `studentId == X`.
+  - Admin issues (from a request or directly), rejects, and prints the certificate from the admin web (Students > Certificates).
+  - Function `onCertificateWritten`: pushes the child's guardians when a certificate is issued or a request rejected
+    (route `/more/certificates`).
+
+### 13.8 Fee payments to the school account (2026-10-27)
+There is no payment gateway. Parents pay into the school's bank account (UPI / NEFT / IMPS / RTGS / cheque / cash deposit)
+and report it in the parent app; the office checks it against the bank statement in the admin web (Fees > Payment
+verification) and only then records the payment.
+- `school/school.bank` (admin writes, parents read): `{accountName, accountNo, ifsc, bank, branch, upiId, note}`. The parent
+  app's Pay Now shows it; without it Pay Now says to pay at the office.
+- `fee_claims/{id}` (parent creates): `{studentId, grn (the child's), studentName, classId, invoiceId, invoiceNo, amount, mode
+  ("UPI"|"NEFT / IMPS / RTGS"|"Cheque"|"Cash deposit at bank"), reference (UTR / cheque / slip no., upper case), paidOn
+  (YYYY-MM-DD), note, status:"Pending", parentUid, parentName, submittedAt}`. Parents read `studentId == X` and may withdraw
+  (delete) their own while Pending; they never write the verification fields.
+- Admin **Verify**: creates the `fee_payments` receipt exactly like the fee counter (`mode` "{mode} · {reference}", `by` the
+  admin), updates the invoice's `paid` / `balance` / `status`, and sets the claim `{status:"Verified", receiptNo, paymentId,
+  verifiedBy, verifiedAt}` (amount may be corrected to what reached the bank). **Reject**: `{status:"Rejected", rejectReason}`.
+  The admin web warns when the reference was already used by another claim or payment.
+- Pushes: the receipt push of `onFeePaymentCreated` (§13.4) covers a verified claim; `onFeeClaimWritten` tells the guardians
+  when a claim is rejected (route `/fees`).
 
 ### 13.6 Implementation notes (functions/parent.js, firestore.rules)
 Where the backend had to pick a detail the sections above leave open:

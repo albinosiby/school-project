@@ -44,6 +44,8 @@ await db.doc(`users/${accounts.parent.uid}`).set({ schoolId: SID, role: "parent"
 const b = db.batch();
 const put = (col, id, data) => b.set(S.collection(col).doc(id), { ...data, updatedAt: now() });
 put("school", "school", { name: "Greenfield International School (E2E)", short: "GIS", board: "CBSE", affiliation: "1930281", city: "New Delhi", academicYear: "2026-27", term: "Term 2" });
+// the admin web opens its setup wizard until onboarding/state.complete is set
+put("onboarding", "state", { complete: true, completed: [1, 2, 3, 4, 5, 6, 7, 8] });
 put("staff", "stf_025", { name: "Mrs. Anita Sharma", empId: "EMP-1025", department: "Mathematics", role: "PGT", status: "Active", email: accounts.teacher.email, authUid: accounts.teacher.uid, subjects: ["Mathematics", "Science"] });
 put("staff", "stf_010", { name: "Dr. Isha Joshi", empId: "EMP-1010", department: "English", role: "TGT", status: "Active", email: "isha@e2e.test" });
 put("classes", "cls_10B", { grade: "10", section: "B", classTeacherId: "stf_025", room: "204", wing: "North" });

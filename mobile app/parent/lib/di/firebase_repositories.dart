@@ -73,9 +73,9 @@ void registerFirebaseRepositories(GetIt getIt) {
   replace<IProfileRepository>(
     FirebaseProfileRepository(session, getIt(), storage),
   );
-  replace<IStudentRepository>(FirebaseStudentRepository(session));
+  replace<IStudentRepository>(FirebaseStudentRepository(session, getIt()));
   replace<ITeachersRepository>(FirebaseTeachersRepository(session));
-  replace<IPtmRepository>(FirebasePtmRepository(getIt()));
+  replace<IPtmRepository>(FirebasePtmRepository(session, getIt()));
   replace<ITransportRepository>(FirebaseTransportRepository());
   replace<IBehaviourRepository>(FirebaseBehaviourRepository());
   replace<IRegistrationRepository>(FirebaseRegistrationRepository());

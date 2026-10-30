@@ -302,6 +302,76 @@ await check("teacher reads guardianUids on students", assertSucceeds(getDoc(doc(
 await check("admin reads parent projections", assertSucceeds(getDoc(doc(as("a1"), "schools/S1/par_attendance/stu_101_2026-10"))));
 await check("parent of another school cannot read S1", assertFails(getDoc(doc(as("a2"), "schools/S1/par_attendance/stu_101_2026-10"))));
 
+console.log("parent: meetings and certificates (13.7)");
+const future = Date.now() + 2 * 864e5, past = Date.now() - 864e5;
+const slotOf = (ms, extra = {}) => ({ teacherId: "stf_025", teacher: "T", start: new Date(ms).toISOString(), startMs: ms, mins: 20, modes: ["In-Person", "Virtual"], room: "R1", link: "", booked: false, ...extra });
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore();
+  await setDoc(doc(db, "schools/S1/ptm_slots/pts_a"), slotOf(future));
+  await setDoc(doc(db, "schools/S1/ptm_slots/pts_b"), slotOf(future + 36e5));
+  await setDoc(doc(db, "schools/S1/ptm_slots/pts_old"), slotOf(past));
+  await setDoc(doc(db, "schools/S1/ptm_slots/pts_inperson"), slotOf(future + 72e5, { modes: ["In-Person"] }));
+  await setDoc(doc(db, "schools/S1/ptm_bookings/pts_c"), { slotId: "pts_c", studentId: "stu_102", teacherId: "stf_023", status: "Scheduled" });
+  await setDoc(doc(db, "schools/S1/certificates/c_issued"), { studentId: "stu_101", classId: "cls_10B", status: "Issued", refNo: "CERT/2026/0001" });
+  await setDoc(doc(db, "schools/S1/certificates/c_other"), { studentId: "stu_102", classId: "cls_10A", status: "Requested" });
+});
+const booking = (slotId, ms, extra = {}) => ({ slotId, teacherId: "stf_025", teacher: "T", studentId: "stu_101", classId: "cls_10B", studentName: "A", parentUid: "p1",
+  parentName: "P", mode: "Virtual", agenda: "Progress", start: new Date(ms).toISOString(), startMs: ms, mins: 20, room: "R1", link: "", status: "Scheduled", bookedAt: "now", ...extra });
+await check("parent reads meeting slots", assertSucceeds(getDocs(query(collection(as("p1"), "schools/S1/ptm_slots"), where("startMs", ">=", Date.now())))));
+await check("parent books a free future slot for own child", assertSucceeds(setDoc(P("ptm_bookings/pts_a"), booking("pts_a", future))));
+await check("parent cannot book a slot someone booked", assertFails(setDoc(doc(as("p2"), "schools/S1/ptm_bookings/pts_a"), booking("pts_a", future, { studentId: "stu_102", classId: "cls_10A", parentUid: "p2" }))));
+await check("parent cannot book a past slot", assertFails(setDoc(P("ptm_bookings/pts_old"), booking("pts_old", past))));
+await check("parent cannot book with a different time than the slot", assertFails(setDoc(P("ptm_bookings/pts_b"), booking("pts_b", future))));
+await check("parent cannot pick a mode the slot does not offer", assertFails(setDoc(P("ptm_bookings/pts_inperson"), booking("pts_inperson", future + 72e5))));
+await check("parent cannot book for another child", assertFails(setDoc(P("ptm_bookings/pts_b"), booking("pts_b", future + 36e5, { studentId: "stu_102", classId: "cls_10A" }))));
+await check("parent cannot pre-fill minutes", assertFails(setDoc(P("ptm_bookings/pts_b"), booking("pts_b", future + 36e5, { minutes: "fine" }))));
+await check("parent cannot book a slot that does not exist", assertFails(setDoc(P("ptm_bookings/pts_none"), booking("pts_none", future))));
+await check("parent reads own booking", assertSucceeds(getDocs(query(collection(as("p1"), "schools/S1/ptm_bookings"), where("studentId", "==", "stu_101")))));
+await check("parent cannot read another family's booking", assertFails(getDoc(P("ptm_bookings/pts_c"))));
+await check("parent records the join tap", assertSucceeds(updateDoc(P("ptm_bookings/pts_a"), { joinedAt: "now" })));
+await check("parent cannot mark own meeting attended", assertFails(updateDoc(P("ptm_bookings/pts_a"), { status: "Attended" })));
+await check("parent reschedules (cancel + book in one batch)", assertSucceeds((() => { const b = writeBatch(as("p1"));
+  b.update(P("ptm_bookings/pts_a"), { status: "Cancelled", cancelledBy: "parent", cancelledAt: "now" }); b.set(P("ptm_bookings/pts_b"), booking("pts_b", future + 36e5)); return b.commit(); })()));
+await check("another parent re-books the cancelled slot", assertSucceeds(setDoc(doc(as("p2"), "schools/S1/ptm_bookings/pts_a"), booking("pts_a", future, { studentId: "stu_102", classId: "cls_10A", parentUid: "p2" }))));
+await check("parent cannot cancel as the school", assertFails(updateDoc(P("ptm_bookings/pts_b"), { status: "Cancelled", cancelledBy: "school" })));
+await check("parent cannot write a slot", assertFails(updateDoc(P("ptm_slots/pts_b"), { booked: false })));
+await check("teacher reads own meeting bookings", assertSucceeds(getDocs(query(collection(as("t1"), "schools/S1/ptm_bookings"), where("teacherId", "==", "stf_025")))));
+await check("teacher cannot read other teachers' bookings", assertFails(getDoc(doc(as("t1"), "schools/S1/ptm_bookings/pts_c"))));
+await check("admin adds meeting minutes", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/ptm_bookings/pts_b"), { status: "Attended", minutes: "Doing well" })));
+const certReq = (extra = {}) => ({ studentId: "stu_101", classId: "cls_10B", studentName: "A", grn: "GIS-9201", type: "bonafide", title: "Bonafide Certificate",
+  category: "bonafide", purpose: "Passport", status: "Requested", requestedBy: "P", requestedAt: "now", parentUid: "p1", ...extra });
+await check("parent requests a certificate for own child", assertSucceeds(setDoc(P("certificates/c_new"), certReq())));
+await check("parent cannot request for another child", assertFails(setDoc(P("certificates/c_x"), certReq({ studentId: "stu_102", classId: "cls_10A" }))));
+await check("parent cannot create an issued certificate", assertFails(setDoc(P("certificates/c_y"), certReq({ status: "Issued" }))));
+await check("parent cannot set a reference number", assertFails(setDoc(P("certificates/c_z"), certReq({ refNo: "CERT/1" }))));
+await check("parent reads own certificates", assertSucceeds(getDocs(query(collection(as("p1"), "schools/S1/certificates"), where("studentId", "==", "stu_101")))));
+await check("parent cannot read another family's certificate", assertFails(getDoc(P("certificates/c_other"))));
+await check("parent notes a download of an issued certificate", assertSucceeds(updateDoc(P("certificates/c_issued"), { downloadedAt: "now" })));
+await check("parent cannot change an issued certificate", assertFails(updateDoc(P("certificates/c_issued"), { refNo: "X" })));
+await check("parent withdraws a pending request", assertSucceeds(deleteDoc(P("certificates/c_new"))));
+await check("parent cannot delete an issued certificate", assertFails(deleteDoc(P("certificates/c_issued"))));
+await check("teacher cannot read certificates", assertFails(getDoc(doc(as("t1"), "schools/S1/certificates/c_issued"))));
+await check("admin issues a certificate", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/certificates/c_other"), { status: "Issued", refNo: "CERT/2026/0002" })));
+
+console.log("parent: fee payments reported for verification (13.8)");
+const claim = (extra = {}) => ({ studentId: "stu_101", grn: "GIS-9201", studentName: "A", classId: "cls_10B", invoiceId: "f1", invoiceNo: "INV-1", amount: 5000,
+  mode: "UPI", reference: "412345678901", paidOn: "2026-10-27", note: "", status: "Pending", parentUid: "p1", parentName: "P", submittedAt: "now", ...extra });
+await check("parent reads the school's bank details", assertSucceeds(getDoc(P("school/school"))));
+await check("parent reports a payment for own child", assertSucceeds(setDoc(P("fee_claims/fc1"), claim())));
+await check("parent cannot report for another child", assertFails(setDoc(P("fee_claims/fc2"), claim({ studentId: "stu_102", grn: "GIS-9202" }))));
+await check("parent cannot use another child's GRN", assertFails(setDoc(P("fee_claims/fc3"), claim({ grn: "GIS-9202" }))));
+await check("parent cannot report a verified payment", assertFails(setDoc(P("fee_claims/fc4"), claim({ status: "Verified" }))));
+await check("parent cannot attach a receipt number", assertFails(setDoc(P("fee_claims/fc5"), claim({ receiptNo: "RCP-1" }))));
+await check("parent cannot report a zero amount", assertFails(setDoc(P("fee_claims/fc6"), claim({ amount: 0 }))));
+await check("parent reads own reported payments", assertSucceeds(getDocs(query(collection(as("p1"), "schools/S1/fee_claims"), where("studentId", "==", "stu_101")))));
+await check("another parent cannot read it", assertFails(getDoc(doc(as("p2"), "schools/S1/fee_claims/fc1"))));
+await check("parent cannot mark own payment verified", assertFails(updateDoc(P("fee_claims/fc1"), { status: "Verified" })));
+await check("teacher cannot read reported payments", assertFails(getDoc(doc(as("t1"), "schools/S1/fee_claims/fc1"))));
+await check("admin verifies a reported payment", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/fee_claims/fc1"), { status: "Verified", receiptNo: "RCP-20401" })));
+await check("parent cannot withdraw a verified payment", assertFails(deleteDoc(P("fee_claims/fc1"))));
+await check("admin sets the bank details", assertSucceeds(setDoc(doc(as("a1"), "schools/S1/school/school"), { bank: { upiId: "school@bank" } }, { merge: true })));
+await check("parent cannot change the bank details", assertFails(setDoc(P("school/school"), { bank: { upiId: "evil@bank" } }, { merge: true })));
+
 await env.cleanup();
 console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);
 process.exit(failed ? 1 : 0);

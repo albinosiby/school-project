@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../config/app_config.dart';
 import '../../../config/routes/routes.dart';
 import '../../../core/widgets/child_data_view.dart';
 import '../../../design_system/design_system.dart';
@@ -44,7 +45,9 @@ class CertificatesScreen extends StatelessWidget {
         AppDialogs.showSnackBar(
           context,
           message: s.action == CertificateAction.download
-              ? '${c.fileName} saved to Downloads (simulated)'
+              ? (AppConfig.isFirebase
+                    ? 'Opened ${c.title}'
+                    : '${c.fileName} saved to Downloads (simulated)')
               : '${c.title} requested. The office will notify you when it is ready.',
         );
       },
@@ -174,22 +177,29 @@ class _CertificatesBodyState extends State<_CertificatesBody> {
               if (visible.isEmpty)
                 Padding(
                   padding: EdgeInsets.symmetric(vertical: 32.h),
-                  child: AppEmptyState(
-                    'No certificates found',
-                    hint: 'Try another search or category.',
-                    icon: Icons.workspace_premium_outlined,
-                    action: AppButton(
-                      'Clear filters',
-                      kind: BtnKind.outline,
-                      expand: false,
-                      small: true,
-                      onPressed: () => setState(() {
-                        _search.clear();
-                        _query = '';
-                        _category = _all;
-                      }),
-                    ),
-                  ),
+                  child: widget.certificates.isEmpty
+                      ? AppEmptyState(
+                          'No certificates yet',
+                          hint:
+                              'Request one below; it appears here when the school office issues it.',
+                          icon: Icons.workspace_premium_outlined,
+                        )
+                      : AppEmptyState(
+                          'No certificates found',
+                          hint: 'Try another search or category.',
+                          icon: Icons.workspace_premium_outlined,
+                          action: AppButton(
+                            'Clear filters',
+                            kind: BtnKind.outline,
+                            expand: false,
+                            small: true,
+                            onPressed: () => setState(() {
+                              _search.clear();
+                              _query = '';
+                              _category = _all;
+                            }),
+                          ),
+                        ),
                 )
               else
                 for (final c in visible)
@@ -298,7 +308,9 @@ Future<void> showCertificatePreview(
       AppInfoTile(
         icon: Icons.lock_outline_rounded,
         label: 'VERIFICATION',
-        value: c.requested ? c.signature : 'PDF • ${c.size} • ${c.signature}',
+        value: c.requested
+            ? c.signature
+            : '${c.size.isEmpty ? 'Paper copy at the school office' : 'PDF • ${c.size}'} • ${c.signature}',
       ),
       SizedBox(height: 16.h),
       if (c.requested)
@@ -407,7 +419,7 @@ class _CertificateCard extends StatelessWidget {
                       child: Text(
                         c.requested
                             ? c.signature
-                            : 'PDF • ${c.size} • ${c.signature}',
+                            : '${c.size.isEmpty ? 'Paper copy at the school office' : 'PDF • ${c.size}'} • ${c.signature}',
                         style: T.small,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,

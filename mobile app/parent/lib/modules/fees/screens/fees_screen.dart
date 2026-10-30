@@ -11,6 +11,7 @@ import '../../family/screens/widgets/parent_tab_header.dart';
 import '../bloc/fee_payment_bloc.dart';
 import '../bloc/fees_bloc.dart';
 import '../models/fee_models.dart';
+import 'widgets/bank_transfer_flow.dart';
 import 'widgets/fee_pay_flow.dart';
 
 Tone invoiceTone(InvoiceStatus s) => switch (s) {
@@ -20,7 +21,8 @@ Tone invoiceTone(InvoiceStatus s) => switch (s) {
   InvoiceStatus.overdue => Tone.danger,
 };
 
-/// Fees tab: dues summary, upcoming instalments, receipts history and a simulated Pay Now flow.
+/// Fees tab: dues summary, upcoming instalments, reported payments, receipts history and Pay Now (to the school
+/// account with verification by the office, or the simulated online flow of the demo).
 class FeesScreen extends StatelessWidget {
   const FeesScreen({super.key});
 
@@ -36,6 +38,12 @@ class FeesScreen extends StatelessWidget {
             context,
             message: s.error ?? 'Payment failed. Please try again.',
             isError: true,
+          );
+        }
+        if (s.status == PaymentStatus.reported && s.claim != null) {
+          AppDialogs.showSnackBar(
+            context,
+            message: '${inr(s.claim!.amount)} sent for verification. Your receipt appears here once the school office confirms it.',
           );
         }
         if (s.status == PaymentStatus.success && s.receipt != null) {
@@ -87,12 +95,22 @@ class _FeesBody extends StatelessWidget {
   final Child child;
 
   void _pay(BuildContext context, {List<String>? preselect}) {
-    // no payment gateway is connected to the school system yet
+    // the school takes fees into its account: pay there, then report it for verification
+    if (data.bank != null) {
+      startBankTransferFlow(
+        context,
+        bloc: context.read<FeePaymentBloc>(),
+        childId: child.id,
+        data: data,
+        preselect: preselect?.firstOrNull,
+      );
+      return;
+    }
+    // no payment gateway is connected to the school system and no account was published
     if (AppConfig.isFirebase) {
       AppDialogs.showSnackBar(
         context,
-        message:
-            'Online payment is not available yet. Please pay at the school office; the receipt will appear here.',
+        message: 'Please pay at the school office; the receipt will appear here.',
       );
       return;
     }
@@ -253,6 +271,27 @@ class _FeesBody extends StatelessWidget {
               ],
               onTap: () => _showInvoice(context, i),
             ),
+        if (data.claims.any((c) => c.status != ClaimStatus.verified)) ...[
+          AcademicSectionTitle(
+            'Reported payments',
+            icon: Icons.fact_check_outlined,
+            caption: '${data.pendingClaims.length} being verified',
+          ),
+          for (final c in data.claims.where((c) => c.status != ClaimStatus.verified))
+            AppEntryCard(
+              key: Key('claim-${c.id}'),
+              icon: c.status == ClaimStatus.rejected ? Icons.error_outline_rounded : Icons.hourglass_top_rounded,
+              tone: c.status == ClaimStatus.rejected ? Tone.danger : Tone.warning,
+              title: inr(c.amount),
+              badge: Pill(c.status.label, tone: c.status == ClaimStatus.rejected ? Tone.danger : Tone.warning),
+              meta: '${c.invoiceTitle} • paid ${fmtDate(c.paidOn, year: true)}',
+              footer: [
+                AppMetaChip(c.mode.label, icon: Icons.account_balance_outlined),
+                AppMetaChip(c.reference, icon: Icons.tag_rounded),
+                if (c.reason != null) AppMetaChip(c.reason!, icon: Icons.info_outline_rounded, color: C.danger),
+              ],
+            ),
+        ],
         AcademicSectionTitle(
           'Receipts history',
           icon: Icons.history_rounded,

@@ -15,6 +15,7 @@ class MockFeeRepository implements IFeeRepository {
   /// childId -> invoiceId -> amount paid in this session.
   final Map<String, Map<String, double>> _paid = {};
   final Map<String, List<FeeReceipt>> _receipts = {};
+  final Map<String, List<PaymentClaim>> _claims = {};
   final _changes = StreamController<void>.broadcast();
   int _seq = 0;
 
@@ -27,7 +28,7 @@ class MockFeeRepository implements IFeeRepository {
     ];
     final receipts = [...?_receipts[childId], ...demoReceipts(base)]
       ..sort((a, b) => b.date.compareTo(a.date));
-    return FeesData(invoices, receipts: receipts);
+    return FeesData(invoices, receipts: receipts, claims: [...?_claims[childId]]);
   }
 
   @override
@@ -72,6 +73,38 @@ class MockFeeRepository implements IFeeRepository {
     (_receipts[childId] ??= []).insert(0, receipt);
     _changes.add(null);
     return receipt;
+  }
+
+  /// Kept for the bank-transfer flow; the demo has no school account ([FeesData.bank] is null), so it pays online.
+  @override
+  Future<PaymentClaim> reportPayment({
+    required String childId,
+    required String invoiceId,
+    required double amount,
+    required TransferMode mode,
+    required String reference,
+    required DateTime paidOn,
+    String note = '',
+  }) async {
+    await MockLatency.wait();
+    final invoice = _build(childId).invoices.where((i) => i.id == invoiceId).firstOrNull;
+    if (invoice == null || amount <= 0 || reference.trim().isEmpty) {
+      throw AppException(message: 'Enter the instalment, amount and reference.');
+    }
+    final claim = PaymentClaim(
+      id: 'clm_${childId}_${++_seq}',
+      invoiceId: invoiceId,
+      invoiceTitle: invoice.title,
+      amount: amount,
+      mode: mode,
+      reference: reference.trim(),
+      paidOn: paidOn,
+      submittedAt: DateTime.now(),
+      note: note.trim().isEmpty ? null : note.trim(),
+    );
+    (_claims[childId] ??= []).insert(0, claim);
+    _changes.add(null);
+    return claim;
   }
 
   @override

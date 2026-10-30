@@ -18,4 +18,4 @@ SH
   export PATH="$SHIM:$PATH" FIRESTORE_EMULATOR_BINARY_PATH="$JAR"
 fi
 export METADATA_SERVER_DETECTION=none FUNCTIONS_DISCOVERY_TIMEOUT="${FUNCTIONS_DISCOVERY_TIMEOUT:-120}"
-exec firebase emulators:start --only auth,firestore,functions --project "${EMULATOR_PROJECT:-demo-school-e2e}"
+exec firebase emulators:start --only auth,firestore,functions,storage --project "${EMULATOR_PROJECT:-demo-school-e2e}" ${EMULATOR_IMPORT:+--import "$EMULATOR_IMPORT" --export-on-exit}

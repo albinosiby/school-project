@@ -1,0 +1,38 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "teacher-web-local",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8090",
+        "--directory",
+        "/private/tmp/claude-501/-Users-albinosiby-Tatos-Dev-school-project/5e311bcd-4c52-4ae4-b1eb-1403a269f775/scratchpad/teacher_web_local"
+      ],
+      "port": 8090
+    },
+    {
+      "name": "parent-web-e2e",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8091",
+        "--directory",
+        "/private/tmp/claude-501/-Users-albinosiby-Tatos-Dev-school-project/dd98251d-25ef-440a-bc73-b26c7c5ba5d0/scratchpad/parent_web_e2e"
+      ],
+      "port": 8091
+    },
+    {
+      "name": "admin-web-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd '/Users/albinosiby/Tatos Dev/school project/website/web' && NEXT_PUBLIC_EMULATOR=true npx next dev -p 3005"
+      ],
+      "port": 3005
+    }
+  ]
+}

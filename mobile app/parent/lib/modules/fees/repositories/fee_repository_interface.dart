@@ -12,6 +12,18 @@ abstract class IFeeRepository {
     required PaymentMethod method,
   });
 
+  /// Reports a payment made to the school account ([FeesData.bank]) for the office to verify.
+  /// Throws [AppException] when the details are incomplete or the reference was already reported.
+  Future<PaymentClaim> reportPayment({
+    required String childId,
+    required String invoiceId,
+    required double amount,
+    required TransferMode mode,
+    required String reference,
+    required DateTime paidOn,
+    String note,
+  });
+
   /// Saves the receipt PDF on the device and returns the file name (simulated today).
   Future<String> downloadReceipt(FeeReceipt receipt);
 }

@@ -1,0 +1,24 @@
+rules_version = '2';
+// Cloud Storage rules (DATA_CONTRACT section 13.7). Only signed certificates are stored for now:
+// schools/{schoolId}/certificates/{certificateId}/{file}, uploaded by the school's admins from the admin web.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function me() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
+    function isAdmin(sid) { return request.auth != null && me().schoolId == sid && me().role == 'admin'; }
+    function certificate(sid, id) { return firestore.get(/databases/(default)/documents/schools/$(sid)/certificates/$(id)).data; }
+
+    match /schools/{sid}/certificates/{id}/{file} {
+      // the admin, and the guardians of the certificate's student once it is issued
+      allow read: if isAdmin(sid)
+        || (request.auth != null && me().schoolId == sid && me().role == 'parent'
+            && certificate(sid, id).status == 'Issued' && certificate(sid, id).studentId in me().get('studentIds', []));
+      // a signed PDF or a scan, up to 10 MB
+      allow create, update: if isAdmin(sid) && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/(png|jpeg)');
+      allow delete: if isAdmin(sid);
+    }
+    match /{all=**} {
+      allow read, write: if false;
+    }
+  }
+}

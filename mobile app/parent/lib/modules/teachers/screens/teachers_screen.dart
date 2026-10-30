@@ -191,7 +191,7 @@ Future<void> showTeacherSheet(BuildContext context, Teacher t) =>
     showAppSheet<void>(
       context,
       title: t.displayName,
-      subtitle: '${t.subject} • ${t.designation} • ${t.room}',
+      subtitle: [t.subject, t.designation, t.room].where((s) => s.isNotEmpty).join(' • '),
       builder: (ctx) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

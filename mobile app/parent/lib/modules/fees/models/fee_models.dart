@@ -103,11 +103,21 @@ class FeeReceipt extends Equatable {
 }
 
 class FeesData extends Equatable {
-  const FeesData(this.invoices, {this.receipts = const []});
+  const FeesData(this.invoices, {this.receipts = const [], this.claims = const [], this.bank});
   final List<Invoice> invoices;
 
   /// Payment receipts, newest first.
   final List<FeeReceipt> receipts;
+
+  /// Payments the parent reported (bank transfer / UPI to the school account), newest first.
+  final List<PaymentClaim> claims;
+
+  /// The school account to pay into. When set, Pay Now means "pay to this account and report it"
+  /// (the office verifies and issues the receipt); when null, the online payment flow is used.
+  final BankDetails? bank;
+
+  /// Reported payments the office has not verified yet.
+  List<PaymentClaim> get pendingClaims => claims.where((c) => c.status == ClaimStatus.pending).toList();
 
   /// Instalments with something left to pay, earliest due first.
   List<Invoice> get unpaid =>
@@ -126,5 +136,81 @@ class FeesData extends Equatable {
   }
 
   @override
-  List<Object?> get props => [invoices, receipts];
+  List<Object?> get props => [invoices, receipts, claims, bank];
+}
+
+/// The school's account parents pay fees into (`school/school.bank`, data contract §13.8).
+class BankDetails extends Equatable {
+  const BankDetails({
+    this.accountName = '',
+    this.accountNo = '',
+    this.ifsc = '',
+    this.bank = '',
+    this.branch = '',
+    this.upiId = '',
+    this.note = '',
+  });
+  final String accountName, accountNo, ifsc, bank, branch, upiId, note;
+
+  bool get hasAccount => accountNo.isNotEmpty && ifsc.isNotEmpty;
+  bool get isEmpty => !hasAccount && upiId.isEmpty;
+
+  @override
+  List<Object?> get props => [accountName, accountNo, ifsc, bank, branch, upiId, note];
+}
+
+/// How the parent paid into the school account.
+enum TransferMode {
+  upi('UPI'),
+  bankTransfer('NEFT / IMPS / RTGS'),
+  cheque('Cheque'),
+  cashDeposit('Cash deposit at bank');
+
+  const TransferMode(this.label);
+  final String label;
+
+  /// What the reference number is called for this mode.
+  String get referenceLabel => switch (this) {
+    TransferMode.upi => 'UPI transaction ID (UTR)',
+    TransferMode.bankTransfer => 'UTR / transaction reference',
+    TransferMode.cheque => 'Cheque number',
+    TransferMode.cashDeposit => 'Deposit slip number',
+  };
+}
+
+enum ClaimStatus {
+  pending('Pending verification'),
+  verified('Verified'),
+  rejected('Not verified');
+
+  const ClaimStatus(this.label);
+  final String label;
+}
+
+/// A payment the parent made to the school account and reported in the app (`fee_claims`).
+/// The office checks it against the bank statement: verified -> a receipt is issued; rejected -> [reason].
+class PaymentClaim extends Equatable {
+  const PaymentClaim({
+    required this.id,
+    required this.invoiceId,
+    required this.invoiceTitle,
+    required this.amount,
+    required this.mode,
+    required this.reference,
+    required this.paidOn,
+    required this.submittedAt,
+    this.status = ClaimStatus.pending,
+    this.note,
+    this.reason,
+    this.receiptNo,
+  });
+  final String id, invoiceId, invoiceTitle, reference;
+  final double amount;
+  final TransferMode mode;
+  final DateTime paidOn, submittedAt;
+  final ClaimStatus status;
+  final String? note, reason, receiptNo;
+
+  @override
+  List<Object?> get props => [id, invoiceId, invoiceTitle, amount, mode, reference, paidOn, submittedAt, status, note, reason, receiptNo];
 }

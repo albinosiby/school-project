@@ -441,7 +441,9 @@ class _UpcomingCard extends StatelessWidget {
               icon: Icons.place_outlined,
               iconColor: C.primary,
               label: 'VENUE',
-              value: '${m.location} • please report 5 minutes early',
+              value: m.mode == MeetingMode.virtual
+                  ? '${m.location} • the Join button appears 10 minutes before'
+                  : '${m.location} • please report 5 minutes early',
             ),
           SizedBox(height: 4.h),
           Row(

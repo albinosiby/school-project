@@ -29,8 +29,8 @@ Future<void> main() async {
     FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
     // test builds only (--dart-define=EMULATOR=true): local Firebase emulators, reached through `adb reverse` on a phone
     if (AppConfig.useEmulator) {
-      await FirebaseAuth.instance.useAuthEmulator('localhost', 9099);
-      FirebaseFirestore.instance.useFirestoreEmulator('localhost', 8080);
+      await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099);
+      FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080);
     }
   }
   await configureDependencies();

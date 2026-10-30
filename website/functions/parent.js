@@ -10,7 +10,8 @@
 const { FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { logger } = require("firebase-functions/v2");
-const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentDeleted, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 
 module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
   const S = (sid) => db.collection("schools").doc(sid);
@@ -528,6 +529,147 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
   }));
 
   // ---------------------------------------------------------------------------
+  // 13.7 parent-teacher meetings and certificates
+  // ---------------------------------------------------------------------------
+
+  /** "Thu 29 Oct, 4:30 pm" in India time */
+  const istWhen = (v) => (ms(v) ? new Date(ms(v)).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "");
+
+  const onPtmBookingWritten = onDocumentWritten("schools/{sid}/ptm_bookings/{slotId}", safe("onPtmBookingWritten", async (e) => {
+    const sid = e.params.sid, slotId = e.params.slotId;
+    const before = e.data?.before?.data(), after = e.data?.after?.data();
+    // the slot shows as taken while it holds a Scheduled booking
+    const booked = after?.status === "Scheduled";
+    const slotRef = S(sid).collection("ptm_slots").doc(slotId);
+    const slot = await slotRef.get();
+    if (slot.exists && slot.get("booked") !== booked) await slotRef.update({ booked, updatedAt: nowIso(), updatedBy: "functions" });
+    if (!after) return;
+
+    const who = `${after.studentName ?? "A student"}${after.classId ? ` (${clsLabel(after.classId)})` : ""}`;
+    const when = istWhen(after.startMs ?? after.start);
+    // a new booking (or a re-booked slot): tell the teacher
+    const isNew = after.status === "Scheduled" && (before?.status !== "Scheduled" || before?.studentId !== after.studentId);
+    if (isNew && after.teacherId) {
+      await notify(sid, [after.teacherId], {
+        type: "ptm", category: "Duties", tag: "Parent Meeting", title: `Meeting booked: ${who}`,
+        body: [when, after.mode, after.agenda].filter(Boolean).join(" · "), route: "/notifications",
+      });
+    }
+    const student = await studentDoc(sid, after.studentId);
+    const parents = uniq([after.parentUid, ...(student?.guardianUids ?? [])]);
+    const toParents = (key, title, body) => notifyParents(sid, parents.map((uid) => ({
+      id: `ptm_${slotId}_${key}_${uid}`, uid, studentId: after.studentId ?? "", type: "ptm", title, body, route: "/more/ptm",
+    })));
+    if (before?.status === "Scheduled" && after.status === "Cancelled") {
+      if (after.cancelledBy === "parent") {
+        if (after.teacherId) {
+          await notify(sid, [after.teacherId], {
+            type: "ptm", category: "Duties", tag: "Parent Meeting", title: `Meeting cancelled: ${who}`, body: `${when} · cancelled by the parent`, route: "/notifications",
+          });
+        }
+      } else {
+        await toParents(`cx${ms(after.cancelledAt) || Date.now()}`, "Meeting cancelled",
+          `${after.teacher ?? "Teacher"} · ${when}${after.cancelReason ? ` · ${after.cancelReason}` : ""}`);
+      }
+    }
+    // the school shares notes of the meeting
+    const minutes = String(after.minutes ?? "").trim();
+    if (minutes && minutes !== String(before?.minutes ?? "").trim()) {
+      await toParents(`min${minutes.length}_${ms(after.updatedAt)}`, `Meeting notes from ${after.teacher ?? "the school"}`, minutes.slice(0, 160));
+    }
+    // a Meet link was added to a virtual meeting after it was booked
+    if (after.status === "Scheduled" && after.link && !before?.link && before?.status === "Scheduled") {
+      await toParents("link", "Meeting link ready", `${after.teacher ?? "Teacher"} · ${when}`);
+    }
+  }));
+
+  /** a withdrawn slot cancels its Scheduled booking */
+  const onPtmSlotDeleted = onDocumentDeleted("schools/{sid}/ptm_slots/{slotId}", safe("onPtmSlotDeleted", async (e) => {
+    const ref = S(e.params.sid).collection("ptm_bookings").doc(e.params.slotId);
+    const b = await ref.get();
+    if (!b.exists || b.get("status") !== "Scheduled") return;
+    await ref.update({ status: "Cancelled", cancelledBy: "school", cancelReason: "The slot was withdrawn", cancelledAt: nowIso(), updatedAt: nowIso(), updatedBy: "functions" });
+  }));
+
+  const onCertificateWritten = onDocumentWritten("schools/{sid}/certificates/{id}", safe("onCertificateWritten", async (e) => {
+    const sid = e.params.sid, id = e.params.id;
+    const before = e.data?.before?.data(), after = e.data?.after?.data();
+    if (!after || before?.status === after.status || !["Issued", "Rejected"].includes(after.status)) return;
+    const student = await studentDoc(sid, after.studentId);
+    const uids = uniq([after.parentUid, ...(student?.guardianUids ?? [])]);
+    const issued = after.status === "Issued";
+    await notifyParents(sid, uids.map((uid) => ({
+      id: `cert_${id}_${after.status}_${uid}`, uid, studentId: after.studentId ?? "", type: "certificate",
+      title: issued ? `${after.title ?? "Certificate"} issued` : `${after.title ?? "Certificate"} request declined`,
+      body: issued
+        ? [after.studentName ?? student?.name, after.refNo, after.fileUrl ? "Download it in the app" : "Collect the signed copy from the school office"].filter(Boolean).join(" · ")
+        : [after.studentName ?? student?.name, after.rejectReason].filter(Boolean).join(" · "),
+      route: "/more/certificates",
+    })));
+  }));
+
+  /** a reported payment the office could not match with the bank statement (13.8) */
+  const onFeeClaimWritten = onDocumentWritten("schools/{sid}/fee_claims/{id}", safe("onFeeClaimWritten", async (e) => {
+    const sid = e.params.sid, id = e.params.id;
+    const before = e.data?.before?.data(), after = e.data?.after?.data();
+    if (!after || before?.status === after.status || after.status !== "Rejected") return;
+    const student = await studentDoc(sid, after.studentId);
+    const uids = uniq([after.parentUid, ...(student?.guardianUids ?? [])]);
+    await notifyParents(sid, uids.map((uid) => ({
+      id: `clm_${id}_Rejected_${uid}`, uid, studentId: after.studentId ?? "", type: "fees", title: "Payment not verified",
+      body: [rupees(after.amount), after.reference, after.rejectReason].filter(Boolean).join(" · "), route: "/fees",
+    })));
+  }));
+
+  // ---------------------------------------------------------------------------
+  // 13.4 fee due reminders: the admin's Remind button, and a daily check of due dates
+  // ---------------------------------------------------------------------------
+
+  /** fee_reminders rows are written by the admin web's Remind (Fees > Invoices): push the guardians of that invoice */
+  const onFeeReminderCreated = onDocumentCreated("schools/{sid}/fee_reminders/{id}", safe("onFeeReminderCreated", async (e) => {
+    const sid = e.params.sid, r = e.data?.data();
+    if (!r?.invoiceId) return;
+    const inv = await S(sid).collection("fee_invoices").doc(String(r.invoiceId)).get();
+    if (!inv.exists || !(Number(inv.get("balance")) > 0)) return;
+    const kids = await studentsByGrn(sid, inv.get("grn"));
+    await notifyParents(sid, guardiansOf(kids).map(({ uid, student }) => ({
+      id: `rem_${e.params.id}_${uid}`, uid, studentId: student.id, type: "fees", title: "Fee reminder",
+      body: [student.name, `${rupees(inv.get("balance"))} due${inv.get("due") ? ` on ${inv.get("due")}` : ""}`, inv.get("no")].filter(Boolean).join(" · "), route: "/fees",
+    })));
+  }));
+
+  /** whole days from today (India time) to an ISO date; NaN when unknown */
+  const daysUntil = (iso, today) => Math.round((Date.parse(`${String(iso).slice(0, 10)}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 864e5);
+  /** which reminder an unpaid invoice gets today: 3 days before, on the day, 1 and 7 days late (null = none) */
+  const dueKind = (d) => (d === 3 ? "soon" : d === 0 ? "today" : d === -1 ? "late1" : d === -7 ? "late7" : null);
+  const DUE_TITLE = { soon: "Fee due in 3 days", today: "Fee due today", late1: "Fee overdue", late7: "Fee overdue by a week" };
+
+  /** Sends the day's due-date reminders for every school; dedupe ids make a re-run harmless. Returns the number sent. */
+  async function sendFeeDueReminders(today = istToday()) {
+    let sent = 0;
+    const schools = await db.collection("schools").listDocuments();
+    for (const school of schools) {
+      const sid = school.id;
+      const snap = await S(sid).collection("fee_invoices").where("balance", ">", 0).get();
+      for (const d of snap.docs) {
+        const inv = d.data();
+        const kind = inv.due ? dueKind(daysUntil(inv.due, today)) : null;
+        if (!kind) continue;
+        const kids = await studentsByGrn(sid, inv.grn);
+        sent += await notifyParents(sid, guardiansOf(kids).map(({ uid, student }) => ({
+          id: `due_${d.id}_${kind}_${uid}`, uid, studentId: student.id, type: "fees", title: DUE_TITLE[kind],
+          body: [student.name, `${rupees(inv.balance)} ${kind.startsWith("late") ? "was due" : "due"} on ${inv.due}`, inv.no].filter(Boolean).join(" · "), route: "/fees",
+        })));
+      }
+    }
+    logger.info("fee due reminders", { today, sent });
+    return sent;
+  }
+
+  const feeDueReminders = onSchedule({ schedule: "every day 09:00", timeZone: "Asia/Kolkata" }, async () => { await sendFeeDueReminders(); });
+  feeDueReminders.runFor = sendFeeDueReminders; // tools/e2e/act.mjs dues: run the daily check for a given day
+
+  // ---------------------------------------------------------------------------
   // 13.5 consents -> set_audit
   // ---------------------------------------------------------------------------
 
@@ -547,6 +689,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
   return {
     onStudentWritten, onClassTeacherNameSync, onStaffRenamed, onAttendanceForParents, onHomeworkForParents, onPaperForParents,
     onMarkForParents, onNoticeForParents, onCalendarForParents, onNoticeAck, onStudentLeaveRequested, onStudentLeaveDecided,
-    onMessageCreated, onLiveClassForParents, onFeeInvoiceCreated, onFeePaymentCreated, onConsentWritten,
+    onMessageCreated, onLiveClassForParents, onFeeInvoiceCreated, onFeePaymentCreated, onConsentWritten, onPtmBookingWritten,
+    onPtmSlotDeleted, onCertificateWritten, onFeeClaimWritten, onFeeReminderCreated, feeDueReminders,
   };
 };

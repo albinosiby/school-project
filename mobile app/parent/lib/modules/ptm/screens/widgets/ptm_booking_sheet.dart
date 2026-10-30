@@ -100,7 +100,7 @@ class _PtmBookingFormState extends State<PtmBookingForm> {
       title: 'Choose a teacher',
       items: widget.data.teachers,
       label: (t) => t.name,
-      sub: (t) => '${t.subject} • ${t.room}',
+      sub: (t) => [t.subject, t.room].where((s) => s.isNotEmpty).join(' • '),
       selected: _teacher,
     );
     if (t == null) return;

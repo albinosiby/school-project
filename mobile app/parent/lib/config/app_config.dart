@@ -22,6 +22,9 @@ class AppConfig {
 
   /// BACKEND=firebase against the local Firebase emulators (test builds): `--dart-define=EMULATOR=true`.
   static const bool useEmulator = bool.fromEnvironment('EMULATOR');
+  /// Where the emulators run: `localhost` through `adb reverse`, or the computer's Wi-Fi address (`EMULATOR_HOST=192.168.x.x`)
+  /// when the phone is connected by wireless debugging.
+  static const String emulatorHost = String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
   static const String emulatorProject = String.fromEnvironment('EMULATOR_PROJECT', defaultValue: 'demo-school-e2e');
 
   static bool get isLocal => backend == BackendType.local;
