@@ -1,6 +1,8 @@
 # Driver and Assistant App Implementation Proposal
 
 Status: Approved on 29 October 2026; local-data UI implemented and verified on 30 October 2026. Branch: `codex/driver-app-ui`.
+
+> **31 October 2026:** superseded by the native rebuild of `mobile app/driver` on the shared Firestore (data contract section 14: buses, crew logins, trips, bus attendance, crew check-in, leave) with the admin web Transport section. The Figma presentation-contract renderer and its 62 frame views were removed; this file stays as the product analysis and the list of simulated integrations still open (GPS, RFID/QR, guardian OTP, payslips, training).
 Repository: `albinosiby/school-project`. Proposed application: `mobile app/driver`.
 
 Implement all 62 frames in the Figma Driver App section as an interactive Flutter application with driver and assistant roles. The first delivery uses deterministic local repositories; production transport integration is a separate milestone with explicit data and authorization contracts. The approved UI milestone is implemented under mobile app/driver; verification results are recorded with the application.

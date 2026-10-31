@@ -79,7 +79,7 @@ Put the teacher app in the background first: with the app open, pushes show as a
 
 
 ## Parent app backend tests (emulator only)
-Rules (`tools/rules_test`, 171 checks incl. parent reads, privacy denials and the parent/teacher message and leave shapes) and an
+Rules (`tools/rules_test`, 347 checks incl. parent reads, privacy denials, the parent/teacher message and leave shapes and the transport crew rules) and an
 end-to-end test of the parent functions (`tools/parent_flow_test`: seeds a 2-student school, writes attendance, homework, a
 published paper, notices, a leave, messages, a live class, fees and a consent, then checks `par_*`, `users/{uid}` arrays, unread
 counters, `par_notifications`, `hm_notifications` and `set_audit`). Both use a `demo-*` project id and never reach the live project.
@@ -94,3 +94,27 @@ jar through a version shim; with JDK 21 it just runs `firebase emulators:exec`. 
 (seconds, default 120 in the script) and `WAIT_MS` (per-check wait of the flow test, default 90000).
 Deploying the parent backend needs: `firebase deploy --only firestore` (rules + the two `msg_*` composite indexes) and
 `firebase deploy --only functions:notify` (17 new functions in `functions/parent.js`).
+
+## Transport backend (DATA_CONTRACT section 14, emulator-tested only)
+- **Collections** under `schools/{sid}`: `tr_crew` (drivers / attendants, `busId`), `tr_buses` (stops, `driverId` / `attendantId`), `tr_trips` and
+  `tr_attendance` (`{date}_{busId}_{pickup|drop}`), `tr_crew_attendance` (`{date}_{crewId}`), `tr_crew_leaves`, `tr_settings/policy`
+  (`checkInBy`). `users/{uid}` gains the roles `driver` / `attendant` with `crewId`; `students` gain `busId` / `bus` / `busStopId` / `busStop`.
+- **Rules** (`firestore.rules`, helpers `isCrew` / `myCrewId` / `myBusId`): the crew member's bus is read from `tr_crew/{crewId}.busId`, never
+  from the client. Crew read their own bus, the students / trips / attendance of that bus, all crew records, their own check-in days and
+  leaves, `tr_settings` and published `com_notices`; they write trips / attendance of their own bus only (id and `busId` / `date` / `kind`
+  fixed), their own check-in day, their own Pending leaves (never the decision fields) and the contact fields of their own crew record.
+  Teachers and parents cannot read any `tr_*` collection; admin reads and writes everything.
+- **Indexes** (`firestore.indexes.json`): `students (busId, roll)`, `tr_trips (busId, date)`, `tr_attendance (busId, date)`,
+  `tr_crew_attendance (crewId, date)`, `tr_crew_leaves (crewId, appliedAt)`.
+- **Functions** (`functions/transport.js`, wired from `index.js` like `parent.js`): `onTransportAttendanceWritten` pushes the guardians of every
+  student whose mark changed to boarded / dropped / absent on today's (India time) record (`par_notifications` row `type: "transport"`, route
+  `/home/track`, dedupe id `trp_{tripId}_{studentId}_{status}`); `onCrewLeaveRequested` adds an admin bell row (`category: "approvals"`,
+  href `/transport?tab=leaves`). Crew have no push yet, so a decided crew leave triggers nothing.
+- **Demo data**: `tools/e2e/seed.mjs` adds `driver@e2e.test` / `attendant@e2e.test` (crew `crw_001` / `crw_002` on `bus_01`, three stops, all
+  five students on the bus, `tr_settings/policy`, yesterday's completed pickup trip with its attendance and crew check-in days).
+- Deploying needs `firebase deploy --only firestore` (rules + the five new indexes) and `firebase deploy --only functions:notify`.
+
+### Running the Firebase CLI here (31 Oct 2026)
+`firebase` is not installed globally; `npx firebase-tools` keeps a copy under `~/.npm/_npx/*/node_modules/.bin/firebase`.
+Add that folder to `PATH` before `tools/e2e/start_emulators.sh` or `tools/emulator_exec.sh`. The driver app's Android
+registration (`com.tatos.school.driver_app`) is still to be created with `firebase apps:create ANDROID … --project school-admin-tatos-2610`.

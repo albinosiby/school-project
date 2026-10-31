@@ -1,106 +1,89 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../di/injection.dart';
-import '../../modules/auth/cubit/session_cubit.dart';
-import '../../modules/auth/models/auth_models.dart';
-import '../../modules/auth/screens/auth_screen.dart';
-import '../../modules/crew/screens/crew_screen.dart';
-import '../../modules/transport/screens/transport_screen.dart';
-import '../../modules/operations/screens/operations_screen.dart';
-import '../../modules/account/screens/account_screen.dart';
-import '../../modules/attendant/screens/attendant_screen.dart';
-import '../../modules/learning/screens/learning_screen.dart';
-import '../../design_system/layouts/adaptive_scaffold.dart';
+import '../../design_system/design_system.dart';
+import '../../modules/auth/bloc/auth_bloc.dart';
+import '../../modules/auth/screens/forgot_password_screen.dart';
+import '../../modules/auth/screens/login_screen.dart';
+import '../../modules/auth/screens/welcome_screen.dart';
+import '../../modules/crew_attendance/screens/crew_attendance_screen.dart';
+import '../../modules/home/screens/home_screen.dart';
+import '../../modules/leave/screens/apply_leave_screen.dart';
+import '../../modules/leave/screens/leave_screen.dart';
+import '../../modules/notices/screens/notice_detail_screen.dart';
+import '../../modules/notices/screens/notices_screen.dart';
+import '../../modules/profile/screens/edit_profile_screen.dart';
+import '../../modules/profile/screens/profile_screen.dart';
+import '../../modules/students/screens/stops_screen.dart';
+import '../../modules/students/screens/students_screen.dart';
+import '../../modules/trips/screens/checklist_screen.dart';
+import '../../modules/trips/screens/trip_detail_screen.dart';
+import '../../modules/trips/screens/trip_history_screen.dart';
+import '../../modules/trips/screens/trips_screen.dart';
 import 'routes.dart';
-import 'view_catalog.dart';
 
-const uiReview = bool.fromEnvironment('UI_REVIEW');
-Widget featureScreen(String id) => switch (viewCatalog[id]?.feature) {
-  'auth' => AuthScreen(id: id),
-  'crew' => CrewScreen(id: id),
-  'transport' => TransportScreen(id: id),
-  'operations' => OperationsScreen(id: id),
-  'account' => AccountScreen(id: id),
-  'attendant' => AttendantScreen(id: id),
-  'learning' => LearningScreen(id: id),
-  _ => const Center(child: Text('Screen unavailable')),
-};
-GoRouter createRouter({String? initialLocation}) => GoRouter(
-  initialLocation: initialLocation ?? AppRoutes.path('7566'),
-  redirect: (context, state) {
-    if (uiReview) return null;
-    final id = state.uri.path.startsWith('/screen/')
-        ? state.uri.path.split('/').last
-        : null;
-    final session = getIt<SessionCubit>().state;
-    if (!session.authenticated &&
-        !(id != null && AppRoutes.public.contains(id))) {
-      return AppRoutes.path('7566');
-    }
-    if (session.authenticated &&
-        state.uri.path.startsWith('/assistant/') &&
-        session.role != CrewRole.assistant) {
-      return '/driver/home';
-    }
-    if (session.authenticated &&
-        state.uri.path.startsWith('/driver/') &&
-        session.role != CrewRole.driver) {
-      return '/assistant/home';
-    }
-    return null;
-  },
-  errorBuilder: (context, state) => Scaffold(
-    body: Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('This screen is unavailable.'),
-          FilledButton(
-            onPressed: () => context.go(AppRoutes.path('7566')),
-            child: const Text('Go to welcome'),
-          ),
-        ],
-      ),
-    ),
-  ),
+final _tabs = [
+  AppNavItem(Icons.home_outlined, Icons.home_rounded, 'Home'),
+  AppNavItem(Icons.route_outlined, Icons.route_rounded, 'Trips'),
+  AppNavItem(Icons.groups_outlined, Icons.groups_rounded, 'Students'),
+  AppNavItem(Icons.person_outline_rounded, Icons.person_rounded, 'Profile'),
+];
+
+/// Re-runs the router redirect whenever [stream] emits.
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    _sub = stream.asBroadcastStream().listen((_) => notifyListeners());
+  }
+  late final StreamSubscription<dynamic> _sub;
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+}
+
+/// Auth guard: signed-out users only see welcome / login; signed-in users skip them.
+String? authRedirect(AuthState auth, String location) {
+  if (auth.status == AuthStatus.unknown) return null;
+  final signedIn = auth.isAuthenticated;
+  if (!signedIn && !RoutePaths.isPublic(location)) return RoutePaths.signedOutHome;
+  if (signedIn && RoutePaths.isPublic(location)) return RoutePaths.signedInHome;
+  return null;
+}
+
+GoRouter createRouter(AuthBloc auth, {String initialLocation = RoutePaths.home}) => GoRouter(
+  initialLocation: initialLocation,
+  refreshListenable: GoRouterRefreshStream(auth.stream),
+  redirect: (context, state) => authRedirect(auth.state, state.matchedLocation),
   routes: [
-    for (final assistant in [false, true])
-      StatefulShellRoute.indexedStack(
-        builder: (context, state, shell) =>
-            AdaptiveScaffold(shell: shell, assistant: assistant),
-        branches: [
-          for (final id
-              in (assistant
-                  ? ['4', '4772', '1720', '4193']
-                  : ['5271', '5638', '6416', '6922']))
-            StatefulShellBranch(
-              routes: [
-                GoRoute(
-                  path: AppRoutes.path(id),
-                  builder: (context, state) => featureScreen(id),
-                ),
-              ],
-            ),
-        ],
-      ),
-    for (final id in viewCatalog.keys.where(
-      (id) => !AppRoutes.primary.contains(id),
-    ))
-      GoRoute(
-        path: AppRoutes.path(id),
-        pageBuilder: (context, state) => MaterialPage(
-          key: state.pageKey,
-          fullscreenDialog: id == '8359' || id == '4589',
-          child: Scaffold(
-            resizeToAvoidBottomInset: true,
-            body: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: featureScreen(id),
-              ),
-            ),
-          ),
-        ),
-      ),
+    GoRoute(path: RoutePaths.welcome, builder: (_, _) => const WelcomeScreen()),
+    GoRoute(path: RoutePaths.login, builder: (_, _) => const LoginScreen(), routes: [
+      GoRoute(path: 'forgot', builder: (_, _) => const ForgotPasswordScreen()),
+    ]),
+    StatefulShellRoute.indexedStack(
+      builder: (context, state, shell) => AdaptiveScaffold(navigationShell: shell, destinations: _tabs, title: 'Shift Sync'),
+      branches: [
+        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.home, builder: (_, _) => const HomeScreen())]),
+        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.trips, builder: (_, _) => const TripsScreen())]),
+        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.students, builder: (_, _) => const StudentsScreen())]),
+        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.profile, builder: (_, _) => const ProfileScreen())]),
+      ],
+    ),
+    // pushed screens (fixed paths before their ":id" siblings)
+    GoRoute(path: RoutePaths.tripHistory, builder: (_, _) => const TripHistoryScreen()),
+    GoRoute(path: '/trips/:id', builder: (_, s) => TripDetailScreen(tripId: s.pathParameters['id']!)),
+    GoRoute(path: '/trips/:id/checklist', builder: (_, s) => ChecklistScreen(tripId: s.pathParameters['id']!)),
+    GoRoute(path: RoutePaths.stops, builder: (_, _) => const StopsScreen()),
+    GoRoute(path: RoutePaths.attendance, builder: (_, _) => const CrewAttendanceScreen()),
+    GoRoute(path: RoutePaths.leave, builder: (_, _) => const LeaveScreen()),
+    GoRoute(path: RoutePaths.applyLeave, builder: (_, _) => const ApplyLeaveScreen()),
+    GoRoute(path: RoutePaths.notices, builder: (_, _) => const NoticesScreen()),
+    GoRoute(path: '/notices/:id', builder: (_, s) => NoticeDetailScreen(id: s.pathParameters['id']!)),
+    GoRoute(path: RoutePaths.editProfile, builder: (_, _) => const EditProfileScreen()),
   ],
+  errorBuilder: (context, state) => DetailScaffold(
+    title: 'Page not found',
+    body: AppEmptyState('Nothing here yet', hint: 'No screen for ${state.uri}', icon: Icons.explore_off_outlined),
+  ),
 );

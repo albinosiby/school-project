@@ -1,7 +1,9 @@
 rules_version = '2';
 // Role-based rules, see docs/DATA_CONTRACT.md section 7.
-// users/{authUid} = {schoolId, role: "admin"|"teacher"|"parent", staffId?, studentIds?, classIds?, grns?, ...} maps a login to its school.
-// Parents (section 13) read only their own children's docs and the par_* projections the functions write.
+// users/{authUid} = {schoolId, role: "admin"|"teacher"|"parent"|"driver"|"attendant", staffId?, crewId?, studentIds?, classIds?, grns?, ...}
+// maps a login to its school. Parents (section 13) read only their own children's docs and the par_* projections the functions
+// write. Bus crew (section 14, roles driver / attendant) read their own bus, its students and trips, and write their bus's
+// trips / attendance, their own check-in days and leave requests.
 // Everything under schools/{schoolId}/** is reachable only by users whose users doc points at that school.
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -104,6 +106,37 @@ service cloud.firestore {
         && request.resource.data.get('teacherId', '') == threadAfter(sid, request.resource.data.threadId).get('teacherId', 'none')
         && request.resource.data.get('parentUids', []) == threadAfter(sid, request.resource.data.threadId).get('parentUids', [])
         && !request.resource.data.keys().hasAny(['counted']);
+    }
+
+    // ---------- transport crew (contract 14): driver / attendant of one bus ----------
+    function isCrew(sid) { return inSchool(sid) && me().role in ['driver', 'attendant'] && me().get('crewId', '') != ''; }
+    function myCrewId() { return me().crewId; }
+    // the crew member's bus comes from tr_crew/{crewId}.busId (kept by the admin web), never from the client
+    function myBusId(sid) { return get(/databases/$(database)/documents/schools/$(sid)/tr_crew/$(myCrewId())).data.get('busId', ''); }
+    function onMyBus(sid) { return myBusId(sid) != '' && resource.data.get('busId', '') == myBusId(sid); }
+    // tr_trips / tr_attendance of the crew member's bus: id {date}_{busId}_{pickup|drop} built from the incoming doc
+    function myBusRecordOk(sid, docId) {
+      let d = request.resource.data;
+      return myBusId(sid) != '' && d.get('busId', '') == myBusId(sid)
+        && d.get('kind', '') in ['pickup', 'drop']
+        && d.get('date', '') is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && docId == d.date + '_' + d.busId + '_' + d.kind;
+    }
+    // bus, date and direction of an existing trip / attendance record never change
+    function busRecordKeysFixed() {
+      return request.resource.data.get('busId', '') == resource.data.get('busId', '')
+        && request.resource.data.get('date', '') == resource.data.get('date', '')
+        && request.resource.data.get('kind', '') == resource.data.get('kind', '');
+    }
+    // own check-in day: tr_crew_attendance/{date}_{crewId} carrying crewId
+    function myCrewDayOk(docId) {
+      return request.resource.data.get('crewId', '') == myCrewId() && docId == request.resource.data.get('date', '') + '_' + myCrewId();
+    }
+    // own leave request, pending, without the admin's decision fields
+    function myCrewLeaveOk() {
+      let d = request.resource.data;
+      return d.get('crewId', '') == myCrewId() && d.get('status', '') == 'Pending'
+        && !d.keys().hasAny(['decidedBy', 'decidedAt', 'decisionNote']);
     }
 
     // ---------- users ----------
@@ -237,6 +270,36 @@ service cloud.firestore {
         allow delete: if isTeacher(sid) && (
           (col in ['staff_leaves', 'staff_regularizations'] && resource.data.get('staffId', '') == myStaffId() && resource.data.get('status', '') == 'Pending')
           || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting()));
+
+        // bus crew (driver / attendant, contract 14.7): own bus only
+        allow read: if isCrew(sid) && (
+          // the school, every crew member (the partner card) and the transport settings
+          col in ['school', 'tr_crew', 'tr_settings']
+          || (col == 'tr_buses' && myBusId(sid) != '' && docId == myBusId(sid))
+          // the roster: students on the crew member's bus
+          || (col == 'students' && onMyBus(sid))
+          // the bus's trips and attendance records, also by id before the day's docs exist
+          || (col in ['tr_trips', 'tr_attendance'] && onMyBus(sid))
+          || (col in ['tr_trips', 'tr_attendance'] && myBusId(sid) != '' && docId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + myBusId(sid) + '_(pickup|drop)'))
+          // own check-in days (also by id before today's doc exists) and own leave requests
+          || (col == 'tr_crew_attendance' && resource.data.get('crewId', '') == myCrewId())
+          || (col == 'tr_crew_attendance' && docId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + myCrewId()))
+          || (col == 'tr_crew_leaves' && resource.data.get('crewId', '') == myCrewId())
+          || (col == 'com_notices' && resource.data.get('status', '') == 'Published'));
+        allow create: if isCrew(sid) && (
+          (col in ['tr_trips', 'tr_attendance'] && myBusRecordOk(sid, docId))
+          || (col == 'tr_crew_attendance' && myCrewDayOk(docId))
+          || (col == 'tr_crew_leaves' && myCrewLeaveOk()));
+        allow update: if isCrew(sid) && (
+          (col in ['tr_trips', 'tr_attendance'] && onMyBus(sid) && myBusRecordOk(sid, docId) && busRecordKeysFixed())
+          || (col == 'tr_crew_attendance' && resource.data.get('crewId', '') == myCrewId() && myCrewDayOk(docId))
+          // a leave can be edited or withdrawn only while pending, and cannot be decided by its owner
+          || (col == 'tr_crew_leaves' && resource.data.get('crewId', '') == myCrewId() && resource.data.get('status', '') == 'Pending' && myCrewLeaveOk())
+          // own profile: contact details and photo only (bus, role, status and licence belong to the admin)
+          || (col == 'tr_crew' && docId == myCrewId()
+              && onlyKeys(['phone', 'address', 'emergencyName', 'emergencyPhone', 'photoUrl', 'updatedAt', 'updatedBy'])));
+        allow delete: if isCrew(sid)
+          && col == 'tr_crew_leaves' && resource.data.get('crewId', '') == myCrewId() && resource.data.get('status', '') == 'Pending';
       }
 
       // ---------- live class join taps: live_classes/{id}/joins/{authUid} ----------

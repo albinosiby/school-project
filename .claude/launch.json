@@ -33,6 +33,18 @@
         "cd '/Users/albinosiby/Tatos Dev/school project/website/web' && NEXT_PUBLIC_EMULATOR=true npx next dev -p 3005"
       ],
       "port": 3005
+    },
+    {
+      "name": "driver-web-build",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8093",
+        "--directory",
+        "/Users/albinosiby/Tatos Dev/school project/mobile app/driver/build/web"
+      ],
+      "port": 8093
     }
   ]
 }

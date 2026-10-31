@@ -350,4 +350,10 @@ exports.onExamDutyAssigned = onDocumentWritten("schools/{sid}/exm_duties/{id}", 
 // ---------------------------------------------------------------------------
 // Parent app (DATA_CONTRACT section 13): projections, account links, messages, parent pushes. See parent.js.
 // ---------------------------------------------------------------------------
-Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN }));
+const shared = {};
+Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));
+
+// ---------------------------------------------------------------------------
+// Transport (DATA_CONTRACT section 14): bus attendance alerts to parents, crew leave requests in the admin bell. See transport.js.
+// ---------------------------------------------------------------------------
+Object.assign(exports, require("./transport")({ db, notifyAdmin, ...shared }));

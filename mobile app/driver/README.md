@@ -1,50 +1,77 @@
-# Shift Sync Driver and Assistant App
+# Shift Sync: driver and bus staff app
 
-Flutter UI for the complete Figma Driver App section: 43 driver frames and 19 assistant frames. The app uses native Flutter text, forms, scroll views, surfaces and local design assets. Reference screenshots remain in `website/design/driver/png`; they are not app screens or runtime assets.
+Flutter app for the school's transport crew. One app, two roles: the **driver** and the **bus staff** (attendant) who
+rides with the driver. Both see the same bus, trips and roster; the transport office manages everything from the admin
+web (Transport section). Shared data layout: [`website/docs/DATA_CONTRACT.md`](../../website/docs/DATA_CONTRACT.md) section 14.
 
-The [approved implementation plan](../../website/docs/DRIVER_APP_PLAN.md) records the architecture and production integration contracts.
+## What the crew can do
+
+- **Home**: today's date, bus card (number, registration, route, students, stops), the next or live trip, shift check-in /
+  check-out, crew partner with a Call button, quick actions.
+- **Trips**: today's morning pickup and afternoon drop with their state; the route's stops; trip history with counts.
+- **Trip detail**: pre-trip checklist (six items, required before a pickup starts), start trip (optional odometer), the
+  student list with **Boarded / Absent / Arrived (Dropped) / Undo** per pupil, guardian name and phone with **Call**, search,
+  stop and status filters, end trip with note. Ending a pickup marks every boarded pupil as arrived at school.
+- **Students**: the bus roster with class, roll, stop, guardian phone and Call; student card with medical note and recent
+  bus attendance; route stops with the pupils at each stop.
+- **Profile**: identity, bus, licence (drivers), editable phone / address / emergency contact, my attendance (month view),
+  leave requests (apply, withdraw while pending), transport notices, sign out.
 
 ## Run
 
-Verified toolchain: Flutter 3.44.1 / Dart 3.12.1. Run these commands from this application folder.
+Verified toolchain: Flutter 3.44.1 / Dart 3.12.1. Run from this folder.
 
 ```sh
 flutter pub get
-flutter run -d <device-id>
-flutter test
+flutter run -d chrome                      # demo data (default)
+flutter run --dart-define=BACKEND=firebase # the school's Firestore (admin web project)
+flutter run --dart-define=BACKEND=firebase --dart-define=EMULATOR=true   # local emulators (see website/tools/e2e)
+flutter test                               # 28 tests
 flutter analyze
 ```
 
-The welcome screen leads to mobile sign-in. Use any fictional ten-digit mobile number and demo code **482916**. Choose Lead Driver or Bus Attendant, then confirm pairing. Guardian handover uses demo code **4092**. No SMS, calls, dispatch alerts, payments or hardware commands are sent.
+Demo logins (default build, no real data): tap a demo card on the sign-in screen, or use
+`rajesh.kumar@greenfield.edu` (driver) / `sunita.devi@greenfield.edu` (bus staff) with password `shift123`.
 
-## Folder structure
+Firebase builds sign in with the email the transport office registered (admin web > Transport > Drivers / Bus staff) and
+the password set from the invite email. `users/{uid}` must have `role: driver|attendant` and `crewId`.
 
-- `lib/modules/auth`: credentials, verification, session and public onboarding.
-- `lib/modules/crew`: role selection and crew pairing.
-- `lib/modules/transport`: driver home, trips, checklist, manifest, live run and history.
-- `lib/modules/operations`: vehicle, fuel, faults, service, leave, notices and lost-and-found.
-- `lib/modules/account`: profiles, settings, passes, payslips and notifications.
-- `lib/modules/attendant`: assistant home, students, stops, care, handover, sweep, incidents and duties.
-- `lib/modules/learning`: training and module detail.
+## Structure
 
-Every feature owns `cubit/`, `models/`, `repositories/` and `screens/`. Shared presentation contracts, native layout primitives and form lifecycle are under `core/`. Shared components and tokens are under `design_system/`. GoRouter route ownership is centralized in `config/routes/`; GetIt bindings are in `di/injection.dart`.
+```
+lib/
+├── design_system/    tokens, components, layouts, feedback, animations (shared with the parent app)
+├── config/           app_config.dart (local | firebase, EMULATOR), routes/ (routes.dart, routes_config.dart)
+├── constants/        app_constants.dart
+├── core/             bloc/data_bloc.dart (stream BLoC base), widgets/data_view.dart (loading / error / empty / data)
+├── di/               injection.dart (GetIt), mock_repositories.dart + demo_data.dart (local), firebase_repositories.dart
+├── modules/<feature>/{bloc,models,repositories,screens}
+│     auth, crew (me + bus + partner), home, trips, students, attendance (marks), crew_attendance, leave, notices, profile
+├── utils/            exceptions/, helpers/ (dates), services/ (cache, link launcher, local storage, firebase/crew_session.dart)
+└── main.dart
+```
 
-Data flow: screen → feature Cubit → repository interface/implementation → local assets or session state. Widgets do not access storage or a backend. The first milestone uses local demo repositories. Driver and assistant identities are fictional; demo verification is not production authentication.
+Flow: Screen → BLoC → `I<Feature>Repository` → `Mock…Repository` (in-memory `DemoStore`) or `Firebase…Repository`
+(`CrewSession` wraps `users/{uid}` + `tr_crew/{crewId}`; Firestore offline persistence makes reads cache-first).
 
-Primary navigation uses retained GoRouter shell branches and an elevated bottom bar. Detail scroll positions use page storage. Local edits are retained for the session; restarting resets operational records. Sign-out clears feature caches and trip data.
+Routes: tabs `/home`, `/trips`, `/students`, `/profile`; pushed `/trips/:id`, `/trips/:id/checklist`, `/trips/history`,
+`/students/stops`, `/profile/attendance`, `/profile/leave`, `/profile/leave/apply`, `/profile/edit`, `/notices`, `/notices/:id`;
+public `/welcome`, `/login`, `/login/forgot`. Signed-out users are redirected to `/welcome`.
 
-## Design data
+## Firestore (BACKEND=firebase)
 
-`assets/views/` contains typed presentation contracts grouped by feature. `ViewRepository` parses these at the infrastructure boundary into immutable application models. `DesignView` composes native widgets from their geometry and appearance; interactive targets are dispatched to feature Cubits. Business state remains separate from the exported presentation tree.
+Collections under `schools/{sid}` (contract section 14): `tr_crew`, `tr_buses`, `tr_trips/{date}_{busId}_{kind}`,
+`tr_attendance/{same id}` (`marks.{studentId} = {status, at, by, byName, stopId}`), `tr_crew_attendance/{date}_{crewId}`,
+`tr_crew_leaves`, `tr_settings/policy`, plus `students` where `busId == my bus` and published `com_notices`. Marks are
+written in a transaction so the driver and the attendant can mark at the same time. The rules allow a crew member only
+their own bus's records (`website/firestore.rules`, tested in `website/tools/rules_test`).
 
-`config/routes/view_catalog.dart` and `website/design/driver/frames.tsv` map every source frame to its app route. Primary routes are `/driver/home`, `/driver/trips`, `/driver/live`, `/driver/profile`, `/assistant/home`, `/assistant/students`, `/assistant/stops`, `/assistant/duties`; other frames use `/screen/<frame-number>`.
+`lib/firebase_options.dart` reuses the parent app's Android values until an Android app for
+`com.tatos.school.driver_app` is registered in the Firebase project and its `google-services.json` added.
 
-`--dart-define=UI_REVIEW=true` allows direct screen access for automated UI review. Normal builds enforce demo session and primary role redirects. This flag is for development and is not production authorization.
+## Tests
 
-## Integration boundaries
-
-Map display, telemetry, OTP, RFID/NFC/QR hardware, uploads, document export, streaming lessons, office messaging and external alerts use demo behavior. Their UI does not establish the certification, encryption or compliance statements shown in the source design. Production integration requires trusted identity and tenant/assignment authorization, replay-protected pairing and handover, upload rules, telemetry policies and an approved transport data contract.
-
-## Verification
-
-`test/widget_test.dart` checks authentication, role isolation, checklist prerequisites, boarding deduplication and guardian verification. `test/screen_render_test.dart` renders reference screens for local visual QA. Device integration tests exercise screen rendering and the two role journeys. Validation results and remaining limitations belong in `UI_VERIFICATION.md`.
+`test/journeys_test.dart` drives the whole app on the mock backend: sign-in, checklist gate, start trip, mark pupils, end
+trip, attendant marking and undo, roster search and Call (`tel:`), student card, check-in / out, leave apply / withdraw,
+notices, edit profile, trip history. `test/firebase_repositories_test.dart` runs the Firestore repositories against
+`fake_cloud_firestore`.

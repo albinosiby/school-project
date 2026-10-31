@@ -1,12 +1,26 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'app_tokens.dart';
 
-ThemeData darkTheme() => ThemeData(
-  useMaterial3: true,
-  brightness: Brightness.dark,
-  colorScheme: ColorScheme.fromSeed(
-    seedColor: const Color(0xFF2F4FD8),
+/// Dark Material 3 theme. The Figma designs are light-only, so the app runs in
+/// light mode by default (see core/settings/application_setting.dart); this theme
+/// is provided for the blueprint's theme switch.
+ThemeData darkTheme() {
+  final scheme = ColorScheme.fromSeed(
+    seedColor: C.primary,
     brightness: Brightness.dark,
-  ),
-  textTheme: GoogleFonts.plusJakartaSansTextTheme(ThemeData.dark().textTheme),
-);
+  );
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: scheme,
+    inputDecorationTheme: InputDecorationTheme(
+      isDense: true,
+      contentPadding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 14.h),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(R.md)),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(R.md)),
+    ),
+  );
+}

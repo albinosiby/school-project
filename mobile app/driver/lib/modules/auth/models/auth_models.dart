@@ -1,21 +1,12 @@
 import 'package:equatable/equatable.dart';
+import '../../crew/models/crew_models.dart';
 
-enum CrewRole { driver, assistant }
-
-class CrewSession extends Equatable {
-  const CrewSession({
-    this.authenticated = false,
-    this.role = CrewRole.driver,
-    this.phone = '9876543210',
-  });
-  final bool authenticated;
+/// The signed-in login: `users/{uid}` of role driver / attendant (contract 14.1).
+class CrewUser extends Equatable {
+  const CrewUser({required this.uid, required this.email, required this.name, required this.schoolId, required this.crewId, required this.role});
+  final String uid, email, name, schoolId, crewId;
   final CrewRole role;
-  final String phone;
-  @override
-  List<Object?> get props => [authenticated, role, phone];
-}
 
-class AuthFailure implements Exception {
-  const AuthFailure(this.message);
-  final String message;
+  @override
+  List<Object?> get props => [uid, email, name, schoolId, crewId, role];
 }

@@ -1,44 +1,100 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:go_router/go_router.dart';
-import '../components/app_bottom_nav_bar.dart';
-import 'responsive_builder.dart';
+import '../components/app_dock.dart';
+import '../tokens/app_tokens.dart';
 import 'breakpoints.dart';
+import 'responsive_builder.dart';
 
+/// Max width of the phone-designed content on tablet/desktop.
+const double kContentMaxWidth = 480;
+
+/// Floating dock (mobile), NavigationRail (tablet) or NavigationDrawer (desktop).
 class AdaptiveScaffold extends StatelessWidget {
   const AdaptiveScaffold({
     super.key,
-    required this.shell,
-    required this.assistant,
+    required this.navigationShell,
+    required this.destinations,
+    this.title = 'Shift Sync',
   });
-  final StatefulNavigationShell shell;
-  final bool assistant;
+  final StatefulNavigationShell navigationShell;
+  final List<AppNavItem> destinations;
+  final String title;
+
+  void _select(int i) => navigationShell.goBranch(
+    i,
+    initialLocation: i == navigationShell.currentIndex,
+  );
+
   @override
   Widget build(BuildContext context) => ResponsiveBuilder(
-    builder: (context, type, box) {
-      final width = switch (type) {
-        ScreenType.mobile => box.maxWidth,
-        ScreenType.tablet => 480.0,
-        ScreenType.desktop => 520.0,
-      };
-      return Scaffold(
-        extendBody: false,
-        body: Center(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: width),
-            child: shell,
+    builder: (context, screenType) {
+      final selected = navigationShell.currentIndex;
+      if (screenType == ScreenType.mobile) {
+        return Scaffold(
+          extendBody: true,
+          body: SafeArea(bottom: false, child: navigationShell),
+          bottomNavigationBar: AppDock(
+            items: destinations,
+            index: selected,
+            onTap: _select,
           ),
-        ),
-        bottomNavigationBar: Center(
-          heightFactor: 1,
+        );
+      }
+      final body = ColoredBox(
+        color: C.surface,
+        child: Center(
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: width),
-            child: AppBottomNavBar(
-              index: shell.currentIndex,
-              assistant: assistant,
-              onTap: (i) =>
-                  shell.goBranch(i, initialLocation: i == shell.currentIndex),
+            constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
+            child: ColoredBox(
+              color: C.bg,
+              child: SafeArea(child: navigationShell),
             ),
           ),
+        ),
+      );
+      final nav = screenType == ScreenType.tablet
+          ? NavigationRail(
+              selectedIndex: selected,
+              onDestinationSelected: _select,
+              labelType: NavigationRailLabelType.all,
+              indicatorColor: C.primarySoft,
+              destinations: [
+                for (final d in destinations)
+                  NavigationRailDestination(
+                    icon: d.wrap(Icon(d.icon, size: 22.r)),
+                    selectedIcon: d.wrap(
+                      Icon(d.selectedIcon, color: C.primary, size: 22.r),
+                    ),
+                    label: Text(d.label, style: T.small),
+                  ),
+              ],
+            )
+          : NavigationDrawer(
+              selectedIndex: selected,
+              onDestinationSelected: _select,
+              indicatorColor: C.primarySoft,
+              children: [
+                Padding(
+                  padding: EdgeInsets.fromLTRB(16.w, 28.h, 16.w, 16.h),
+                  child: Text(title, style: T.h2),
+                ),
+                const Divider(indent: 16, endIndent: 16),
+                for (final d in destinations)
+                  NavigationDrawerDestination(
+                    icon: d.wrap(Icon(d.icon)),
+                    selectedIcon: d.wrap(Icon(d.selectedIcon, color: C.primary)),
+                    label: Text(d.label, style: T.bodyStrong),
+                  ),
+              ],
+            );
+      return Scaffold(
+        body: Row(
+          children: [
+            nav,
+            const VerticalDivider(thickness: 1, width: 1),
+            Expanded(child: body),
+          ],
         ),
       );
     },

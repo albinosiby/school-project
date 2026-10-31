@@ -28,6 +28,9 @@ const accounts = {
   admin: { email: "admin@e2e.test", password: pw() },
   teacher: { email: "anita@e2e.test", password: pw() },
   parent: { email: "parent@e2e.test", password: pw() },
+  // transport crew (contract 14.8): the driver app signs in with these
+  driver: { email: "driver@e2e.test", password: pw() },
+  attendant: { email: "attendant@e2e.test", password: pw() },
 };
 for (const a of Object.values(accounts)) {
   const existing = await auth.getUserByEmail(a.email).catch(() => null);
@@ -40,6 +43,8 @@ await db.doc(`users/${accounts.admin.uid}`).set({ schoolId: SID, role: "admin", 
 await db.doc(`users/${accounts.teacher.uid}`).set({ schoolId: SID, role: "teacher", staffId: "stf_025", email: accounts.teacher.email, name: "Mrs. Anita Sharma", createdAt: now() });
 // the admin web writes the parent user like this (arrays start empty; onStudentWritten fills them)
 await db.doc(`users/${accounts.parent.uid}`).set({ schoolId: SID, role: "parent", email: accounts.parent.email, name: "Mr. Rahul Sharma", studentIds: [], classIds: [], grns: [], createdAt: now() });
+await db.doc(`users/${accounts.driver.uid}`).set({ schoolId: SID, role: "driver", crewId: "crw_001", email: accounts.driver.email, name: "Ramesh Kumar", createdAt: now() });
+await db.doc(`users/${accounts.attendant.uid}`).set({ schoolId: SID, role: "attendant", crewId: "crw_002", email: accounts.attendant.email, name: "Suresh Yadav", createdAt: now() });
 
 const b = db.batch();
 const put = (col, id, data) => b.set(S.collection(col).doc(id), { ...data, updatedAt: now() });
@@ -57,9 +62,17 @@ const kids = [
   ["stu_101", "Aarav Sharma", "10", "B", 1, "GIS-9200"], ["stu_102", "Ananya Reddy", "10", "B", 2, "GIS-9201"], ["stu_103", "Kabir Das", "10", "B", 3, "GIS-9202"],
   ["stu_201", "Meera Sharma", "8", "A", 1, "GIS-8100"], ["stu_202", "Rohan Gupta", "8", "A", 2, "GIS-8101"],
 ];
+// bus_01 (Bus 14, Route 4B) and its three stops; every seeded student rides it (contract 14.8)
+const stops = [
+  { id: "stp_01", name: "Lajpat Nagar", pickupTime: "06:45", dropTime: "15:40", landmark: "Metro gate 2" },
+  { id: "stp_02", name: "Greater Kailash", pickupTime: "06:58", dropTime: "15:55", landmark: "M Block market" },
+  { id: "stp_03", name: "Nehru Place", pickupTime: "07:10", dropTime: "16:05", landmark: "Bus terminal" },
+];
+const stopOf = (id) => stops[{ stu_101: 0, stu_102: 0, stu_103: 1, stu_201: 1, stu_202: 2 }[id] ?? 0];
 for (const [id, name, grade, section, roll, grn] of kids) {
   put("students", id, { name, grade, section, classId: `cls_${grade}${section}`, roll, grn, status: "Active", attendance: 95,
-    guardian: id === "stu_101" || id === "stu_201" ? "Mr. Rahul Sharma" : "Guardian", relation: "Father", phone: "+91 98100 00001", guardianUids: [] });
+    guardian: id === "stu_101" || id === "stu_201" ? "Mr. Rahul Sharma" : "Guardian", relation: "Father", phone: "+91 98100 00001", guardianUids: [],
+    busId: "bus_01", bus: "Bus 14", busStopId: stopOf(id).id, busStop: stopOf(id).name });
 }
 // timetable for 10-B and 8-A, Mon..Sat P1..P6
 const subj10 = ["Mathematics", "English", "Science", "Social Science", "Hindi", "Physical Education"];
@@ -78,5 +91,25 @@ put("fee_invoices", "inv_1", { no: "INV-1001", student: "Aarav Sharma", grade: "
 put("fee_invoices", "inv_2", { no: "INV-1002", student: "Ananya Reddy", grade: "10", section: "B", grn: "GIS-9201", term: "Term 2", issued: day(-20), due: day(5), amount: 42000, paid: 0, balance: 42000, status: "Pending", lines: [] });
 put("exm_cycles", "cyc_1", { title: "Term 1 Mid-Term 2026", short: "MT1", term: "Term 1", status: "Completed", theoryMax: 80, internalMax: 20 });
 put("set_leave_policy", "policy", { checkInBy: "08:15", types: [] });
+
+// transport (contract 14): crew, bus, settings, and yesterday's completed pickup trip so the history is not empty
+put("tr_crew", "crw_001", { name: "Ramesh Kumar", role: "driver", empId: "TR-1001", phone: "+91 98100 00011", email: accounts.driver.email, authUid: accounts.driver.uid,
+  status: "Active", busId: "bus_01", bus: "Bus 14", licenseNo: "DL-0420110012345", licenseExpiry: "2029-03-31", joined: "2021-04-01", address: "Lajpat Nagar, New Delhi",
+  emergencyName: "Sita Kumar", emergencyPhone: "+91 98100 00021", createdAt: now() });
+put("tr_crew", "crw_002", { name: "Suresh Yadav", role: "attendant", empId: "TR-1002", phone: "+91 98100 00012", email: accounts.attendant.email, authUid: accounts.attendant.uid,
+  status: "Active", busId: "bus_01", bus: "Bus 14", joined: "2022-06-15", address: "Kalkaji, New Delhi", emergencyName: "Geeta Yadav", emergencyPhone: "+91 98100 00022", createdAt: now() });
+put("tr_buses", "bus_01", { number: "14", regNo: "DL-01-AB-4092", capacity: 42, model: "42-seater AC", routeName: "Route 4B", driverId: "crw_001", driver: "Ramesh Kumar",
+  attendantId: "crw_002", attendant: "Suresh Yadav", stops, pickupStart: "06:45", dropStart: "15:30", status: "Active", studentCount: kids.length, note: "" });
+put("tr_settings", "policy", { checkInBy: "06:30" });
+const yesterday = day(-1), tripId = `${yesterday}_bus_01_pickup`;
+const markAt = (hhmm) => `${yesterday}T${hhmm}:00+05:30`;
+const marks = Object.fromEntries(kids.map(([id]) => [id, { status: "dropped", at: markAt("07:35"), by: "crw_002", byName: "Suresh Yadav", stopId: stopOf(id).id }]));
+put("tr_trips", tripId, { busId: "bus_01", bus: "Bus 14", routeName: "Route 4B", date: yesterday, kind: "pickup", status: "completed", driverId: "crw_001", driver: "Ramesh Kumar",
+  attendantId: "crw_002", attendant: "Suresh Yadav", total: kids.length, boarded: 0, dropped: kids.length, absent: 0, startedAt: markAt("06:40"), startedBy: "crw_001",
+  endedAt: markAt("07:35"), endedBy: "crw_001", checklist: { brakes: true, lights: true, tyres: true, fuel: true, firstAid: true, cleanliness: true }, checklistAt: markAt("06:38"),
+  odometerStart: 48210, odometerEnd: 48234, updatedBy: accounts.driver.uid });
+put("tr_attendance", tripId, { tripId, busId: "bus_01", bus: "Bus 14", date: yesterday, kind: "pickup", total: kids.length, marks, boarded: 0, dropped: kids.length, absent: 0, updatedBy: accounts.attendant.uid });
+put("tr_crew_attendance", `${yesterday}_crw_001`, { crewId: "crw_001", name: "Ramesh Kumar", role: "driver", busId: "bus_01", date: yesterday, in: "06:20", out: "16:15", status: "Present", source: "app" });
+put("tr_crew_attendance", `${yesterday}_crw_002`, { crewId: "crw_002", name: "Suresh Yadav", role: "attendant", busId: "bus_01", date: yesterday, in: "06:35", out: "16:15", status: "Late", source: "app" });
 await b.commit();
 console.log(JSON.stringify({ seeded: true, schoolId: SID, today }));

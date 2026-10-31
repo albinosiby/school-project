@@ -331,3 +331,90 @@ Where the backend had to pick a detail the sections above leave open:
 - **Audit**: `set_audit` rows written by functions carry `kind: "parent"`, `source: "functions"`; `actor` is the user named by the
   student's `updatedBy` (else "System"), or the parent for consents. A consent doc with `withdrawn: true` (or deleted) logs "Consent withdrawn".
 - **Accounts**: `onStudentWritten` updates only `users` docs with `role == "parent"` in the same school; it never creates them.
+
+## 14. Transport: buses, drivers, bus staff, student bus attendance (2026-10-31)
+
+One Flutter app (`mobile app/driver`, "Shift Sync") serves two crew roles: the **driver** and the **attendant** (the bus staff
+member who rides with the driver). The admin web manages both, allots them to buses, puts students on buses and reads every
+transport record. Everything is under `schools/{sid}`; ids and stamps follow §2.
+
+### 14.1 Accounts and crew
+- `tr_crew/{id}` (id `crw_001`…): `{name, role: "driver"|"attendant", empId ("TR-1001"), phone, email, authUid?, status:
+  "Active"|"On leave"|"Inactive", busId?: string, bus?: string (display "Bus 14", kept by the admin web), licenseNo?,
+  licenseExpiry? (YYYY-MM-DD), joined?, address?, emergencyName?, emergencyPhone?, photoUrl?, leaveFrom?, leaveTo?, leaveReason?}`.
+- Admin web > Transport > Drivers / Bus staff adds a crew member with a required unique email → the admin web creates the
+  Auth login exactly like a staff login (§1: secondary app, random password, password-reset invite), writes
+  `users/{uid} = {schoolId, role: "driver"|"attendant", crewId, email, name, createdAt}` and stores `authUid` on the crew doc.
+  Crew sign in to the driver app with that email and the password set from the invite (no mobile OTP).
+- A crew member belongs to at most one bus (`tr_crew.busId`); a bus has one `driverId` and one `attendantId`. The admin web
+  keeps both sides in sync in one batch (allotting a crew member to a bus clears them from their previous bus).
+- Rules helpers: `isCrew(sid)` = users doc of that school with `role in ['driver','attendant']` and a non-empty `crewId`;
+  `myCrewId()`; `myBusId(sid)` = `tr_crew/{myCrewId}.busId` (read from Firestore, never from the client).
+
+### 14.2 Buses and stops
+- `tr_buses/{id}` (id `bus_01`…): `{number ("14"), regNo ("DL-01-AB-4092"), capacity (int), model? ("42-seater AC"),
+  routeName ("Route 4B"), driverId?, driver? (name), attendantId?, attendant? (name), stops: [{id: "stp_01", name,
+  pickupTime: "06:45", dropTime: "15:40", landmark?}] (in route order; the school is not a stop), pickupStart "06:45",
+  dropStart "15:30", status: "Active"|"Maintenance"|"Inactive", studentCount (int, kept by the admin web), note?}`.
+- `students` gain `busId?`, `bus?` (display "Bus 14"), `busStopId?`, `busStop?` (stop name). The admin web assigns students to a
+  bus and stop in Transport > Buses > bus > Students (and clears them on removal). `tr_buses.studentCount` = students with
+  that `busId`.
+- Crew read `tr_buses/{myBusId}`, and `students` where `busId == myBusId` (the roster: name, class, roll, stop, guardian,
+  phone, photo). They never read other buses' students.
+
+### 14.3 Trips (one per bus, per day, per direction)
+- `tr_trips/{date}_{busId}_{kind}` with `kind` `"pickup"` (morning, home → school) or `"drop"` (afternoon, school → home):
+  `{busId, bus, routeName, date, kind, status: "scheduled"|"active"|"completed", driverId, driver, attendantId, attendant,
+  total (students on the bus that day), boarded, dropped, absent (counts, recomputed on every mark), startedAt?, startedBy?
+  (crewId), endedAt?, endedBy?, checklist?: {brakes, lights, tyres, fuel, firstAid, cleanliness: bool}, checklistAt?,
+  odometerStart?, odometerEnd?, note?, currentStopId?}`.
+- The driver app creates the day's two trip docs the first time a crew member of that bus opens the app that day
+  (`status: "scheduled"`); the admin web shows them in Transport > Trips. Starting a pickup trip requires every checklist
+  item true. Either crew member may start or end a trip. Ending a pickup trip marks every `boarded` student `dropped`
+  (arrived at school); ending a drop trip leaves unmarked boarded students as `boarded` for the office to follow up.
+- Crew write `tr_trips` only for `busId == myBusId()` and never change `busId`, `date`, `kind`.
+
+### 14.4 Student bus attendance
+- `tr_attendance/{date}_{busId}_{kind}` (same id as the trip): `{tripId, busId, bus, date, kind, total, marks:
+  {studentId: {status: "boarded"|"absent"|"dropped", at (ISO), by (crewId), byName, stopId?}}, boarded, dropped, absent
+  (counts), updatedAt, updatedBy}`. Students without a key are not marked yet.
+- The attendant (or the driver) marks each student from the trip's student list: **Boarded** / **Absent** at the stop, **Dropped**
+  when the child leaves the bus. One tap writes `marks.{studentId}` with a merge, so both crew members may mark at once.
+  Undo sets the key back to the previous status (or deletes it).
+- The student list shows the guardian name and phone; **Call** opens the dialer (`tel:`) with the parent's number.
+- Admin web > Transport > Attendance shows per date and bus the trip, the marks (with time and who marked) and the counts;
+  per student the history across days. Admin may correct a mark (`by: "admin"`).
+- Function `onTransportAttendanceWritten`: for every mark whose status changed to `boarded` or `dropped` today, push the
+  child's guardians (`par_notifications` row, `type: "transport"`, "{name} boarded Bus 14 at 06:52" / "{name} got off at
+  {stop}", route `/home/track`); `absent` pushes "{name} was not at the bus stop". Dedupe id `trp_{tripId}_{studentId}_{status}`.
+
+### 14.5 Crew attendance (driver / staff check-in) and leave
+- `tr_crew_attendance/{date}_{crewId}`: `{crewId, name, role, busId, date, in: "HH:mm"|null, out: "HH:mm"|null, status:
+  "Present"|"Late"|"Absent"|"Leave", source: "app"|"admin", note?}`. The crew member punches in / out in the driver app (Home);
+  Late = check-in after `set_leave_policy/policy.checkInBy` (default "08:15") minus nothing: transport uses its own
+  `tr_settings/policy.checkInBy` (default "06:30") when present. Admin web > Transport > Crew attendance lists every day per
+  crew member and may correct a day (`source: "admin"`).
+- `tr_crew_leaves/{id}`: `{crewId, name, role, busId, type ("Casual"|"Sick"|"Emergency"|"Other"), from, to, days, reason,
+  status: "Pending"|"Approved"|"Rejected", appliedAt, decidedBy?, decidedAt?, decisionNote?}`. Crew create and edit/withdraw
+  while Pending; admin decides in Transport > Leaves. Function `onCrewLeaveRequested` adds an admin bell row
+  (`category: "approvals"`, href `/transport?tab=leaves`).
+
+### 14.6 Notices
+- Crew read `com_notices` with `status == "Published"`; the app shows those whose `audience` mentions transport, staff, drivers,
+  all or everyone.
+
+### 14.7 Rules summary (role driver / attendant)
+- read: `school`, own `users` doc, `tr_crew` (all crew of the school: the partner card), `tr_buses/{myBusId}`, `students`
+  where `busId == myBusId`, `tr_trips` / `tr_attendance` where `busId == myBusId`, own `tr_crew_attendance`
+  (`crewId == myCrewId`, also by id `{date}_{crewId}` before it exists), own `tr_crew_leaves`, `tr_settings`, published `com_notices`.
+- create/update: `tr_trips` and `tr_attendance` of own bus (ids `{date}_{myBusId}_{pickup|drop}`, `busId` fixed);
+  own `tr_crew_attendance` day (`crewId`, docId `{date}_{crewId}`); own `tr_crew_leaves` only while Pending, never
+  deciding fields; `tr_crew/{myCrewId}` only `phone`, `address`, `emergencyName`, `emergencyPhone`, `photoUrl`.
+- delete: own Pending `tr_crew_leaves`. Everything else admin only.
+- Composite indexes: `students (busId, roll)`, `tr_trips (busId, date)`, `tr_attendance (busId, date)`,
+  `tr_crew_attendance (crewId, date)`, `tr_crew_leaves (crewId, appliedAt)`.
+
+### 14.8 Demo data
+- Emulator seed (`tools/e2e/seed.mjs`) adds bus `bus_01` (Bus 14, Route 4B, 3 stops), driver `crw_001` (`driver@e2e.test`),
+  attendant `crw_002` (`attendant@e2e.test`), puts the five seeded students on the bus and writes `.accounts.json` entries
+  `driver` and `attendant`. The driver app's local backend (default build) ships the same shapes as in-memory demo data.

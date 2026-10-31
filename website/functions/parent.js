@@ -13,7 +13,8 @@ const { logger } = require("firebase-functions/v2");
 const { onDocumentCreated, onDocumentDeleted, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 
-module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
+// `shared` (optional) receives the helpers other codebases reuse (transport.js: notifyParents, guardiansOf, istToday, safe).
+module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   const S = (sid) => db.collection("schools").doc(sid);
   const nowIso = () => new Date().toISOString();
   /** today's date in India time, YYYY-MM-DD */
@@ -115,6 +116,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
 
   /** [{uid, student}] for every guardian login of these students */
   const guardiansOf = (students) => students.flatMap((s) => uniq(s?.guardianUids).map((uid) => ({ uid, student: s })));
+  Object.assign(shared, { notifyParents, guardiansOf, istToday, safe });
 
   // ---------------------------------------------------------------------------
   // 13.1 accounts: users/{uid}.studentIds / classIds / grns follow students.guardianUids
