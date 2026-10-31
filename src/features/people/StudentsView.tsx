@@ -17,7 +17,9 @@ import { CertificatesPanel } from "./CertificatesPanel";
 export type Student = { id: string; name: string; grn: string; grade: string; section: string; guardian: string; phone: string; status: string; attendance: number;
   email?: string; dob?: string; address?: string; relation?: string;
   /** contract 13.1: parent login email and the linked parent auth uids (siblings share a uid) */
-  guardianEmail?: string; guardianUids?: string[] };
+  guardianEmail?: string; guardianUids?: string[];
+  /** contract 14.2: bus + stop assigned in Transport > Buses (display names kept by the admin web) */
+  busId?: string; bus?: string; busStopId?: string; busStop?: string };
 const STATUS = ["Active", "Alumni-pending", "Transferred"];
 const pctOf = (s: Student) => Number(s.attendance) || 0; // attendance may be missing on rows written elsewhere
 const tone = (s: string): Tone => (s === "Active" ? "success" : s === "Transferred" ? "neutral" : "warning");
@@ -104,6 +106,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
           <section><h3 className="t-label-caps mb-2 text-on-surface-variant">Attendance</h3><div className="flex items-center gap-3"><ProgressBar value={pctOf(live)} tone={pctOf(live) >= 75 ? "success" : "danger"} /><span className="font-mono">{pctOf(live)}%</span></div></section>
           <section><h3 className="t-label-caps mb-2 text-on-surface-variant">Guardian</h3>
             <dl className="grid grid-cols-[110px_1fr] gap-y-2 text-sm"><dt className="text-outline">Name</dt><dd>{live.guardian}</dd><dt className="text-outline">Relation</dt><dd>{live.relation || "—"}</dd><dt className="text-outline">Phone</dt><dd>{live.phone}</dd><dt className="text-outline">Email</dt><dd>{live.email || "—"}</dd><dt className="text-outline">Login email</dt><dd>{live.guardianEmail || "—"}</dd><dt className="text-outline">Address</dt><dd>{live.address || "—"}</dd></dl></section>
+          <section><h3 className="t-label-caps mb-2 text-on-surface-variant">Transport</h3><p className="text-sm">{live.bus ? `${live.bus} · ${live.busStop || "No stop set"}` : <span className="text-on-surface-variant">No bus</span>}</p></section>
           <ParentLoginSection key={live.id} s={live} students={rows} users={users} consents={consents} />
         </div>}
       </SlideOver>
