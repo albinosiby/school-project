@@ -10,6 +10,9 @@ import type { Tone } from "@/components/ui";
 import { consentState, normEmail, useSchoolUsers, validEmail, type Consent, type ConsentState } from "@/lib/parentAccount";
 import { ParentLoginSection } from "./ParentLoginSection";
 import { StudentLeavesPanel } from "./StudentLeavesPanel";
+import { MeetingsPanel } from "./MeetingsPanel";
+import { useNow } from "@/lib/useNow";
+import { CertificatesPanel } from "./CertificatesPanel";
 
 export type Student = { id: string; name: string; grn: string; grade: string; section: string; guardian: string; phone: string; status: string; attendance: number;
   email?: string; dob?: string; address?: string; relation?: string;
@@ -32,11 +35,14 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   const [del, setDel] = useState<Student | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [consent, setConsent] = useState("");
-  // deep-linkable: /students?tab=leaves (parent leave requests)
+  // deep-linkable: /students?tab=leaves|meetings|certificates (parent requests)
   const params = useSearchParams(); const router = useRouter(); const path = usePathname();
-  const tab = params.get("tab") === "leaves" ? "leaves" : "directory";
+  const tab = ["leaves", "meetings", "certificates"].find((t) => t === params.get("tab")) ?? "directory";
   const setTab = (t: string) => router.replace(t === "directory" ? path : `${path}?tab=${t}`, { scroll: false });
   const pendingLeaves = useCollection<{ id: string; status: string }>("student_leaves").rows.filter((l) => l.status === "Pending").length;
+  const now = useNow();
+  const bookedMeetings = useCollection<{ id: string; status: string; startMs: number }>("ptm_bookings").rows.filter((b) => b.status === "Scheduled" && b.startMs > now).length;
+  const certRequests = useCollection<{ id: string; status: string }>("certificates").rows.filter((c) => c.status === "Requested").length;
   const { users } = useSchoolUsers();
   const consentRows = useCollection<Consent>("consents").rows;
   const consents = useMemo(() => new Map(consentRows.map((c) => [c.uid || c.id, c])), [consentRows]);
@@ -74,8 +80,9 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
         <Stat label="Average attendance" value={`${avg}%`} icon={<Percent size={16} />} />
         <Stat label="Below 75% attendance" value={rows.filter((s) => pctOf(s) < 75).length} sub="Needs follow-up" subTone="danger" icon={<TriangleAlert size={16} />} />
       </div>
-      <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ id: "directory", label: "Directory", count: rows.length }, { id: "leaves", label: "Leave requests", count: pendingLeaves }]} />
-      {tab === "leaves" ? <StudentLeavesPanel students={rows} /> :
+      <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ id: "directory", label: "Directory", count: rows.length }, { id: "leaves", label: "Leave requests", count: pendingLeaves },
+        { id: "meetings", label: "Meetings", count: bookedMeetings }, { id: "certificates", label: "Certificates", count: certRequests }]} />
+      {tab === "leaves" ? <StudentLeavesPanel students={rows} /> : tab === "meetings" ? <MeetingsPanel students={rows} /> : tab === "certificates" ? <CertificatesPanel students={rows} /> :
       <Card className="pt-4">
         <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
           <SearchBox value={q} onChange={setQ} placeholder="Search by name, GRN, guardian or phone…" className="w-full max-w-xs" />

@@ -2,7 +2,7 @@
 // A secondary Firebase app instance is used so the admin stays signed in on the primary one.
 import { getApps, initializeApp } from "firebase/app";
 import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signOut, type User } from "firebase/auth";
-import { auth, firebaseOptions } from "./firebase";
+import { auth, firebaseOptions, withEmulator } from "./firebase";
 
 export type NewAccount = { uid: string; /** undo: deletes the freshly created Auth user (call if a later write fails) */ rollback: () => Promise<void>; /** signs the secondary app out; call when done */ finish: () => Promise<void> };
 
@@ -27,7 +27,7 @@ export const accountError = (e: unknown): string => {
 /** Creates the Auth user with a random password. Throws a Firebase error (use accountError for the message). */
 export async function createAccount(email: string): Promise<NewAccount> {
   const secondary = getApps().find((a) => a.name === "secondary") ?? initializeApp(firebaseOptions, "secondary");
-  const sAuth = getAuth(secondary);
+  const sAuth = withEmulator(getAuth(secondary));
   const cred = await createUserWithEmailAndPassword(sAuth, email.trim(), randomPassword());
   const user: User = cred.user;
   const finish = async () => { await signOut(sAuth).catch(() => {}); };

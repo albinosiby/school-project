@@ -7,6 +7,7 @@ import { fmtDate, inr, inrFull } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "./csv";
 import { ReceiptModal } from "./ReceiptModal";
+import { PaymentVerification } from "./PaymentVerification";
 import { feeTotal, todayIso, type Concession, type Invoice, type Payment, type Reminder, type Structure } from "./types";
 import { useMyName } from "@/lib/useMe";
 
@@ -25,6 +26,7 @@ export function FeesPage() {
   const rem = useCollection<Reminder>("fee_reminders");
   const students = useCollection<Student>("students");
   const integ = useCollection<{ id: string; name: string; enabled: boolean }>("set_integrations");
+  const toVerify = useCollection<{ id: string; status: string }>("fee_claims").rows.filter((c) => c.status === "Pending").length;
 
   const [main, setMain] = useState("invoices");
   const [tab, setTab] = useState("all");
@@ -86,7 +88,7 @@ export function FeesPage() {
     if (!list.length) return toast("Nothing outstanding for the selection", "error");
     try {
       await Promise.all(list.map((i) => rem.create({ invoiceId: i.id, invoiceNo: i.no, student: i.student, guardian: i.guardian, phone: i.phone, channel: "WhatsApp", amount: i.balance, sentAt: new Date().toISOString(), message: `Dear ${i.guardian}, fee of ${inrFull(i.balance)} for ${i.student} (${i.no}) is due on ${i.due ? fmtDate(i.due) : "the due date"}.` } as Omit<Reminder, "id">)));
-      toast(`Reminder sent to ${list.length} guardian${list.length > 1 ? "s" : ""} (simulated, logged)`);
+      toast(`Reminder sent to ${list.length} guardian${list.length > 1 ? "s" : ""} in the parent app`);
       return true;
     } catch { toast("Could not log reminders", "error"); return false; }
   };
@@ -126,7 +128,9 @@ export function FeesPage() {
       </div>
 
       <Tabs variant="underline" className="mt-6" value={main} onChange={setMain}
-        items={[{ id: "invoices", label: "Invoices & Dues" }, { id: "structure", label: "Fee Structure" }, { id: "concessions", label: "Concessions", count: con.rows.length }, { id: "receipts", label: "Receipts & Reminders" }]} />
+        items={[{ id: "invoices", label: "Invoices & Dues" }, { id: "structure", label: "Fee Structure" }, { id: "concessions", label: "Concessions", count: con.rows.length }, { id: "verify", label: "Payment verification", count: toVerify }, { id: "receipts", label: "Receipts & Reminders" }]} />
+
+      {main === "verify" && <PaymentVerification invoices={inv.rows} payments={pay.rows} createPayment={(p) => pay.create(p)} updateInvoice={inv.update} />}
 
       {main === "invoices" && (
         <div className="mt-5 grid items-start gap-6 xl:grid-cols-[1fr_380px]">
