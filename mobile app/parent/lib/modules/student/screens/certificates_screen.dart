@@ -381,8 +381,8 @@ class _CertificateCard extends StatelessWidget {
                 SizedBox(height: 2.h),
                 Text(
                   c.requested
-                      ? '${c.summary} • Requested ${fmtShort(c.issuedOn)}'
-                      : '${c.summary} • Issued ${fmtShort(c.issuedOn)} ${c.issuedOn.year}',
+                      ? [c.summary, 'Requested ${fmtShort(c.issuedOn)}'].where((s) => s.isNotEmpty).join(' • ')
+                      : [c.summary, 'Issued ${fmtShort(c.issuedOn)} ${c.issuedOn.year}'].where((s) => s.isNotEmpty).join(' • '),
                   style: T.small.copyWith(color: C.onSurfaceVariant),
                 ),
                 SizedBox(height: 10.h),

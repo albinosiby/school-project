@@ -21,10 +21,13 @@ How the parent app connects to the shared Firebase backend (data contract §13) 
 | Notices (+ Acknowledge) | admin notices to parents / all school (`parentVisible`) |
 | Messages | both ways with the class and subject teachers (`msg_threads`, `msg_messages`) |
 | Leave requests | parent applies → class teacher decides in the teacher app (admin can too) |
-| Notification centre + push | `par_notifications` + FCM for absences, homework, results, notices, leave, messages, live classes, fees |
+| Parent-teacher meetings | office publishes slots (Students > Meetings) → parent books, reschedules, cancels; Meet link and notes from the office (`ptm_slots`, `ptm_bookings`) |
+| Certificates | parent requests → office issues and uploads the signed file (Students > Certificates) → parent downloads (`certificates`, Cloud Storage) |
+| Fee payments | parent pays into the school account (Fees > Payment verification > account) and reports the UTR → office verifies → receipt (`fee_claims`) |
+| Notification centre + push | `par_notifications` + FCM for absences, homework, results, notices, leave, messages, live classes, fees (invoice, receipt, reminders, due dates), meetings, certificates |
 
 Not available yet (the app shows a clear message instead of demo data): bus tracking, conduct records,
-meeting booking, certificate requests, online payment, self-registration, editing contact details.
+online card/gateway payment, self-registration, editing contact details.
 
 ## Build
 ```
@@ -43,4 +46,6 @@ Records created before the parent functions were deployed are copied for parents
 `website/tools/e2e/`: `start_emulators.sh` (auth, firestore, functions on a demo project), `seed.mjs` (a small school,
 an admin, a teacher and a parent login; passwords in the git-ignored `.accounts.json`), `act.mjs <step>` (plays the admin
 and teacher side: link, attendance, homework, grade, publish, reply, decide, live, payment, notice, show). Build the app
-with `--dart-define=BACKEND=firebase --dart-define=EMULATOR=true` to point it at the emulators.
+with `--dart-define=BACKEND=firebase --dart-define=EMULATOR=true` to point it at the emulators; on a physical phone add
+`--dart-define=EMULATOR_HOST=<computer's Wi-Fi IP>` (FlutterFire maps localhost to the Android emulator's 10.0.2.2) and
+relay the emulator ports to that address. The admin web runs against the same emulators with `NEXT_PUBLIC_EMULATOR=true npm run dev`.

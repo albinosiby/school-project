@@ -109,8 +109,9 @@ void main() {
       await t.tap(find.byKey(const ValueKey('switch-stu_ananya')));
       await t.pumpAndSettle();
       expect(find.text('Ananya Sharma'), findsWidgets);
-      expect(find.text('Not Marked Yet'), findsOneWidget);
-      expect(find.text('No RFID gate entry yet'), findsOneWidget);
+      // weekends show "No School Today" instead
+      expect(find.textContaining(RegExp('Not Marked Yet|No School Today')), findsOneWidget);
+      expect(find.textContaining(RegExp('No RFID gate entry yet|No gate entry on holidays')), findsOneWidget);
       await t.tap(find.byKey(const Key('home-child-trigger')));
       await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('switch-stu_aarav')));

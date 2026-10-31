@@ -508,6 +508,8 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
     const snap = await S(sid).collection("students").where("grn", "==", String(grn)).get();
     return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((s) => s.deleted !== true);
   }
+  /** "2026-11-01" -> "1 Nov 2026" (unknown values pass through) */
+  const fmtDay = (iso) => { const t = Date.parse(`${String(iso ?? "").slice(0, 10)}T00:00:00Z`); return isNaN(t) ? String(iso ?? "") : new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }); };
   const rupees = (n) => (typeof n === "number" ? `₹${n.toLocaleString("en-IN")}` : "");
 
   const onFeeInvoiceCreated = onDocumentCreated("schools/{sid}/fee_invoices/{id}", safe("onFeeInvoiceCreated", async (e) => {
@@ -515,7 +517,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
     const kids = await studentsByGrn(sid, inv?.grn);
     await notifyParents(sid, guardiansOf(kids).map(({ uid, student }) => ({
       id: `inv_${e.params.id}_${uid}`, uid, studentId: student.id, type: "fees", title: `Fee invoice ${inv.no ?? ""}`.trim(),
-      body: [`${student.name ?? inv.student ?? ""}`, rupees(inv.balance ?? inv.amount), inv.due ? `due ${inv.due}` : ""].filter(Boolean).join(" · "), route: "/fees",
+      body: [`${student.name ?? inv.student ?? ""}`, rupees(inv.balance ?? inv.amount), inv.due ? `due ${fmtDay(inv.due)}` : ""].filter(Boolean).join(" · "), route: "/fees",
     })));
   }));
 
@@ -634,7 +636,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
     const kids = await studentsByGrn(sid, inv.get("grn"));
     await notifyParents(sid, guardiansOf(kids).map(({ uid, student }) => ({
       id: `rem_${e.params.id}_${uid}`, uid, studentId: student.id, type: "fees", title: "Fee reminder",
-      body: [student.name, `${rupees(inv.get("balance"))} due${inv.get("due") ? ` on ${inv.get("due")}` : ""}`, inv.get("no")].filter(Boolean).join(" · "), route: "/fees",
+      body: [student.name, `${rupees(inv.get("balance"))} due${inv.get("due") ? ` on ${fmtDay(inv.get("due"))}` : ""}`, inv.get("no")].filter(Boolean).join(" · "), route: "/fees",
     })));
   }));
 
@@ -658,7 +660,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN }) => {
         const kids = await studentsByGrn(sid, inv.grn);
         sent += await notifyParents(sid, guardiansOf(kids).map(({ uid, student }) => ({
           id: `due_${d.id}_${kind}_${uid}`, uid, studentId: student.id, type: "fees", title: DUE_TITLE[kind],
-          body: [student.name, `${rupees(inv.balance)} ${kind.startsWith("late") ? "was due" : "due"} on ${inv.due}`, inv.no].filter(Boolean).join(" · "), route: "/fees",
+          body: [student.name, `${rupees(inv.balance)} ${kind.startsWith("late") ? "was due" : "due"} on ${fmtDay(inv.due)}`, inv.no].filter(Boolean).join(" · "), route: "/fees",
         })));
       }
     }

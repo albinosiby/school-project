@@ -98,7 +98,7 @@ class CertificateArt extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '${c.summary} • ${fmtDate(c.issuedOn, year: true)}',
+                    [c.summary, fmtDate(c.issuedOn, year: true)].where((s) => s.isNotEmpty).join(' • '),
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,

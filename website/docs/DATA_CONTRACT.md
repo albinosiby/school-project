@@ -253,6 +253,8 @@ Projection shapes (written only by functions):
 | teacher message | teacher name + text | `/messages/thread/{threadId}` |
 | live class scheduled for the class | title + time | `/more/live` |
 | `fee_invoices` created / `fee_payments` created | invoice due / receipt | `/fees` |
+| admin Remind (`fee_reminders` created) | "Fee reminder" | `/fees` |
+| daily 09:00 IST (`feeDueReminders`): unpaid invoice due in 3 days / today / 1 and 7 days late | "Fee due in 3 days" / "Fee due today" / "Fee overdue" | `/fees` |
 Teachers get a push for a new parent message (setting `parentMessages`, §10) and for a new leave request of their class.
 
 ### 13.5 Audit
@@ -280,7 +282,9 @@ book one from the parent app (More > Parent-Teacher Meeting).
 - **Certificates.** `certificates/{id}`: `{studentId, classId, studentName, grn, type ("bonafide"|"character"|"transfer"|
   "feeReceipt"|"other"), title, category ("bonafide"|"academic"|"sports"), purpose, status ("Requested"|"Issued"|"Rejected"),
   requestedBy, requestedAt, parentUid?}`; on issue `refNo` (`CERT/{year}/{0001}`), `issuedOn` (YYYY-MM-DD), `validTill?`,
-  `issuer`, `note?`, `fileUrl?` (link to the signed PDF); on rejection `rejectReason`.
+  `issuer`, `note?`, and when the office uploads the signed copy `fileUrl` (download URL), `filePath`
+  (`schools/{sid}/certificates/{id}/{file}` in Cloud Storage, `storage.rules`: admins write PDF/PNG/JPG up to 10 MB, the
+  student's guardians may read once Issued), `fileName`; on rejection `rejectReason`.
   - Parent create: own child and class, own uid, `status:"Requested"`, no issue fields. Parent update: only `downloadedAt` of an
     Issued one. Parent delete: withdraw while Requested. Parents read `studentId == X`.
   - Admin issues (from a request or directly), rejects, and prints the certificate from the admin web (Students > Certificates).

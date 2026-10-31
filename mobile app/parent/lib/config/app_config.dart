@@ -22,9 +22,9 @@ class AppConfig {
 
   /// BACKEND=firebase against the local Firebase emulators (test builds): `--dart-define=EMULATOR=true`.
   static const bool useEmulator = bool.fromEnvironment('EMULATOR');
-  /// Where the emulators run: `localhost` through `adb reverse`, or the computer's Wi-Fi address (`EMULATOR_HOST=192.168.x.x`)
-  /// when the phone is connected by wireless debugging.
-  static const String emulatorHost = String.fromEnvironment('EMULATOR_HOST', defaultValue: 'localhost');
+  /// Where the emulators run. On Android, FlutterFire maps `localhost` / `127.0.0.1` to `10.0.2.2` (the Android emulator's
+  /// route to the computer), so a physical phone needs the computer's Wi-Fi address: `EMULATOR_HOST=192.168.x.x`.
+  static const String emulatorHost = String.fromEnvironment('EMULATOR_HOST', defaultValue: '127.0.0.1');
   static const String emulatorProject = String.fromEnvironment('EMULATOR_PROJECT', defaultValue: 'demo-school-e2e');
 
   static bool get isLocal => backend == BackendType.local;
