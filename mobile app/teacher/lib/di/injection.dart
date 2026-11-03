@@ -7,6 +7,7 @@ import '../utils/services/firebase/firebase_storage_service.dart';
 import '../utils/services/firebase/firestore_data_store.dart';
 import '../utils/services/firebase/firestore_service.dart';
 import '../utils/services/firebase/remote_gateway.dart';
+import '../utils/services/firebase/store_adapters.dart';
 import '../utils/services/local_database_service.dart';
 import '../utils/services/local_storage_service.dart';
 import '../utils/services/native_api_service.dart';
@@ -20,6 +21,8 @@ import 'modules/home_di.dart';
 import 'modules/lessons_di.dart';
 import 'modules/school_di.dart';
 import 'modules/tasks_di.dart';
+import '../modules/classes/repositories/classes_seed.dart';
+import '../modules/lessons/repositories/lessons_seed.dart';
 import 'seed_data.dart';
 
 final GetIt getIt = GetIt.instance;
@@ -34,7 +37,7 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
   await storage.init();
   getIt.registerSingleton<LocalStorageService>(storage);
   if (AppConfig.isFirebase && db == null) {
-    final store = FirestoreDataStore(FirestoreGateway(), onError: (e, s) => debugPrint('Firestore: $e'));
+    final store = FirestoreDataStore(FirestoreGateway(), adapters: firebaseAdapters(), onError: (e, s) => debugPrint('Firestore: $e'));
     getIt.registerSingleton<FirestoreDataStore>(store);
     getIt.registerSingleton<DataStore>(store);
   } else {
@@ -64,3 +67,11 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
   registerLessonsModule(getIt);
   registerEngageModule(getIt);
 }
+
+/// The Firestore adapters plus the built-in catalogues a new school starts with (behaviour badges, certificate templates);
+/// the teacher's own additions are stored privately and merged over them.
+List<StoreAdapter> firebaseAdapters() => [
+      ...defaultAdapters(),
+      CatalogueAdapter('cl_badges', classesSeed['cl_badges'] ?? const []),
+      CatalogueAdapter('cr_templates', lessonsSeed['cr_templates'] ?? const []),
+    ];

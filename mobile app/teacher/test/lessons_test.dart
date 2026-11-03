@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:teacher_app/design_system/design_system.dart' show AppTextField;
 import 'package:teacher_app/config/routes/modules/lessons_routes.dart';
 import 'package:teacher_app/config/routes/routes.dart';
 import 'package:teacher_app/di/injection.dart';
@@ -174,9 +175,22 @@ void main() {
     await t.enterText(sheet.at(0), '2+2?');
     await t.enterText(sheet.at(2), '4');
     await t.enterText(sheet.at(3), '5');
-    await t.tap(find.text('Add Question'));
+    // the form keeps every field built now (validation of off-screen fields): tap the sheet's own button
+    await t.tap(find.descendant(of: find.byType(BottomSheet), matching: find.text('Add Question')));
+    await t.pumpAndSettle();
+    await t.ensureVisible(find.text('2+2?', skipOffstage: false));
     await t.pumpAndSettle();
     expect(find.text('2+2?'), findsOneWidget);
+    // every field is validated now (it used to be skipped while scrolled away): the default cutoff 18 exceeds the
+    // 1-mark total, so it must be brought within the total before the draft saves
+    await t.tap(find.text('Save Draft'));
+    await t.pumpAndSettle();
+    expect(find.text('Max 1', skipOffstage: false), findsWidgets);
+    final cutoff = find.descendant(of: find.widgetWithText(AppTextField, 'Pass cutoff (marks)', skipOffstage: false), matching: find.byType(TextFormField, skipOffstage: false));
+    await t.ensureVisible(cutoff);
+    await t.pumpAndSettle();
+    await t.enterText(cutoff, '1');
+    await t.pumpAndSettle();
     await t.tap(find.text('Save Draft'));
     await t.pumpAndSettle();
     expect(db.list('ts_tests').first['title'], 'Unit Test 5');

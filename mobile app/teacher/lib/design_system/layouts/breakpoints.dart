@@ -1,3 +1,5 @@
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+
 enum ScreenType { mobile, tablet, desktop }
 
 class Breakpoints {
@@ -13,3 +15,7 @@ class Breakpoints {
     return ScreenType.desktop;
   }
 }
+
+/// Cache extent for scrolling forms: large enough that every field of a long form stays built, so
+/// `Form.validate()` checks all of them (a lazily built list disposes fields scrolled out of view).
+const ScrollCacheExtent kFormScrollCache = ScrollCacheExtent.pixels(100000);

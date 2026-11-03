@@ -152,13 +152,15 @@ class _MethodSheetState extends State<_MethodSheet> {
     PaymentMethod.upi => Icons.qr_code_2_rounded,
     PaymentMethod.card => Icons.credit_card_rounded,
     PaymentMethod.netBanking => Icons.account_balance_rounded,
+    PaymentMethod.cheque => Icons.receipt_long_rounded,
+    PaymentMethod.cash => Icons.payments_rounded,
   };
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      for (final m in PaymentMethod.values)
+      for (final m in PaymentMethod.online)
         Padding(
           padding: EdgeInsets.only(bottom: 8.h),
           child: AppSurfaceCard(

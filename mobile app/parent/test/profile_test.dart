@@ -457,6 +457,19 @@ void main() {
       expect(find.text('Privacy policy saved to Downloads (PDF, 1.2 MB)'), findsOneWidget);
       await _tap(t, find.text('Email'));
       expect(find.text('DPO email copied: dpo@greenfield.edu.in'), findsOneWidget);
+      // the guardian's recorded consent sits under the policy and saves the optional choices
+      await t.scrollUntilVisible(find.byKey(const Key('consent-submit')), 300, scrollable: find.byType(Scrollable).first);
+      // one more stroke so the button clears the screen's fixed bottom bar (Download full policy)
+      await t.drag(find.byType(Scrollable).first, const Offset(0, -200));
+      await t.pump(const Duration(milliseconds: 300));
+      expect(find.text('Your consent'), findsOneWidget);
+      expect(find.text('Given'), findsOneWidget);
+      await t.tap(find.byKey(const Key('consent-submit')));
+      // the previous snack bar (DPO email copied) hides first; the new one is queued behind it
+      for (var i = 0; i < 20 && find.text('Consent saved').evaluate().isEmpty; i++) {
+        await t.pump(const Duration(milliseconds: 200));
+      }
+      expect(find.text('Consent saved'), findsOneWidget);
     });
   });
 

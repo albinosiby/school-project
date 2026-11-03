@@ -350,6 +350,37 @@ exports.onExamDutyAssigned = onDocumentWritten("schools/{sid}/exm_duties/{id}", 
 // ---------------------------------------------------------------------------
 // Parent app (DATA_CONTRACT section 13): projections, account links, messages, parent pushes. See parent.js.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Scheduled circulars: the admin web saves com_notices with status "Scheduled" and sentAt = the publish time. Publish the
+// due ones every 5 minutes (the admin web also does it while its Notices page is open; the transaction makes the two safe
+// together). The Published write then runs onNoticePublished / onNoticeForParents like a notice sent now.
+// ---------------------------------------------------------------------------
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+async function publishDueNotices(now = Date.now()) {
+  const snap = await db.collectionGroup("com_notices").where("status", "==", "Scheduled").get();
+  let published = 0;
+  for (const d of snap.docs) {
+    const at = Date.parse(d.get("sentAt") ?? "");
+    if (!Number.isFinite(at) || at > now) continue;
+    const sid = d.ref.parent.parent?.id;
+    const done = await db.runTransaction(async (tx) => {
+      const cur = await tx.get(d.ref);
+      if (cur.get("status") !== "Scheduled") return false; // the admin web got there first
+      tx.update(d.ref, { status: "Published", delivered: Number(cur.get("recipients")) || 0, read: 0, acked: 0, updatedAt: new Date().toISOString(), updatedBy: "functions" });
+      tx.set(db.collection("schools").doc(sid).collection("com_log").doc(), {
+        noticeId: d.id, action: "Sent (scheduled)", audience: cur.get("audience") ?? "", channels: cur.get("channels") ?? [],
+        recipients: Number(cur.get("recipients")) || 0, at: new Date().toISOString(), by: "functions",
+      });
+      return true;
+    });
+    if (done) published++;
+  }
+  if (published) logger.info("scheduled notices published", { published });
+  return published;
+}
+exports.publishScheduledNotices = onSchedule({ schedule: "every 5 minutes", timeZone: "Asia/Kolkata" }, async () => { await publishDueNotices(); });
+exports.publishScheduledNotices.runFor = publishDueNotices; // tools/e2e: run the check without the scheduler
+
 const shared = {};
 Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));
 

@@ -121,6 +121,10 @@ void main() {
       final bloc = getIt<LeaveBloc>()..add(const LeaveLoadRequested());
       await expectLater(bloc.stream, emitsThrough(predicate<LeaveState>((s) => s.status == EngageStatus.loaded && s.upcoming.length == 1)));
       expect(bloc.state.used('Casual Leave'), 1.5);
+      // a decided (approved) leave cannot be withdrawn by the teacher (contract §4 / rules)
+      bloc.add(const MyLeaveCancelled('lm_m2'));
+      await Future<void>.delayed(Duration.zero);
+      expect(row('lm_my', 'lm_m2')['status'], 'Approved');
       bloc.add(const MyLeaveCancelled('lm_m1'));
       await expectLater(bloc.stream, emitsThrough(predicate<LeaveState>((s) => s.upcoming.isEmpty)));
       bloc.add(const StudentLeaveDecided('ls_1', approve: false, note: 'No slip'));

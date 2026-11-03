@@ -5,7 +5,7 @@ import 'exam_duty_repository_interface.dart';
 class LocalExamDutyRepository implements IExamDutyRepository {
   LocalExamDutyRepository(this._db);
   final DataStore _db;
-  static const _c = 'ed_duties', _cand = 'ed_candidates';
+  static const _c = 'ed_duties', _cand = 'ed_candidates', _faculty = 'att_faculty';
 
   @override
   Future<List<ExamDuty>> getAll() async => [for (final r in _db.list(_c)) ExamDuty.fromJson(r)];
@@ -53,5 +53,10 @@ class LocalExamDutyRepository implements IExamDutyRepository {
   Future<void> saveIncidentNote(String id, String note) async => _db.update(_cand, id, {'malpractice': note});
 
   @override
-  Stream<void> watch() => _db.watch({_c, _cand});
+  /// The school's other teachers (`att_faculty`: built from `staff` on the shared backend, the demo list locally).
+  @override
+  Future<List<String>> getColleagues() async => [for (final r in _db.list(_faculty)) '${r['name'] ?? ''}'].where((n) => n.isNotEmpty).toList();
+
+  @override
+  Stream<void> watch() => _db.watch({_c, _cand, _faculty});
 }

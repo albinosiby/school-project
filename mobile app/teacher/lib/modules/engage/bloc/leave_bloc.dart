@@ -35,6 +35,11 @@ class LeaveBloc extends Bloc<LeaveEvent, LeaveState> {
   }
 
   Future<void> _onCancelled(MyLeaveCancelled e, Emitter<LeaveState> emit) async {
+    final pending = state.myLeaves.where((l) => l.id == e.id).firstOrNull?.status == 'Pending';
+    if (!pending) {
+      emit(state.copyWith(notice: Notice.next(state.notice, 'Only a pending leave can be withdrawn. Contact the school office.')));
+      return;
+    }
     await _repo.cancelMyLeave(e.id);
     emit(state.copyWith(notice: Notice.next(state.notice, 'Leave cancelled')));
   }

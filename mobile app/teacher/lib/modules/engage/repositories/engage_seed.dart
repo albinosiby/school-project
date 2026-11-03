@@ -41,7 +41,7 @@ List<Rec> _live() {
 
 // ---------------------------------------------------------------- leaves
 List<Rec> _myLeaves() => [
-      {'id': 'lm_m1', 'type': 'Casual Leave', 'from': plusDays(4), 'to': plusDays(4), 'days': 1, 'timeText': '', 'note': '1 Full Day', 'status': 'Approved', 'reason': 'Personal work', 'attachment': null, 'sanctionedBy': 'Principal Dr. A. Sharma', 'handover': 'Mr. Rajesh Deshmukh', 'handoverNote': 'Maths Substitution for Period 2 & 4 (Class 10-B)'},
+      {'id': 'lm_m1', 'type': 'Casual Leave', 'from': plusDays(4), 'to': plusDays(4), 'days': 1, 'timeText': '', 'note': '1 Full Day', 'status': 'Pending', 'reason': 'Personal work', 'attachment': null, 'sanctionedBy': '', 'handover': 'Mr. Rajesh Deshmukh', 'handoverNote': 'Maths Substitution for Period 2 & 4 (Class 10-B)'},
       {'id': 'lm_m2', 'type': 'Medical Leave', 'from': plusDays(-10), 'to': plusDays(-9), 'days': 2, 'timeText': '', 'note': '', 'status': 'Approved', 'reason': 'Seasonal Flu & Medical Recovery', 'attachment': {'name': 'Medical_Slip_Oct14.pdf', 'size': '860 KB'}, 'sanctionedBy': '', 'handover': '', 'handoverNote': ''},
       {'id': 'lm_m3', 'type': 'Casual Leave', 'from': plusDays(-32), 'to': plusDays(-32), 'days': 0.5, 'timeText': '01:30 PM to 04:30 PM', 'note': 'Half Day (PM)', 'status': 'Approved', 'reason': 'Personal Family Commitment', 'attachment': null, 'sanctionedBy': 'Principal Dr. A. Sharma', 'handover': '', 'handoverNote': ''},
       {'id': 'lm_m4', 'type': 'Special Duty Leave', 'from': plusDays(-49), 'to': plusDays(-49), 'days': 1, 'timeText': '', 'note': "Teachers' Day State Forum", 'status': 'Completed', 'reason': 'District Academic Representation', 'attachment': null, 'sanctionedBy': '', 'handover': '', 'handoverNote': ''},

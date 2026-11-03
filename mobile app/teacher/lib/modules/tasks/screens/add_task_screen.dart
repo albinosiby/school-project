@@ -139,7 +139,11 @@ class _AddTaskViewState extends State<_AddTaskView> {
     return Form(
       key: _form,
       autovalidateMode: _submitted ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
-      child: ListView(padding: EdgeInsets.all(S.page), children: [
+      child: ListView(
+        // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
+        // would be skipped and an invalid value saved
+        scrollCacheExtent: kFormScrollCache,
+        padding: EdgeInsets.all(S.page), children: [
         AppSegmented(items: const ['Task', 'Reminder'], value: _reminder ? 'Reminder' : 'Task', track: true, onChanged: (v) => setState(() => _reminder = v == 'Reminder')),
         SizedBox(height: 16.h),
         Row(children: [

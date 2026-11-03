@@ -431,3 +431,11 @@ Parents never read `tr_*` (they hold every pupil of a bus). A function keeps one
 - Parent app: Home bus card and Track Live read it (no GPS feed: the bus position is shown by stop schedule and trip status,
   labelled as schedule-based); Student profile > Transport shows bus, route, stop, pickup / drop times, driver and attendant
   with Call. The push rows of 14.4 (`type: "transport"`) open `/home/track`.
+
+## 15. Scheduled circulars (2026-11-04)
+- `com_notices` with `status: "Scheduled"` and `sentAt` (ISO publish time) are published by the function
+  `publishScheduledNotices` every 5 minutes: `status: "Published"`, `delivered = recipients`, `read = acked = 0`, plus a
+  `com_log` row `{noticeId, action: "Sent (scheduled)", audience, channels, recipients, at, by: "functions"}`. The admin web
+  does the same while its Notices page is open; both run in a transaction-safe way (status checked first). The Published
+  write then runs the usual teacher / parent notice functions. Needs the `com_notices.status` collection-group index
+  (`firestore.indexes.json` fieldOverrides).

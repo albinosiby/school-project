@@ -151,6 +151,13 @@ class _EntryViewState extends State<_EntryView> {
     if (s.status != LoadStatus.loaded) return DetailScaffold(title: title, fallbackRoute: RoutePaths.marks, body: attLoading());
     final ex = s.exam;
     if (ex == null) return DetailScaffold(title: title, fallbackRoute: RoutePaths.marks, body: const Center(child: AppEmptyState('Exam not found')));
+    // a paper locked by the exam cell (or a class whose results are published) is read-only, also when opened by link
+    if (ex.lockedByAdmin) {
+      return DetailScaffold(
+        title: title, fallbackRoute: RoutePaths.marks,
+        body: const Center(child: AppEmptyState('Marks entry is locked', hint: 'The exam cell locked this paper. Contact the school admin for changes.', icon: Icons.lock_outline_rounded)),
+      );
+    }
     final roster = s.roster;
     if (roster.isEmpty) return DetailScaffold(title: title, fallbackRoute: RoutePaths.marks, body: const Center(child: AppEmptyState('No students in this class')));
     if (!inited) {

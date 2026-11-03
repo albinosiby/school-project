@@ -142,7 +142,11 @@ class _EditViewState extends State<_EditView> {
       body: Form(
         key: _form,
         autovalidateMode: _showErrors ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
-        child: ListView(padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h), children: [
+        child: ListView(
+        // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
+        // would be skipped and an invalid value saved
+        scrollCacheExtent: kFormScrollCache,
+        padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h), children: [
           LessonHeading('Sequence & Slot Schedule', icon: Icons.timeline_rounded),
           AppTextField(label: 'Lesson title', controller: _title, hint: 'e.g. Chapter 4: Quadratic Equations',
               validator: (v) => (v ?? '').trim().length < 3 ? 'Enter a title (min 3 characters)' : null),

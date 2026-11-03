@@ -5,6 +5,7 @@ import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
 import '../../../utils/helpers/date_helper.dart';
 import '../../school/bloc/school_bloc.dart';
+import '../../school/models/school_models.dart';
 import '../bloc/engage_notice.dart';
 import '../bloc/live_classes_bloc.dart';
 import '../bloc/live_classes_events.dart';
@@ -36,7 +37,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
   final _key = GlobalKey<FormState>();
   final _title = TextEditingController();
   final _link = TextEditingController();
-  String classId = 'cls_10B', subject = 'Mathematics', category = 'Doubt Clearing', date = _defaultDate(), time = '16:30', medium = 'In-App Live';
+  String classId = 'cls_10B', subject = 'Mathematics', category = 'Doubt Clearing', date = _defaultDate(), time = '16:30', medium = liveMedia(AppConfig.backend).last;
   int mins = 45;
   bool record = true, mute = true, share = false, notify = true, filled = false, calendarSync = true;
 
@@ -50,6 +51,13 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     _title.dispose();
     _link.dispose();
     super.dispose();
+  }
+
+  /// The teacher's classes may not include the demo default: start on her first class and its subject.
+  void _defaultClass(List<SchoolClass> classes) {
+    if (widget.editId != null || classes.isEmpty || classes.any((c) => c.id == classId)) return;
+    classId = classes.first.id;
+    if (classes.first.subject.isNotEmpty) subject = classes.first.subject;
   }
 
   /// Google Meet: the link the teacher pasted (validated). Other media keep a generated placeholder.
@@ -121,7 +129,9 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     if (!filled && widget.editId != null && st.status == EngageStatus.loaded) _fill(st.byId(widget.editId!));
     final school = context.watch<SchoolBloc>().state;
     final classes = school.classes;
+    _defaultClass(classes);
     final cls = school.classById(classId);
+    final subjects = {subject, if (cls != null && cls.subject.isNotEmpty) cls.subject, 'Mathematics', 'Physics', 'Science Remedial'}.toList();
     final students = cls?.students ?? 0;
     return BlocListener<LiveClassesBloc, LiveClassesState>(
       listenWhen: (a, b) => b.meeting != null && a.meeting != b.meeting,
@@ -142,6 +152,10 @@ class _ScheduleFormState extends State<_ScheduleForm> {
         body: Form(
           key: _key,
           child: ListView(
+            // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
+            // would be skipped and an invalid value saved
+            scrollCacheExtent: kFormScrollCache,
+
             padding: EdgeInsets.all(S.page),
             children: [
               Row(
@@ -192,7 +206,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                 icon: Icons.menu_book_outlined,
                 children: [
                   const FieldLabel('Subject'),
-                  AppChoiceChips(items: const ['Mathematics', 'Physics', 'Science Remedial'], value: subject, solid: true, onChanged: (v) => setState(() => subject = v)),
+                  AppChoiceChips(items: subjects, value: subject, solid: true, onChanged: (v) => setState(() => subject = v)),
                   SizedBox(height: 12.h),
                   AppTextField(
                     label: 'Class / Session Title',
@@ -224,7 +238,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                 title: 'Class Delivery Medium',
                 icon: Icons.videocam_outlined,
                 children: [
-                  AppChoiceChips(items: const ['Google Meet', 'Zoom', 'In-App Live'], value: medium, onChanged: (v) => setState(() => medium = v)),
+                  AppChoiceChips(items: liveMedia(AppConfig.backend), value: medium, onChanged: (v) => setState(() => medium = v)),
                   SizedBox(height: 10.h),
                   if (medium == 'Google Meet') ...[
                     AppTextField(
@@ -247,9 +261,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                       ),
                       SizedBox(height: 6.h),
                       Text(
-                        meetSpace.isNotEmpty
-                            ? 'Created with your Google account. Anyone with the link can join.'
-                            : 'Create a room with your Google account, or paste a link from Google Meet.',
+                        meetSpace.isNotEmpty ? 'Created with your Google account. Anyone with the link can join.' : 'Create a room with your Google account, or paste a link from Google Meet.',
                         style: T.small,
                       ),
                       SizedBox(height: 10.h),
@@ -330,13 +342,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                   ),
                 ],
               ),
-              AppToggleRow(
-                title: 'Notify $students Students & Parents',
-                subtitle: 'Instant WhatsApp & In-App push blast',
-                value: notify,
-                tinted: true,
-                onChanged: (v) => setState(() => notify = v),
-              ),
+              AppToggleRow(title: 'Notify $students Students & Parents', subtitle: 'Instant WhatsApp & In-App push blast', value: notify, tinted: true, onChanged: (v) => setState(() => notify = v)),
               SizedBox(height: 8.h),
             ],
           ),
@@ -347,6 +353,11 @@ class _ScheduleFormState extends State<_ScheduleForm> {
 }
 
 /// Today, unless the default 16:30 start has already passed (then tomorrow).
+/// Delivery media offered in the schedule form. On the shared backend only Google Meet is offered (contract §6): parents
+/// join with the link, and the other media have no real link (the local demo keeps them, the in-app room is simulated).
+/// The last item is the default.
+List<String> liveMedia(BackendType backend) => backend == BackendType.firebase ? const ['Google Meet'] : const ['Google Meet', 'Zoom', 'In-App Live'];
+
 String _defaultDate() {
   final n = DateTime.now();
   return n.hour * 60 + n.minute >= 16 * 60 + 30 ? plusDays(1) : plusDays(0);

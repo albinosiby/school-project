@@ -37,11 +37,16 @@ class MarksBloc extends Bloc<MarksEvent, MarksState> {
     on<MarksFilterChanged>((e, emit) => emit(state.copyWith(filter: e.filter)));
     on<MarksQueryChanged>((e, emit) => emit(state.copyWith(query: e.query)));
     on<MarkSaved>((e, emit) async {
+      // a locked paper never takes marks (the rules reject the write too)
+      if (state.exams.where((x) => x.id == e.mark.examId).firstOrNull?.lockedByAdmin == true) return;
       // optimistic update so text fields don't flicker
       emit(state.copyWith(marks: [for (final m in state.marks) if (m.id != e.mark.id) m, e.mark]));
       await _repo.saveMark(e.mark);
     });
-    on<MarksExamSubmitted>((e, _) => _repo.submitExam(e.examId));
+    on<MarksExamSubmitted>((e, _) async {
+      if (state.exams.where((x) => x.id == e.examId).firstOrNull?.lockedByAdmin == true) return;
+      await _repo.submitExam(e.examId);
+    });
     _sub = _repo.watch().listen((_) => add(const MarksRefreshed()));
   }
 

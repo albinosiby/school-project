@@ -62,8 +62,6 @@ class PrivacyPolicyScreen extends StatelessWidget {
     body: ListView(
       padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h),
       children: [
-        const _YourConsent(),
-        SizedBox(height: 16.h),
         PanelCard(
           padding: EdgeInsets.all(16.r),
           child: Column(
@@ -192,6 +190,9 @@ class PrivacyPolicyScreen extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ),
+        SizedBox(height: 16.h),
+        // after the policy text: what the guardian agreed to, changeable here (contract 13.3)
+        const _YourConsent(),
       ],
     ),
   );

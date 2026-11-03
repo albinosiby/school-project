@@ -22,7 +22,7 @@ class ExamDutiesBloc extends Bloc<ExamDutiesEvent, ExamDutiesState> {
   Future<void> _onLoad(ExamDutiesLoadRequested e, Emitter<ExamDutiesState> emit) async {
     if (state.status == EngageStatus.initial) emit(state.copyWith(status: EngageStatus.loading));
     try {
-      emit(state.copyWith(status: EngageStatus.loaded, duties: await _repo.getAll()));
+      emit(state.copyWith(status: EngageStatus.loaded, duties: await _repo.getAll(), colleagues: await _repo.getColleagues()));
     } on AppException catch (err) {
       emit(state.copyWith(status: EngageStatus.failure, error: err.message));
     }

@@ -4,58 +4,123 @@
       "collectionGroup": "msg_threads",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "parentUids", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "studentId", "order": "ASCENDING" }
+        {
+          "fieldPath": "parentUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "studentId",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "msg_messages",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "parentUids", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "threadId", "order": "ASCENDING" }
+        {
+          "fieldPath": "parentUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "threadId",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "students",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "busId", "order": "ASCENDING" },
-        { "fieldPath": "roll", "order": "ASCENDING" }
+        {
+          "fieldPath": "busId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "roll",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "tr_trips",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "busId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        {
+          "fieldPath": "busId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "tr_attendance",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "busId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        {
+          "fieldPath": "busId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "tr_crew_attendance",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "crewId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "DESCENDING" }
+        {
+          "fieldPath": "crewId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "tr_crew_leaves",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "crewId", "order": "ASCENDING" },
-        { "fieldPath": "appliedAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "crewId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "appliedAt",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "com_notices",
+      "fieldPath": "status",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "DESCENDING",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "arrayConfig": "CONTAINS",
+          "queryScope": "COLLECTION"
+        },
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    }
+  ]
 }

@@ -153,13 +153,17 @@ class _UpcomingCard extends StatelessWidget {
               ),
             ],
             SizedBox(height: 10.h),
-            Align(
-              alignment: Alignment.centerRight,
-              child: AppButton('Cancel Leave', kind: BtnKind.ghost, small: true, expand: false, onPressed: () async {
-                final ok = await confirmAction(context, title: 'Cancel this leave?', message: 'Your leave on ${_range(e)} will be withdrawn.', confirm: 'Cancel leave', danger: true);
-                if (ok && context.mounted) context.read<LeaveBloc>().add(MyLeaveCancelled(e.id));
-              }),
-            ),
+            // a request can be withdrawn only while it is pending (contract §4, firestore.rules); a decided leave is the office's
+            if (e.status == 'Pending')
+              Align(
+                alignment: Alignment.centerRight,
+                child: AppButton('Cancel Leave', kind: BtnKind.ghost, small: true, expand: false, onPressed: () async {
+                  final ok = await confirmAction(context, title: 'Cancel this leave?', message: 'Your leave on ${_range(e)} will be withdrawn.', confirm: 'Cancel leave', danger: true);
+                  if (ok && context.mounted) context.read<LeaveBloc>().add(MyLeaveCancelled(e.id));
+                }),
+              )
+            else
+              Text('To cancel a ${e.status.toLowerCase()} leave, contact the school office.', style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
           ]),
         ),
       );

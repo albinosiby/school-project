@@ -75,6 +75,8 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     });
     final valid = _key.currentState?.validate() ?? false;
     if (!valid || dateErr != null || agendaErr != null) return;
+    // the dropdown shows the first class when the demo default is not one of this teacher's classes
+    if (school.classById(classId) == null && school.classes.isNotEmpty) classId = school.classes.first.id;
     final c = school.classById(classId);
     if (c == null) return;
     context.read<MeetingsBloc>().add(MeetingSaved(
@@ -105,7 +107,11 @@ class _ScheduleFormState extends State<_ScheduleForm> {
       ]),
       body: Form(
         key: _key,
-        child: ListView(padding: EdgeInsets.all(S.page), children: [
+        child: ListView(
+        // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
+        // would be skipped and an invalid value saved
+        scrollCacheExtent: kFormScrollCache,
+        padding: EdgeInsets.all(S.page), children: [
           FormCard(title: 'Target Class / Section', icon: Icons.school_outlined, children: [
             if (classes.isNotEmpty)
               AppDropdown<String>(

@@ -3,9 +3,12 @@ import '../models/exam_duty_models.dart';
 import 'engage_notice.dart';
 
 class ExamDutiesState extends Equatable implements NoticeState {
-  const ExamDutiesState({this.status = EngageStatus.initial, this.duties = const [], this.notice, this.error});
+  const ExamDutiesState({this.status = EngageStatus.initial, this.duties = const [], this.colleagues = const [], this.notice, this.error});
   final EngageStatus status;
   final List<ExamDuty> duties;
+
+  /// Teachers a duty can be swapped with.
+  final List<String> colleagues;
   @override
   final Notice? notice;
   final String? error;
@@ -21,9 +24,10 @@ class ExamDutiesState extends Equatable implements NoticeState {
 
   ExamDuty? byId(String id) => duties.where((e) => e.id == id).firstOrNull;
 
-  ExamDutiesState copyWith({EngageStatus? status, List<ExamDuty>? duties, Notice? notice, String? error}) =>
-      ExamDutiesState(status: status ?? this.status, duties: duties ?? this.duties, notice: notice ?? this.notice, error: error);
+  ExamDutiesState copyWith({EngageStatus? status, List<ExamDuty>? duties, List<String>? colleagues, Notice? notice, String? error}) => ExamDutiesState(
+        status: status ?? this.status, duties: duties ?? this.duties, colleagues: colleagues ?? this.colleagues, notice: notice ?? this.notice, error: error,
+      );
 
   @override
-  List<Object?> get props => [status, duties, notice, error];
+  List<Object?> get props => [status, duties, colleagues, notice, error];
 }

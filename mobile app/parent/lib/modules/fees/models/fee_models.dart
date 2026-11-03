@@ -60,18 +60,41 @@ class Invoice extends Equatable {
   List<Object?> get props => [id, title, issued, due, items, paid];
 }
 
-enum PaymentMethod { upi, card, netBanking }
+enum PaymentMethod {
+  upi,
+  card,
+  netBanking,
+  cheque,
+  cash;
+
+  /// What the parent can choose to pay with online (cheque and cash are paid at the bank / office and only appear on receipts).
+  static const online = [upi, card, netBanking];
+
+  /// The method of a `fee_payments.mode` string ("UPI · UTR…", "Cheque · 123456", "Cash", "NEFT / IMPS / RTGS · …").
+  static PaymentMethod fromMode(String mode) {
+    final m = mode.toLowerCase();
+    if (m.contains('cheque') || m.contains('check')) return cheque;
+    if (m.contains('cash')) return cash;
+    if (m.contains('card')) return card;
+    if (m.contains('net') || m.contains('bank') || m.contains('neft') || m.contains('imps') || m.contains('rtgs')) return netBanking;
+    return upi;
+  }
+}
 
 extension PaymentMethodX on PaymentMethod {
   String get label => switch (this) {
     PaymentMethod.upi => 'UPI',
     PaymentMethod.card => 'Debit / Credit card',
     PaymentMethod.netBanking => 'Net banking',
+    PaymentMethod.cheque => 'Cheque',
+    PaymentMethod.cash => 'Cash',
   };
   String get hint => switch (this) {
     PaymentMethod.upi => 'Google Pay, PhonePe, Paytm, BHIM',
     PaymentMethod.card => 'Visa, Mastercard, RuPay',
     PaymentMethod.netBanking => 'All major Indian banks',
+    PaymentMethod.cheque => 'Deposited at the bank or the school office',
+    PaymentMethod.cash => 'Paid at the school office or bank counter',
   };
 }
 

@@ -168,7 +168,11 @@ class _TestEditViewState extends State<_TestEditView> {
       body: Form(
         key: _form,
         autovalidateMode: _errors ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
-        child: ListView(padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h), children: [
+        child: ListView(
+        // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
+        // would be skipped and an invalid value saved
+        scrollCacheExtent: kFormScrollCache,
+        padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h), children: [
           AppTextField(label: 'Assessment title', controller: _title, hint: 'e.g. Unit Test 4: Trigonometric Ratios',
               validator: (v) => (v ?? '').trim().length < 3 ? 'Enter a title (min 3 characters)' : null),
           Row(children: [

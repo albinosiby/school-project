@@ -16,5 +16,7 @@ abstract class IExamDutyRepository {
   /// Sets the number of supplementary sheets issued (a new sheet code is assigned when it grows).
   Future<void> setSupplementary(String id, int count);
   Future<void> saveIncidentNote(String id, String note);
+  /// Colleagues a duty can be swapped with (names of the school's other teachers).
+  Future<List<String>> getColleagues();
   Stream<void> watch();
 }

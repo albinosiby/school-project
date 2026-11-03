@@ -14,7 +14,11 @@ class LocalLeaveRepository implements ILeaveRepository {
   Future<List<LeaveBalance>> getBalances() async => [for (final r in _db.list(_balance)) LeaveBalance.fromJson(r)];
 
   @override
-  Future<void> cancelMyLeave(String id) async => _db.update(_my, id, {'status': 'Cancelled'});
+  Future<void> cancelMyLeave(String id) async {
+    // only a pending request can be withdrawn (contract §4 / rules); a decided one stays as the office set it
+    if (_db.byId(_my, id)?['status'] != 'Pending') return;
+    _db.update(_my, id, {'status': 'Cancelled'});
+  }
 
   @override
   Future<List<StudentLeave>> getStudentLeaves({String? classId}) async =>

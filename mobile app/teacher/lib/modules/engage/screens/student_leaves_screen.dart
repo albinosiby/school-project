@@ -51,6 +51,8 @@ class _StudentLeavesViewState extends State<_StudentLeavesView> {
     final st = context.watch<LeaveBloc>().state;
     final school = context.watch<SchoolBloc>().state;
     final classes = school.classes;
+    // the demo default may not be one of this teacher's classes: start on her own class (class teacher first)
+    if (classes.isNotEmpty && !classes.any((c) => c.id == classId)) classId = (classes.where((c) => c.classTeacher).firstOrNull ?? classes.first).id;
     final cls = school.classById(classId);
     final clsName = cls == null ? '' : 'Class ${cls.grade}-${cls.section}';
     final all = st.studentLeavesOf(classId);

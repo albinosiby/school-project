@@ -137,7 +137,7 @@ class FirebaseFeeRepository implements IFeeRepository {
       id: id,
       number: '${d['receiptNo'] ?? id}',
       date: parseDay(d['date']) ?? DateTime.now(),
-      method: mode.contains('card') ? PaymentMethod.card : mode.contains('net') || mode.contains('bank') ? PaymentMethod.netBanking : PaymentMethod.upi,
+      method: PaymentMethod.fromMode(mode),
       lines: [FeeItem('${d['invoiceNo'] ?? 'Fees'}${'${d['mode'] ?? ''}'.isEmpty ? '' : ' · ${d['mode']}'}', (d['amount'] as num?)?.toDouble() ?? 0)],
       reference: '${d['invoiceNo'] ?? ''}'.isEmpty ? null : '${d['invoiceNo']}',
     );
