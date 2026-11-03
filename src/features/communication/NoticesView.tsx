@@ -33,8 +33,9 @@ export function NoticesView() {
   const reports = useCollection<Report>("com_reports").rows;
   const due = reports.filter((r) => (r.tag ?? "").startsWith("Mandatory")).length;
 
-  // Scheduled notices go live once their time has passed. No scheduler function exists yet, so the admin web publishes
-  // them when the Notices page is open (checked every minute); the Published write then triggers the push functions.
+  // Scheduled notices go live once their time has passed. The publishScheduledNotices function does it every 5 minutes;
+  // while this page is open the admin web also does it every minute (both check status first, so a notice is sent once).
+  // The Published write then triggers the push functions.
   const done = useRef(new Set<string>());
   useEffect(() => {
     if (!ready) return;

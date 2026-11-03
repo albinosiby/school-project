@@ -66,7 +66,7 @@ export function validateNotice(f: NoticeForm, mode: ComposeMode, now = Date.now(
   return e;
 }
 
-/** Scheduled notices whose time has come (published by the admin web on open; there is no scheduler function yet). */
+/** Scheduled notices whose time has come (published by the publishScheduledNotices function, and by the admin web while open). */
 export const dueScheduled = <T extends Pick<Notice, "id" | "status" | "sentAt">>(rows: T[], now = Date.now()) =>
   rows.filter((n) => n.status === "Scheduled" && !!n.sentAt && !Number.isNaN(Date.parse(n.sentAt)) && Date.parse(n.sentAt) <= now);
 
