@@ -8,7 +8,9 @@ class FirebaseFamilyRepository implements IFamilyRepository {
   final ParentSession _session;
 
   @override
-  Stream<Family> watchFamily() => _session.watchUser().asyncExpand((user) {
+  // switchLatest, not asyncExpand: the children stream never completes, so asyncExpand would never see a child
+  // linked or unlinked by the school while the app is open
+  Stream<Family> watchFamily() => switchLatest(_session.watchUser(), (user) {
         final ids = _session.studentIds;
         final children = combineLatest([
           for (final id in ids)

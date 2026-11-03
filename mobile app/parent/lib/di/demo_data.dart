@@ -452,14 +452,18 @@ class DemoData {
   // ---- Leave -----------------------------------------------------------------------------------
   static List<LeaveRequest> leaves(String childId, {DateTime? now}) {
     final t = dateOnly(now ?? DateTime.now());
+    // Monday + Tuesday about two and a half weeks ago: always 2 working days of casual leave, whatever today is
+    // (a fixed "18 days ago" fell on a weekend on some dates, leaving the casual pool untouched)
+    final back = plusDays(-18, from: t);
+    final monday = back.subtract(Duration(days: back.weekday - DateTime.monday));
     return [
       LeaveRequest(
         id: 'lv_${childId}_2',
         childId: childId,
-        from: plusDays(-18, from: t),
-        to: plusDays(-17, from: t),
+        from: monday,
+        to: monday.add(const Duration(days: 1)),
         reason: 'Family function out of town',
-        appliedOn: plusDays(-22, from: t),
+        appliedOn: monday.subtract(const Duration(days: 4)),
         status: LeaveStatus.approved,
         reviewerNote: 'Approved. Please collect the notes.',
       ),

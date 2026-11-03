@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../design_system/design_system.dart';
 import '../../../../utils/helpers/date_helper.dart';
 import '../../models/transport_models.dart';
+import 'trip_labels.dart';
 
 /// "Route Milestones": every stop with passed (green tick), next (blue, minutes away) and remaining
 /// (grey) states; the child's drop stop is highlighted.
@@ -17,7 +18,7 @@ class StopTimeline extends StatelessWidget {
           trip: trip,
           stop: trip.stops[i],
           last: i == trip.stops.length - 1,
-          passedLine: trip.stops[i].offsetMinutes <= trip.elapsedMinutes,
+          passedLine: trip.isPassed(trip.stops[i]),
         ),
     ],
   );
@@ -59,11 +60,13 @@ class _StopRow extends StatelessWidget {
       ),
     );
     final sub = passed
-        ? (stop == trip.origin
-              ? 'Departed'
-              : (stop.isChildDrop ? 'Dropped off' : 'Passed'))
+        ? (stop.isChildDrop
+              ? (trip.scheduleBased ? (trip.markVerb ?? 'Passed') : 'Dropped off')
+              : (stop == trip.origin ? 'Departed' : 'Passed'))
         : next
-        ? 'Next stop • ${trip.minutesToNext} min${trip.minutesToNext == 1 ? '' : 's'} away'
+        ? (trip.phase == TripPhase.scheduled
+              ? 'First stop • trip not started'
+              : 'Next stop • ${trip.minutesToNext} min${trip.minutesToNext == 1 ? '' : 's'} away')
         : null;
     final body = stop.isChildDrop
         ? Container(
@@ -79,7 +82,7 @@ class _StopRow extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "YOUR CHILD'S DROP",
+                        trip.childStopCaps,
                         style: T.caps.copyWith(fontSize: 10.sp),
                       ),
                       Text(

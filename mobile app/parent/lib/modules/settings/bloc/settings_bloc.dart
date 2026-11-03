@@ -22,8 +22,20 @@ class SettingsBloc extends Bloc<SettingsEvent, SettingsState> {
     );
     on<UpdateSettings>((event, emit) async {
       // Optimistic: the switch moves at once; the repository stream confirms.
+      final previous = state;
       emit(SettingsState(status: state.status, settings: event.settings));
-      await _repo.save(event.settings);
+      try {
+        await _repo.save(event.settings);
+      } catch (e) {
+        // not saved: put the switch back and say why
+        emit(
+          SettingsState(
+            status: previous.status,
+            settings: previous.settings,
+            error: errorMessage(e),
+          ),
+        );
+      }
     });
   }
 

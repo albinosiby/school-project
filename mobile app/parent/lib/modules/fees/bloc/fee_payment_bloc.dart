@@ -59,9 +59,19 @@ class FeePaymentBloc extends Bloc<FeePaymentEvent, FeePaymentState> {
     ReceiptDownloadRequested e,
     Emitter<FeePaymentState> emit,
   ) async {
-    final file = await _repo.downloadReceipt(e.receipt);
-    emit(
-      state.copyWith(downloaded: file, downloadCount: state.downloadCount + 1),
-    );
+    try {
+      final file = await _repo.downloadReceipt(e.receipt);
+      emit(
+        state.copyWith(downloaded: file, downloadCount: state.downloadCount + 1),
+      );
+    } catch (err) {
+      // through idle so a second failure in a row is shown again (the screen listens for status changes)
+      if (state.status == PaymentStatus.failure) {
+        emit(state.copyWith(status: PaymentStatus.idle));
+      }
+      emit(
+        state.copyWith(status: PaymentStatus.failure, error: errorMessage(err)),
+      );
+    }
   }
 }

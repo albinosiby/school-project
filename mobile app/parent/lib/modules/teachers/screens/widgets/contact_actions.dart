@@ -2,15 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../config/routes/routes.dart';
+import '../../../../core/widgets/phone_call.dart';
 import '../../../../design_system/design_system.dart';
 import '../../../family/bloc/family_bloc.dart';
 
-/// Phone calls are simulated in the demo build: the snackbar names who would be called.
+/// Opens the dialer (`tel:` through LinkLauncher) for [phone]; shows the number when the device cannot call.
 void simulateCall(BuildContext context, String name, String phone) =>
-    AppDialogs.showSnackBar(
-      context,
-      message: 'Calling $name on $phone (simulated)',
-    );
+    callPhone(context, name, phone);
 
 /// Trailing header actions of the student hub screens (bell -> notifications, avatar -> profile).
 class HubHeaderActions extends StatelessWidget {

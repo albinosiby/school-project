@@ -91,7 +91,18 @@ class AdaptiveScaffold extends StatelessWidget {
       return Scaffold(
         body: Row(
           children: [
-            nav,
+            // a phone held sideways is short (and shorter with the keyboard up): the rail scrolls instead of overflowing
+            if (screenType == ScreenType.tablet)
+              LayoutBuilder(
+                builder: (context, box) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: box.maxHeight),
+                    child: IntrinsicHeight(child: nav),
+                  ),
+                ),
+              )
+            else
+              nav,
             const VerticalDivider(thickness: 1, width: 1),
             Expanded(child: body),
           ],

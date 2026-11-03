@@ -14,6 +14,23 @@ const { getAuth } = require("firebase-admin/auth");
 const projectId = process.env.GCLOUD_PROJECT || "demo-school-e2e";
 if (!projectId.startsWith("demo-")) throw new Error("emulator only (demo-* project id)");
 initializeApp({ projectId });
+const SID_FOR_WIPE = "e2e_school";
+// start from an empty emulator Firestore so repeated runs (tools/e2e/sync_test.mjs) are deterministic; E2E_KEEP=1 skips it
+if (!process.env.E2E_KEEP) {
+  let cleared = false;
+  for (let i = 0; i < 3 && !cleared; i++) {
+    const r = await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST}/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" }).catch(() => null);
+    cleared = !!r?.ok;
+    if (!cleared) await new Promise((res) => setTimeout(res, 2000));
+  }
+  // the wipe endpoint can refuse while apps hold listeners: fall back to deleting this school and the users docs
+  if (!cleared) {
+    const { getFirestore: gf } = require("firebase-admin/firestore");
+    const fs = gf();
+    await fs.recursiveDelete(fs.collection("schools").doc(SID_FOR_WIPE));
+    await fs.recursiveDelete(fs.collection("users"));
+  }
+}
 const db = getFirestore(), auth = getAuth();
 const SID = "e2e_school";
 const S = db.collection("schools").doc(SID);
@@ -46,8 +63,10 @@ await db.doc(`users/${accounts.parent.uid}`).set({ schoolId: SID, role: "parent"
 await db.doc(`users/${accounts.driver.uid}`).set({ schoolId: SID, role: "driver", crewId: "crw_001", email: accounts.driver.email, name: "Ramesh Kumar", createdAt: now() });
 await db.doc(`users/${accounts.attendant.uid}`).set({ schoolId: SID, role: "attendant", crewId: "crw_002", email: accounts.attendant.email, name: "Suresh Yadav", createdAt: now() });
 
-const b = db.batch();
-const put = (col, id, data) => b.set(S.collection(col).doc(id), { ...data, updatedAt: now() });
+// writes are collected and committed at the end; the commit is retried because the emulator answers CANCELLED for a moment
+// after an app that held listeners was killed (e.g. right after an on-device test run)
+const ops = [];
+const put = (col, id, data) => ops.push([S.collection(col).doc(id), { ...data, updatedAt: now() }]);
 put("school", "school", { name: "Greenfield International School (E2E)", short: "GIS", board: "CBSE", affiliation: "1930281", city: "New Delhi", academicYear: "2026-27", term: "Term 2" });
 // the admin web opens its setup wizard until onboarding/state.complete is set
 put("onboarding", "state", { complete: true, completed: [1, 2, 3, 4, 5, 6, 7, 8] });
@@ -111,5 +130,13 @@ put("tr_trips", tripId, { busId: "bus_01", bus: "Bus 14", routeName: "Route 4B",
 put("tr_attendance", tripId, { tripId, busId: "bus_01", bus: "Bus 14", date: yesterday, kind: "pickup", total: kids.length, marks, boarded: 0, dropped: kids.length, absent: 0, updatedBy: accounts.attendant.uid });
 put("tr_crew_attendance", `${yesterday}_crw_001`, { crewId: "crw_001", name: "Ramesh Kumar", role: "driver", busId: "bus_01", date: yesterday, in: "06:20", out: "16:15", status: "Present", source: "app" });
 put("tr_crew_attendance", `${yesterday}_crw_002`, { crewId: "crw_002", name: "Suresh Yadav", role: "attendant", busId: "bus_01", date: yesterday, in: "06:35", out: "16:15", status: "Late", source: "app" });
-await b.commit();
+for (let attempt = 1; ; attempt++) {
+  try {
+    for (let i = 0; i < ops.length; i += 400) { const b = db.batch(); for (const [ref, d] of ops.slice(i, i + 400)) b.set(ref, d); await b.commit(); }
+    break;
+  } catch (e) {
+    if (attempt >= 5 || e?.code !== 1) throw e;
+    await new Promise((r) => setTimeout(r, 3000 * attempt));
+  }
+}
 console.log(JSON.stringify({ seeded: true, schoolId: SID, today }));

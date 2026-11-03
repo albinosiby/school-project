@@ -54,3 +54,18 @@ class BusStudent extends Equatable {
   @override
   List<Object?> get props => [id, name, grade, section, classId, roll, grn, guardian, relation, phone, busId, busStopId, busStop, photoUrl, medicalNote];
 }
+
+/// The roster in route order: by the position of the child's stop in the bus's stop list (the admin web may reorder stops
+/// without renumbering their ids), children without a known stop last, then roll and name.
+List<BusStudent> inRouteOrder(List<BusStudent> roster, List<String> stopIds) {
+  int pos(BusStudent s) {
+    final i = stopIds.indexOf(s.busStopId);
+    return i < 0 ? stopIds.length : i;
+  }
+  return [...roster]..sort((a, b) {
+      final p = pos(a).compareTo(pos(b));
+      if (p != 0) return p;
+      final r = a.roll.compareTo(b.roll);
+      return r != 0 ? r : a.name.compareTo(b.name);
+    });
+}

@@ -386,7 +386,7 @@ transport record. Everything is under `schools/{sid}`; ids and stamps follow §2
   per student the history across days. Admin may correct a mark (`by: "admin"`).
 - Function `onTransportAttendanceWritten`: for every mark whose status changed to `boarded` or `dropped` today, push the
   child's guardians (`par_notifications` row, `type: "transport"`, "{name} boarded Bus 14 at 06:52" / "{name} got off at
-  {stop}", route `/home/track`); `absent` pushes "{name} was not at the bus stop". Dedupe id `trp_{tripId}_{studentId}_{status}`.
+  {stop}", route `/home/track`); `absent` pushes "{name} was not at the bus stop". Dedupe id `trp_{tripId}_{studentId}_{status}_{uid}` (one row per guardian login, like every other parent alert).
 
 ### 14.5 Crew attendance (driver / staff check-in) and leave
 - `tr_crew_attendance/{date}_{crewId}`: `{crewId, name, role, busId, date, in: "HH:mm"|null, out: "HH:mm"|null, status:
@@ -418,3 +418,16 @@ transport record. Everything is under `schools/{sid}`; ids and stamps follow §2
 - Emulator seed (`tools/e2e/seed.mjs`) adds bus `bus_01` (Bus 14, Route 4B, 3 stops), driver `crw_001` (`driver@e2e.test`),
   attendant `crw_002` (`attendant@e2e.test`), puts the five seeded students on the bus and writes `.accounts.json` entries
   `driver` and `attendant`. The driver app's local backend (default build) ships the same shapes as in-memory demo data.
+
+### 14.9 Parent view of transport (2026-11-03)
+Parents never read `tr_*` (they hold every pupil of a bus). A function keeps one projection per child that rides a bus:
+- `par_transport/{studentId}` (written only by functions): `{studentId, busId, bus ("Bus 14"), regNo, routeName, model?,
+  stopId, stop, pickupTime, dropTime, stops: [{id, name, pickupTime, dropTime}], driver: {name, phone}, attendant: {name, phone},
+  today: {date (YYYY-MM-DD, India), pickup: {status: "scheduled"|"active"|"completed"|null, startedAt?, endedAt?, mark: "boarded"|"absent"|"dropped"|null, markAt?},
+  drop: {same}}, updatedAt}`. A child without `busId` has no doc (it is deleted when the child is taken off the bus).
+- Recomputed by `onTransportProjection*` triggers on `students` (bus / stop change), `tr_buses` (stops, crew, number), `tr_crew`
+  (name / phone of the bus's crew), `tr_trips` (status of today's trips) and `tr_attendance` (today's marks).
+- Parent rule: read `par_transport/{id}` when `id in myStudents()` (also before it exists) or `resource.data.studentId in myStudents()`.
+- Parent app: Home bus card and Track Live read it (no GPS feed: the bus position is shown by stop schedule and trip status,
+  labelled as schedule-based); Student profile > Transport shows bus, route, stop, pickup / drop times, driver and attendant
+  with Call. The push rows of 14.4 (`type: "transport"`) open `/home/track`.

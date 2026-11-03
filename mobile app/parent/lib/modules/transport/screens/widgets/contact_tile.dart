@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/widgets/phone_call.dart';
 import '../../../../design_system/design_system.dart';
 import '../../models/transport_models.dart';
 
@@ -79,8 +80,15 @@ class ContactTile extends StatelessWidget {
   );
 }
 
-/// Simulated call: confirm in a sheet, then a snackbar (no telephony in the demo).
+/// Confirm in a sheet, then open the dialer (`tel:` through LinkLauncher).
 Future<void> confirmCall(BuildContext context, BusContact c) async {
+  if (c.phone.trim().isEmpty) {
+    AppDialogs.showSnackBar(
+      context,
+      message: 'No phone number on record for ${c.name.isEmpty ? c.role : c.name}',
+    );
+    return;
+  }
   final ok = await showAppSheet<bool>(
     context,
     title: 'Call ${c.name}?',
@@ -105,10 +113,5 @@ Future<void> confirmCall(BuildContext context, BusContact c) async {
       ],
     ),
   );
-  if (ok == true && context.mounted) {
-    AppDialogs.showSnackBar(
-      context,
-      message: 'Calling ${c.name} (${c.phone})…',
-    );
-  }
+  if (ok == true && context.mounted) await callPhone(context, c.name, c.phone);
 }

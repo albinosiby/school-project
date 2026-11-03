@@ -17,9 +17,16 @@ import 'modules/family/bloc/family_bloc.dart';
 import 'utils/services/firebase/push_service.dart';
 
 Future<void> main() async {
+  final app = await bootstrap();
+  runApp(app);
+  if (AppConfig.isFirebase) _listenForPush(app.router);
+}
+
+/// Firebase (when BACKEND=firebase), DI and the restored session; returns the app. Integration tests call it too.
+Future<ParentApp> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
-  if (AppConfig.isFirebase) {
+  if (AppConfig.isFirebase && Firebase.apps.isEmpty) {
     final options = DefaultFirebaseOptions.currentPlatform;
     // test builds talk to the emulators' demo project, never the live one
     await Firebase.initializeApp(
@@ -29,8 +36,8 @@ Future<void> main() async {
     FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
     // test builds only (--dart-define=EMULATOR=true): local Firebase emulators, reached through `adb reverse` on a phone
     if (AppConfig.useEmulator) {
-      await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099);
-      FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080);
+      await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099, automaticHostMapping: !AppConfig.emulatorUsb);
+      FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080, automaticHostMapping: !AppConfig.emulatorUsb);
     }
   }
   await configureDependencies();
@@ -38,9 +45,7 @@ Future<void> main() async {
   await auth.stream.firstWhere(
     (s) => s.status != AuthStatus.unknown,
   ); // saved session restored
-  final router = createRouter(auth);
-  runApp(ParentApp(router: router));
-  if (AppConfig.isFirebase) _listenForPush(router);
+  return ParentApp(router: createRouter(auth));
 }
 
 /// Shows snack bars for messages that arrive while the app is open, and opens the screen of a tapped notification.

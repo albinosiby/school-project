@@ -63,18 +63,15 @@ class HomeScreen extends StatelessWidget {
                   ],
                   HomeSection(
                     title: 'Quick actions',
-                    child: GridView.count(
-                      crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: 10.h, crossAxisSpacing: 10.w, childAspectRatio: 1.75,
-                      children: [
-                        AppQuickAction(icon: Icons.groups_rounded, label: 'Students', onTap: () => context.go(RoutePaths.students)),
-                        AppQuickAction(icon: Icons.place_rounded, label: 'Stops', onTap: () => context.push(RoutePaths.stops)),
-                        AppQuickAction(icon: Icons.history_rounded, label: 'Trip history', onTap: () => context.push(RoutePaths.tripHistory)),
-                        AppQuickAction(icon: Icons.event_busy_rounded, label: 'Apply leave', onTap: () => context.push(RoutePaths.applyLeave)),
-                        AppQuickAction(icon: Icons.campaign_rounded, label: 'Notices', onTap: () => context.push(RoutePaths.notices)),
-                        AppQuickAction(icon: Icons.fact_check_rounded, label: 'My attendance', onTap: () => context.push(RoutePaths.attendance)),
-                      ],
-                    ),
+                    // rows sized by their content (a fixed aspect ratio overflowed at larger text sizes / in landscape)
+                    child: _ActionGrid(children: [
+                      AppQuickAction(icon: Icons.groups_rounded, label: 'Students', onTap: () => context.go(RoutePaths.students)),
+                      AppQuickAction(icon: Icons.place_rounded, label: 'Stops', onTap: () => context.push(RoutePaths.stops)),
+                      AppQuickAction(icon: Icons.history_rounded, label: 'Trip history', onTap: () => context.push(RoutePaths.tripHistory)),
+                      AppQuickAction(icon: Icons.event_busy_rounded, label: 'Apply leave', onTap: () => context.push(RoutePaths.applyLeave)),
+                      AppQuickAction(icon: Icons.campaign_rounded, label: 'Notices', onTap: () => context.push(RoutePaths.notices)),
+                      AppQuickAction(icon: Icons.fact_check_rounded, label: 'My attendance', onTap: () => context.push(RoutePaths.attendance)),
+                    ]),
                   ),
                 ],
               ),
@@ -232,4 +229,24 @@ class _PartnerCard extends StatelessWidget {
       CallButton(phone: partner.phone, name: partner.name),
     ]),
   );
+}
+
+/// Two tiles per row; each row is as tall as its tallest tile.
+class _ActionGrid extends StatelessWidget {
+  const _ActionGrid({required this.children});
+  final List<Widget> children;
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    for (var i = 0; i < children.length; i += 2)
+      Padding(
+        padding: EdgeInsets.only(bottom: 10.h),
+        child: IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: children[i]),
+            SizedBox(width: 10.w),
+            Expanded(child: i + 1 < children.length ? children[i + 1] : const SizedBox()),
+          ]),
+        ),
+      ),
+  ]);
 }

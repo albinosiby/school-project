@@ -37,6 +37,29 @@ Future<void> startBankTransferFlow(
   if (event != null) bloc.add(event);
 }
 
+/// "12,500" / "12500.50" -> rupees; null for anything else ("1e3", "NaN", "12.345", "-5", letters).
+double? parseRupees(String? v) {
+  final t = (v ?? '').replaceAll(',', '').trim();
+  if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(t)) return null;
+  return double.parse(t);
+}
+
+/// The reference as the bank shows it: spaces and dashes removed, upper case.
+String normalizeReference(String? v) => (v ?? '').replaceAll(RegExp(r'[\s-]'), '').toUpperCase();
+
+/// UPI UTRs are 12 digits, cheque numbers 6 digits; bank UTRs and deposit slips are 4-30 letters and digits.
+String? validateReference(TransferMode mode, String? v) {
+  final r = normalizeReference(v);
+  if (r.isEmpty) return 'Enter the ${mode.referenceLabel}';
+  return switch (mode) {
+    TransferMode.upi when !RegExp(r'^\d{12}$').hasMatch(r) => 'A UPI transaction ID (UTR) has 12 digits',
+    TransferMode.cheque when !RegExp(r'^\d{6}$').hasMatch(r) => 'A cheque number has 6 digits',
+    _ when !RegExp(r'^[A-Z0-9]+$').hasMatch(r) => 'Use letters and numbers only',
+    _ when r.length < 4 || r.length > 30 => 'Enter the ${mode.referenceLabel} (4-30 characters)',
+    _ => null,
+  };
+}
+
 class _AccountSheet extends StatelessWidget {
   const _AccountSheet({required this.bank, required this.due});
   final BankDetails bank;
@@ -174,7 +197,7 @@ class _ReportFormState extends State<_ReportForm> {
           controller: _amount,
           keyboard: TextInputType.number,
           validator: (v) {
-            final a = double.tryParse((v ?? '').replaceAll(',', '').trim());
+            final a = parseRupees(v);
             if (a == null || a <= 0) return 'Enter the amount you paid';
             if (a > _invoice.balance) return 'More than the ${inr(_invoice.balance)} due on this instalment';
             return null;
@@ -193,7 +216,7 @@ class _ReportFormState extends State<_ReportForm> {
           label: _mode.referenceLabel,
           hint: _mode == TransferMode.upi ? '12-digit number from your UPI app' : null,
           controller: _reference,
-          validator: (v) => (v ?? '').trim().length < 4 ? 'Enter the ${_mode.referenceLabel}' : null,
+          validator: (v) => validateReference(_mode, v),
         ),
         AppTextField(
           key: Key('claim-date-${_paidOn.toIso8601String()}'),
@@ -216,9 +239,9 @@ class _ReportFormState extends State<_ReportForm> {
               PaymentReported(
                 childId: widget.childId,
                 invoiceId: _invoice.id,
-                amount: double.parse(_amount.text.replaceAll(',', '').trim()),
+                amount: parseRupees(_amount.text)!,
                 mode: _mode,
-                reference: _reference.text.trim(),
+                reference: normalizeReference(_reference.text),
                 paidOn: _paidOn,
                 note: _note.text.trim(),
               ),

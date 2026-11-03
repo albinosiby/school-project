@@ -753,13 +753,43 @@ class _TransportSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = p.transport;
+    const header = SectionHeader(
+      'School Bus & Transit Route',
+      icon: Icons.directions_bus_outlined,
+    );
+    if (!t.onBus) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          AppSurfaceCard(
+            key: const Key('profile-no-bus'),
+            child: Row(
+              children: [
+                IconTile(Icons.directions_bus_outlined, size: 40),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Not on a school bus', style: T.bodyStrong),
+                      Text(
+                        'Ask the school office if your child should have a bus stop.',
+                        style: T.small,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader(
-          'School Bus & Transit Route',
-          icon: Icons.directions_bus_outlined,
-        ),
+        header,
         AppSurfaceCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -770,11 +800,17 @@ class _TransportSection extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Pill(
-                          'Live In Transit',
-                          tone: Tone.success,
-                          dot: true,
-                        ),
+                        t.scheduleBased
+                            ? const Pill(
+                                'Schedule-based',
+                                tone: Tone.neutral,
+                                icon: Icons.schedule_rounded,
+                              )
+                            : const Pill(
+                                'Live In Transit',
+                                tone: Tone.success,
+                                dot: true,
+                              ),
                         SizedBox(height: 6.h),
                         Text(
                           '${t.busNo} (${t.route})'.toUpperCase(),
@@ -784,7 +820,7 @@ class _TransportSection extends StatelessWidget {
                     ),
                   ),
                   AppButton(
-                    'LIVE GPS',
+                    t.scheduleBased ? 'TRACK BUS' : 'LIVE GPS',
                     icon: Icons.my_location_rounded,
                     small: true,
                     expand: false,
@@ -800,8 +836,12 @@ class _TransportSection extends StatelessWidget {
               AppInfoTile(
                 icon: Icons.place_outlined,
                 iconColor: C.primary,
-                label: t.stopName.toUpperCase(),
-                value: t.stopAddress,
+                label: t.stopAddress.isEmpty
+                    ? 'BUS STOP'
+                    : t.stopName.toUpperCase(),
+                value: t.stopAddress.isEmpty
+                    ? (t.stopName.isEmpty ? 'Not set' : t.stopName)
+                    : t.stopAddress,
               ),
               SizedBox(height: 10.h),
               Row(
@@ -812,24 +852,49 @@ class _TransportSection extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${t.driver} (Driver)', style: T.bodyStrong),
                         Text(
-                          'Supervisor: ${t.supervisorPhone}',
+                          '${t.driver.isEmpty ? 'Not assigned' : t.driver} (Driver)',
+                          style: T.bodyStrong,
+                        ),
+                        Text(
+                          t.attendant.isEmpty
+                              ? 'Supervisor: ${t.supervisorPhone.isEmpty ? 'not recorded' : t.supervisorPhone}'
+                              : 'Attendant: ${t.attendant}${t.supervisorPhone.isEmpty ? '' : ' • ${t.supervisorPhone}'}',
                           style: T.small,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Call ${t.driver}',
-                    onPressed: () =>
-                        simulateCall(context, t.driver, t.driverPhone),
+                    tooltip: 'Call ${t.driver.isEmpty ? 'the driver' : t.driver}',
+                    onPressed: () => simulateCall(
+                      context,
+                      t.driver.isEmpty ? 'the driver' : t.driver,
+                      t.driverPhone,
+                    ),
                     icon: Icon(
                       Icons.call_rounded,
                       color: C.primary,
                       size: 22.r,
                     ),
                   ),
+                  if (t.supervisorPhone.isNotEmpty)
+                    IconButton(
+                      tooltip:
+                          'Call ${t.attendant.isEmpty ? 'the bus supervisor' : t.attendant}',
+                      onPressed: () => simulateCall(
+                        context,
+                        t.attendant.isEmpty ? 'the bus supervisor' : t.attendant,
+                        t.supervisorPhone,
+                      ),
+                      icon: Icon(
+                        Icons.support_agent_rounded,
+                        color: C.primary,
+                        size: 22.r,
+                      ),
+                    ),
                 ],
               ),
             ],

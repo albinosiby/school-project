@@ -548,6 +548,26 @@ await check("driver whose bus changed reads the new bus", assertSucceeds((async 
 await check("driver whose bus changed loses the old bus", assertFails(getDoc(D("tr_buses/bus_01"))));
 await check("driver whose bus changed loses the old roster", assertFails(q("d1", "students", where("busId", "==", "bus_01"))));
 
+console.log("transport: parent view (par_transport, contract 14.9)");
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), "schools/S1/par_transport/stu_101"), { studentId: "stu_101", busId: "bus_01", bus: "Bus 14", driver: { name: "R", phone: "1" } });
+  await setDoc(doc(ctx.firestore(), "schools/S1/par_transport/stu_102"), { studentId: "stu_102", busId: "bus_02", bus: "Bus 7" });
+});
+await check("parent reads own child's bus", assertSucceeds(getDoc(doc(as("p1"), "schools/S1/par_transport/stu_101"))));
+await check("parent reads own child's bus by id when it does not exist yet", assertSucceeds((async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => deleteDoc(doc(ctx.firestore(), "schools/S1/par_transport/stu_101")));
+  await getDoc(doc(as("p1"), "schools/S1/par_transport/stu_101"));
+  await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "schools/S1/par_transport/stu_101"), { studentId: "stu_101", busId: "bus_01", bus: "Bus 14" }));
+})()));
+await check("parent queries own child's bus by studentId", assertSucceeds(getDocs(query(collection(as("p1"), "schools/S1/par_transport"), where("studentId", "==", "stu_101")))));
+await check("parent cannot read another child's bus", assertFails(getDoc(doc(as("p1"), "schools/S1/par_transport/stu_102"))));
+await check("parent cannot list every bus projection", assertFails(getDocs(collection(as("p1"), "schools/S1/par_transport"))));
+await check("parent cannot write the projection", assertFails(setDoc(doc(as("p1"), "schools/S1/par_transport/stu_101"), { studentId: "stu_101", bus: "Bus 1" })));
+await check("teacher cannot read par_transport", assertFails(getDoc(doc(as("t1"), "schools/S1/par_transport/stu_101"))));
+await check("driver cannot read par_transport", assertFails(getDoc(doc(as("d1"), "schools/S1/par_transport/stu_101"))));
+await check("parent still cannot read tr_attendance", assertFails(getDocs(collection(as("p1"), "schools/S1/tr_attendance"))));
+await check("parent still cannot read tr_crew", assertFails(getDoc(doc(as("p1"), "schools/S1/tr_crew/crw_002"))));
+
 await env.cleanup();
 console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);
 process.exit(failed ? 1 : 0);

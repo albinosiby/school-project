@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/widgets/child_data_view.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
-import '../../../utils/helpers/date_helper.dart';
 import '../../family/models/family_models.dart';
 import '../../home/screens/widgets/parent_page_scaffold.dart';
 import '../bloc/track_live_bloc.dart';
@@ -11,6 +10,7 @@ import '../models/transport_models.dart';
 import 'widgets/bus_map.dart';
 import 'widgets/contact_tile.dart';
 import 'widgets/stop_timeline.dart';
+import 'widgets/trip_labels.dart';
 
 /// Figma "1.1 Track Live": simulated live map, ETA, child on board, route milestones, driver and
 /// attendant contacts, notify-me toggles. The position updates as the repository feed advances.
@@ -23,6 +23,11 @@ class TrackLiveScreen extends StatelessWidget {
     body: ChildDataView<TrackLiveBloc, BusTrip>(
       create: () => getIt<TrackLiveBloc>(),
       refreshable: false,
+      isEmpty: (trip) => !trip.onBus,
+      emptyTitle: 'Not on a school bus',
+      emptyHint:
+          'Track Live shows the school bus your child rides. Ask the school office if your child should have a bus stop.',
+      emptyIcon: Icons.directions_bus_outlined,
       builder: (context, trip, child) => _TrackBody(trip: trip, child: child),
     ),
   );
@@ -44,7 +49,7 @@ class _TrackBodyState extends State<_TrackBody> {
   Widget build(BuildContext context) {
     final trip = widget.trip;
     final child = widget.child;
-    final phase = trip.phase;
+    final (pill, pillTone, pillIcon) = trip.childPill;
     return ListView(
       padding: EdgeInsets.only(bottom: 24.h),
       children: [
@@ -72,6 +77,30 @@ class _TrackBodyState extends State<_TrackBody> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _EtaCard(trip: trip),
+              if (trip.scheduleBased) ...[
+                SizedBox(height: 6.h),
+                Row(
+                  key: const Key('track-schedule-caption'),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline_rounded,
+                      size: 14.r,
+                      color: C.onSurfaceVariant,
+                    ),
+                    SizedBox(width: 6.w),
+                    Expanded(
+                      child: Text(
+                        scheduleCaption,
+                        style: T.small.copyWith(
+                          color: C.onSurfaceVariant,
+                          fontSize: 11.sp,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
               SizedBox(height: 12.h),
               AppElevatedCard(
                 padding: EdgeInsets.all(14.w),
@@ -98,23 +127,15 @@ class _TrackBodyState extends State<_TrackBody> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            'Seat ${trip.seat} • Tap ${fmtClock(trip.boardedAt)}',
+                            trip.childLine,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: T.small.copyWith(color: C.onSurfaceVariant),
                           ),
                         ],
                       ),
                     ),
-                    phase == TripPhase.inTransit
-                        ? const Pill(
-                            'Onboard Safe',
-                            tone: Tone.success,
-                            icon: Icons.sensors_rounded,
-                          )
-                        : const Pill(
-                            'Dropped Safely',
-                            tone: Tone.success,
-                            icon: Icons.check_circle_outline_rounded,
-                          ),
+                    Pill(pill, tone: pillTone, icon: pillIcon),
                   ],
                 ),
               ),
@@ -149,13 +170,18 @@ class _TrackBodyState extends State<_TrackBody> {
                   children: [
                     ContactTile(
                       contact: trip.driver,
-                      detail: '${trip.vehicleNo} • ${trip.safety}',
+                      detail: [
+                        trip.vehicleNo,
+                        trip.safety,
+                      ].where((s) => s.isNotEmpty).join(' • '),
                       onCall: () => confirmCall(context, trip.driver),
                     ),
                     Divider(height: 24.h, color: C.cardBorder),
                     ContactTile(
                       contact: trip.attendant,
-                      detail: '${trip.attendant.role} • On board',
+                      detail: trip.scheduleBased
+                          ? trip.attendant.role
+                          : '${trip.attendant.role} • On board',
                       onCall: () => confirmCall(context, trip.attendant),
                     ),
                   ],
@@ -193,23 +219,21 @@ class _EtaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final phase = trip.phase;
-    final drop = trip.dropStop;
-    final inTransit = phase == TripPhase.inTransit;
+    final inTransit = trip.phase == TripPhase.inTransit;
+    final (head, tail) = trip.headline;
     return AppElevatedCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Pill(
-                inTransit
-                    ? 'On Time • Route ${trip.route}'
-                    : 'Arrived • Route ${trip.route}',
-                tone: Tone.brand,
-                dot: true,
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Pill(trip.statusPill, tone: Tone.brand, dot: true),
+                ),
               ),
-              const Spacer(),
+              SizedBox(width: 8.w),
               Text(
                 'Bus #${trip.busNo}',
                 style: T.small.copyWith(color: C.onSurfaceVariant),
@@ -227,17 +251,15 @@ class _EtaCard extends StatelessWidget {
                     Text.rich(
                       key: const Key('track-eta'),
                       TextSpan(
-                        text: inTransit
-                            ? '${trip.minutesToDrop} min${trip.minutesToDrop == 1 ? '' : 's'}'
-                            : 'Dropped off',
+                        text: head,
                         style: T.title.copyWith(
                           color: C.primary,
                           fontSize: 30.sp,
                         ),
                         children: [
-                          if (inTransit)
+                          if (tail != null)
                             TextSpan(
-                              text: '  away',
+                              text: tail,
                               style: T.body.copyWith(color: C.onSurfaceVariant),
                             ),
                         ],
@@ -245,9 +267,7 @@ class _EtaCard extends StatelessWidget {
                     ),
                     SizedBox(height: 4.h),
                     Text(
-                      inTransit
-                          ? 'Drop-off at ${fmtClock(trip.dropEta)} • ${drop.name}'
-                          : 'Reached ${drop.name} at ${fmtClock(trip.dropEta)}',
+                      trip.headlineDetail,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: T.small.copyWith(color: C.onSurface),
@@ -259,21 +279,26 @@ class _EtaCard extends StatelessWidget {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(
-                    '${trip.kmToDrop.toStringAsFixed(1)} km',
-                    style: T.h2.copyWith(color: C.onSurface),
-                  ),
+                  if (trip.hasDistance)
+                    Text(
+                      '${trip.kmToDrop.toStringAsFixed(1)} km',
+                      style: T.h2.copyWith(color: C.onSurface),
+                    ),
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        Icons.traffic_outlined,
+                        trip.scheduleBased
+                            ? Icons.schedule_rounded
+                            : Icons.traffic_outlined,
                         size: 13.r,
                         color: C.emerald,
                       ),
                       SizedBox(width: 3.w),
                       Text(
-                        inTransit ? trip.traffic : 'Trip on schedule',
+                        trip.scheduleBased
+                            ? 'Schedule-based'
+                            : (inTransit ? trip.traffic : 'Trip on schedule'),
                         style: T.small.copyWith(color: C.emerald),
                       ),
                     ],

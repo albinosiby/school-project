@@ -81,11 +81,7 @@ class TransportDemoData {
   static String seatOf(String childId) =>
       childId == DemoData.aarav.id ? '#14B' : '#09A';
 
-  static const defaultAlerts = {
-    BusAlert.proximity: true,
-    BusAlert.arrival: true,
-    BusAlert.delay: false,
-  };
+  static const defaultAlerts = defaultBusAlerts;
 
   /// Morning RFID taps: Aarav tapped in at 08:05 on school days; Ananya has no tap today.
   static GateEntry? gateEntry(String childId, DateTime day) {

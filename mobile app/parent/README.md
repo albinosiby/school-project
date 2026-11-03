@@ -12,7 +12,7 @@ plus parent components (`AppSurfaceCard`, `AppMetricBox`, `AppSolidChips`, `AppE
 export PATH="$PATH:/Users/albinosiby/development/flutter/bin"
 flutter pub get
 flutter run -d chrome          # or an emulator
-flutter test                   # 153 tests
+flutter test --concurrency=1   # 458 tests (+32 opt-in crawl)
 flutter test test/button_crawl_test.dart --dart-define=CRAWL=true   # taps every button, report in build/button_crawl.txt
 dart analyze
 ```
@@ -89,14 +89,20 @@ in 5 minutes, one tomorrow and one finished yesterday.
 - Writes live in memory and reset on restart: acknowledgements, leave, messages + drafts, fee payments + receipts,
   PTM bookings, certificate requests, profile edits and photo, notification read/delete. Settings toggles persist
   through SharedPreferences.
-- Simulated, with a visible result (snackbar / sheet / state): calls, GPS tracking, payments, file pickers and
-  uploads, PDF downloads, voice notes, QR scan, sharing. Meet links open through `LinkLauncher`.
+- Simulated, with a visible result (snackbar / sheet / state): GPS tracking, payments, file pickers and
+  uploads, PDF downloads, voice notes, QR scan, sharing. Meet links and phone calls (`tel:`) open through `LinkLauncher`.
 - `BACKEND=firebase` replaces these with the Firestore repositories (see below); `BACKEND=rest` has none yet and uses the mocks.
 
 ## Firestore backend (`BACKEND=firebase`)
 
 `modules/<feature>/repositories/firebase_<feature>_repository.dart` implement the same interfaces on Firestore
-(data contract §13); `di/firebase_repositories.dart` swaps them in, so BLoCs and screens are unchanged. Session and push:
+(data contract §13); `di/firebase_repositories.dart` swaps them in, so BLoCs and screens are unchanged.
+School bus (Home card, Track Live, Student profile > Transport) reads `par_transport/{studentId}` (§14.9): there is no
+GPS feed, so the position is estimated from the stop times and today's trip status (labelled "schedule-based"); a
+child without the doc sees "Not on a school bus". Bus "notify me" toggles are kept on the device.
+Left on device-only / not available because the contract has no parent data for them: conduct (Behaviour), profile
+edits (office record), self-registration (the school creates logins), mobile passcode and Google / Apple sign-in,
+online payment and receipt PDFs (§13.8: pay into the school account and report it), RFID gate entry. Session and push:
 `utils/services/firebase/`. Sign-in is the email + password from the school's invite. Going live, what syncs and the
 emulator test setup: `website/docs/PARENT_APP.md`.
 
@@ -104,7 +110,10 @@ emulator test setup: `website/docs/PARENT_APP.md`.
 
 One file per module: `auth_test`, `family_test`, `home_ui_test`, `home_behaviour_test`, `home_transport_test`,
 `home_repository_test`, `live_class_test`, `academics_test`, `messages_test`, `profile_test`, `student_test`,
-`domain_test` (models + cache-first). `screens_test` is the end-to-end walk: every dock tab, every Academics
+`domain_test` (models + cache-first). Firestore repositories: `firebase_repositories_test`,
+`firebase_repositories_more_test`, `firebase_transport_test` (fake_cloud_firestore + firebase_auth_mocks). BLoC module
+tests: `bloc_child_data_test`, `bloc_actions_test`. Field validation on the real screens: `form_validation_test`,
+`form_validation_auth_test`. `screens_test` is the end-to-end walk: every dock tab, every Academics
 section, every More hub entry and every deep link, plus loading / empty / error states. `button_crawl_test`
 (opt-in, `--dart-define=CRAWL=true`) opens each of 32 routes, scrolls through it and taps every tappable element
 from a fresh app, reporting taps that throw or change nothing. Tests set `MockLatency.delay = Duration.zero`.

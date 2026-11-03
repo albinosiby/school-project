@@ -65,12 +65,30 @@ class BusContact extends Equatable {
   List<Object?> get props => [name, role, phone, rating];
 }
 
+/// Alerts on by default (until the guardian changes them on this device).
+const defaultBusAlerts = {
+  BusAlert.proximity: true,
+  BusAlert.arrival: true,
+  BusAlert.delay: false,
+};
+
 enum StopState { passed, next, upcoming }
 
-enum TripPhase { inTransit, droppedOff, completed }
+/// [scheduled]: the trip has not started yet (nothing passed).
+enum TripPhase { scheduled, inTransit, droppedOff, completed }
 
-/// The afternoon trip of the child's bus. Position is simulated from [elapsedMinutes] (minutes since
-/// departure); everything shown (ETA, next stop, distance, progress) derives from it.
+/// Morning (home -> school) or afternoon (school -> home) trip (data contract §14.3).
+enum TripKind { pickup, drop }
+
+/// `tr_trips.status`.
+enum TripStatus { scheduled, active, completed }
+
+/// The child's mark on the trip (`tr_attendance.marks`, §14.4).
+enum BusMark { boarded, absent, dropped }
+
+/// The trip of the child's bus. Position is derived from [elapsedMinutes] (minutes since departure):
+/// simulated GPS in the demo, the stop schedule and trip status on the school backend ([scheduleBased]);
+/// everything shown (ETA, next stop, distance, progress) derives from it.
 class BusTrip extends Equatable {
   const BusTrip({
     required this.childId,
@@ -86,15 +104,67 @@ class BusTrip extends Equatable {
     required this.seat,
     required this.boardedAt,
     required this.alerts,
+    this.kind = TripKind.drop,
+    this.status = TripStatus.active,
+    this.mark,
+    this.markAt,
+    this.scheduleBased = false,
   });
-  final String childId, busNo, route, vehicleNo, safety, seat;
+
+  /// The child has no school bus (no `par_transport` doc): Track Live and Home show an empty state.
+  BusTrip.notOnBus(this.childId)
+    : busNo = '',
+      route = '',
+      vehicleNo = '',
+      safety = '',
+      seat = '',
+      driver = const BusContact(name: '', role: 'Driver', phone: ''),
+      attendant = const BusContact(name: '', role: 'Bus attendant', phone: ''),
+      departedAt = DateTime(2000),
+      boardedAt = null,
+      elapsedMinutes = 0,
+      stops = const [],
+      alerts = const {},
+      kind = TripKind.drop,
+      status = TripStatus.scheduled,
+      mark = null,
+      markAt = null,
+      scheduleBased = true;
+
+  final String childId, busNo, route, vehicleNo, safety;
+
+  /// Empty when the school does not allot seats.
+  final String seat;
   final BusContact driver, attendant;
-  final DateTime departedAt, boardedAt;
+  final DateTime departedAt;
+
+  /// When the child tapped in / was marked boarded; null when not known.
+  final DateTime? boardedAt;
   final double elapsedMinutes;
   final List<BusStop> stops;
   final Map<BusAlert, bool> alerts;
+  final TripKind kind;
+  final TripStatus status;
+  final BusMark? mark;
+  final DateTime? markAt;
+
+  /// No GPS feed: the position is estimated from the stop schedule and the trip status.
+  final bool scheduleBased;
+
+  /// False for [BusTrip.notOnBus].
+  bool get onBus => stops.isNotEmpty;
 
   bool alertOn(BusAlert a) => alerts[a] ?? false;
+
+  /// "pickup" / "drop": the child's stop on this trip.
+  String get stopWord => kind == TripKind.pickup ? 'pickup' : 'drop';
+
+  /// The bus has reached (or passed) [s]; nothing has passed before the trip starts.
+  bool isPassed(BusStop s) =>
+      status != TripStatus.scheduled && s.offsetMinutes <= elapsedMinutes;
+
+  /// Stops carry route distances (the demo map); the school backend only has times.
+  bool get hasDistance => stops.any((s) => s.km > 0);
 
   BusStop get origin => stops.first;
   BusStop get terminus => stops.last;
@@ -106,13 +176,13 @@ class BusTrip extends Equatable {
       departedAt.add(Duration(minutes: s.offsetMinutes));
   DateTime get dropEta => timeAt(dropStop);
 
-  StopState stateOf(BusStop s) => s.offsetMinutes <= elapsedMinutes
+  StopState stateOf(BusStop s) => isPassed(s)
       ? StopState.passed
       : (s == nextStop ? StopState.next : StopState.upcoming);
 
   BusStop? get nextStop {
     for (final s in stops) {
-      if (s.offsetMinutes > elapsedMinutes) return s;
+      if (!isPassed(s)) return s;
     }
     return null;
   }
@@ -121,13 +191,14 @@ class BusTrip extends Equatable {
   int get _segment {
     var i = 0;
     for (var k = 0; k < stops.length; k++) {
-      if (stops[k].offsetMinutes <= elapsedMinutes) i = k;
+      if (isPassed(stops[k])) i = k;
     }
     return i;
   }
 
   /// 0..1 progress inside the current segment.
   double get _segmentT {
+    if (status == TripStatus.scheduled) return 0;
     final i = _segment;
     if (i >= stops.length - 1) return 0;
     final a = stops[i].offsetMinutes, b = stops[i + 1].offsetMinutes;
@@ -159,23 +230,35 @@ class BusTrip extends Equatable {
       : math.max(1, (nextStop!.offsetMinutes - elapsedMinutes).ceil());
 
   /// Stops still ahead up to and including the child's drop.
-  int get stopsToDrop => stops
-      .take(dropIndex + 1)
-      .where((s) => s.offsetMinutes > elapsedMinutes)
-      .length;
+  int get stopsToDrop =>
+      stops.take(dropIndex + 1).where((s) => !isPassed(s)).length;
 
-  /// 0..1 of the way from campus to the child's drop.
-  double get progressToDrop =>
-      dropStop.km == 0 ? 1 : (kmTravelled / dropStop.km).clamp(0, 1).toDouble();
+  /// 0..1 of the way from the first stop to the child's stop (by distance, else by the schedule).
+  double get progressToDrop {
+    if (status == TripStatus.scheduled) return 0;
+    if (!hasDistance) {
+      final to = dropStop.offsetMinutes;
+      return to <= 0
+          ? (isPassed(dropStop) ? 1 : 0)
+          : (elapsedMinutes / to).clamp(0, 1).toDouble();
+    }
+    return dropStop.km == 0
+        ? 1
+        : (kmTravelled / dropStop.km).clamp(0, 1).toDouble();
+  }
 
-  TripPhase get phase => elapsedMinutes >= terminus.offsetMinutes
+  TripPhase get phase => status == TripStatus.scheduled
+      ? TripPhase.scheduled
+      : status == TripStatus.completed ||
+            elapsedMinutes >= terminus.offsetMinutes
       ? TripPhase.completed
-      : elapsedMinutes >= dropStop.offsetMinutes
+      : isPassed(dropStop)
       ? TripPhase.droppedOff
       : TripPhase.inTransit;
 
-  /// Simulated GPS speed (0 once the trip is over).
-  int get speedKmh => phase == TripPhase.completed
+  /// Simulated GPS speed (0 once the trip is over or before it starts).
+  int get speedKmh =>
+      phase == TripPhase.completed || phase == TripPhase.scheduled
       ? 0
       : 24 + ((elapsedMinutes * 7).round() % 15);
 
@@ -198,6 +281,11 @@ class BusTrip extends Equatable {
         seat: seat,
         boardedAt: boardedAt,
         alerts: alerts ?? this.alerts,
+        kind: kind,
+        status: status,
+        mark: mark,
+        markAt: markAt,
+        scheduleBased: scheduleBased,
       );
 
   @override
@@ -215,6 +303,11 @@ class BusTrip extends Equatable {
     elapsedMinutes,
     stops,
     alerts,
+    kind,
+    status,
+    mark,
+    markAt,
+    scheduleBased,
   ];
 }
 

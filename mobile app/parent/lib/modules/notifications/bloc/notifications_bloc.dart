@@ -31,8 +31,9 @@ class NotificationsBloc extends Bloc<NotificationsEvent, NotificationsState> {
       await _repo.markRead(event.id);
     });
     on<MarkAllNotificationsRead>((event, emit) => _repo.markAllRead());
-    on<DeleteNotification>((event, emit) {
+    on<DeleteNotification>((event, emit) async {
       // Remove at once so a swiped Dismissible leaves the tree; the repository confirms.
+      final before = state.items;
       emit(
         state.copyWith(
           items: [
@@ -41,7 +42,16 @@ class NotificationsBloc extends Bloc<NotificationsEvent, NotificationsState> {
           ],
         ),
       );
-      return _repo.delete(event.id);
+      try {
+        await _repo.delete(event.id);
+      } catch (e) {
+        // not deleted: put it back where it was (unless a fresh list already has it)
+        final removed = before.where((n) => n.id == event.id).firstOrNull;
+        if (removed == null || state.byId(event.id) != null) return;
+        final items = [...state.items];
+        items.insert(before.indexOf(removed).clamp(0, items.length), removed);
+        emit(state.copyWith(items: items, error: errorMessage(e)));
+      }
     });
     on<AcknowledgeNotification>((event, emit) => _repo.acknowledge(event.id));
     add(const LoadNotifications());

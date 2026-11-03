@@ -18,15 +18,17 @@ class FirebaseNoticeRepository implements INoticeRepository {
     late final StreamController<List<Notice>> out;
     final subs = <StreamSubscription<Object?>>[];
     QuerySnapshot<Json>? last;
-    var grade = '';
+    var grade = '', section = '';
     Future<void> emit() async {
       final q = last;
-      if (q != null && !out.isClosed) out.add(await _build(q, grade));
+      if (q != null && !out.isClosed) out.add(await _build(q, grade, section));
     }
 
     out = StreamController<List<Notice>>(
       onListen: () async {
-        grade = '${(await _session.student(childId))['grade'] ?? ''}';
+        final child = await _session.student(childId);
+        grade = '${child['grade'] ?? ''}';
+        section = '${child['section'] ?? ''}';
         subs
           ..add(_session.col('com_notices').where('parentVisible', isEqualTo: true).snapshots().listen((q) {
             last = q;
@@ -43,12 +45,12 @@ class FirebaseNoticeRepository implements INoticeRepository {
     return out.stream;
   }
 
-  Future<List<Notice>> _build(QuerySnapshot<Json> q, String grade) async {
+  Future<List<Notice>> _build(QuerySnapshot<Json> q, String grade, String section) async {
     final out = <Notice>[];
     for (final doc in q.docs) {
       final d = doc.data();
       final grades = [for (final g in (d['grades'] as List?) ?? const []) '$g'];
-      if (grades.isNotEmpty && grade.isNotEmpty && !grades.contains(grade) && !grades.contains('Grade $grade')) continue;
+      if (!forClass(grades, grade, section)) continue;
       final requiresAck = d['requiresAck'] == true || d['urgent'] == true;
       if (requiresAck && !_acked.contains(doc.id)) {
         try {
@@ -69,6 +71,19 @@ class FirebaseNoticeRepository implements INoticeRepository {
     });
     _acked.add(noticeId);
     _ackChanges.add(null);
+  }
+
+  /// The notice's `grades` labels ("Grade 8-A", "Grade 9", "10-B") include the child's class; no labels = whole school.
+  /// Same rule as the function that sends the push (functions/parent.js `schoolParents`).
+  static bool forClass(List<String> grades, String grade, String section) {
+    if (grades.isEmpty || grade.isEmpty) return true;
+    for (final g in grades) {
+      final m = RegExp(r'(\d+)\s*-?\s*([A-Z])?\b', caseSensitive: false).firstMatch(g);
+      if (m == null) continue;
+      if (m[1] != grade) continue;
+      if (m[2] == null || m[2]!.toUpperCase() == section.toUpperCase()) return true;
+    }
+    return false;
   }
 
   static NoticeCategory categoryOf(Json d) {

@@ -63,6 +63,14 @@ class _RegisterScreenState extends State<RegisterScreen> with ValidationMixin {
         : 'Use the format GIS-YYYY-####';
   }
 
+  /// Same rule as Edit Profile: at least 3 characters, letters (and . ' -) only.
+  String? _validateName(String? v) {
+    final t = v?.trim() ?? '';
+    if (t.length < 3) return 'Enter the full name';
+    if (!RegExp(r"^[A-Za-z][A-Za-z .'\-]*$").hasMatch(t)) return 'Use letters only';
+    return null;
+  }
+
   String? _validateDob(String? v) {
     if (v == null || v.trim().isEmpty) return 'Date of birth is required';
     final d = parseDmy(v);
@@ -333,9 +341,7 @@ class _RegisterScreenState extends State<RegisterScreen> with ValidationMixin {
             label: 'Parent / Legal Guardian Full Name',
             hint: 'e.g. Mrs. Priya Sharma',
             controller: _name,
-            validator: (v) => (v == null || v.trim().length < 3)
-                ? 'Enter the full name'
-                : null,
+            validator: _validateName,
           ),
           Text(
             'Relationship to Student',

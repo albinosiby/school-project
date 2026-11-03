@@ -76,7 +76,8 @@ void registerFirebaseRepositories(GetIt getIt) {
   replace<IStudentRepository>(FirebaseStudentRepository(session, getIt()));
   replace<ITeachersRepository>(FirebaseTeachersRepository(session));
   replace<IPtmRepository>(FirebasePtmRepository(session, getIt()));
-  replace<ITransportRepository>(FirebaseTransportRepository());
+  replace<ITransportRepository>(FirebaseTransportRepository(session, storage));
+  // conduct records and parent registration have no parent-readable data in the contract yet
   replace<IBehaviourRepository>(FirebaseBehaviourRepository());
   replace<IRegistrationRepository>(FirebaseRegistrationRepository());
   // settings stay on the device (LocalSettingsRepository)

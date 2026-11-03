@@ -101,7 +101,8 @@ class HomeRepository implements IHomeRepository {
       homeworkInReview: inReview,
       termAttendance: attendance.overall.percentage,
       gateEntry: gate,
-      bus: isSchoolDay ? bus : null,
+      // no card for a child who is not on a school bus
+      bus: isSchoolDay && (bus?.onBus ?? false) ? bus : null,
       notices: sortedNotices.take(3).toList(),
       nextLiveClass: upcoming.isEmpty ? null : upcoming.first,
     );

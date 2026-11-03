@@ -17,7 +17,10 @@ class MobileNumberField extends StatelessWidget {
   static String? validate(String? v) {
     final d = (v ?? '').replaceAll(RegExp(r'\D'), '');
     if (d.isEmpty) return 'Mobile number is required';
-    return d.length == 10 ? null : 'Enter a valid 10-digit mobile number';
+    // Indian mobile numbers have 10 digits and start with 6, 7, 8 or 9 (same rule as Edit Profile)
+    return RegExp(r'^[6-9]\d{9}$').hasMatch(d)
+        ? null
+        : 'Enter a valid 10-digit mobile number';
   }
 
   @override

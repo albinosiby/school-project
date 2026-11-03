@@ -49,8 +49,14 @@ class NewMessageBloc extends Bloc<NewMessageEvent, NewMessageState> {
     }, transformer: droppable());
 
     on<NewMessageDraftSaved>((event, emit) async {
-      final d = await _repo.saveDraft(event.draft);
-      emit(state.copyWith(submit: SubmitStatus.draftSaved, draft: d));
+      try {
+        final d = await _repo.saveDraft(event.draft);
+        emit(state.copyWith(submit: SubmitStatus.draftSaved, draft: d));
+      } catch (e) {
+        emit(
+          state.copyWith(submit: SubmitStatus.failed, error: errorMessage(e)),
+        );
+      }
     });
   }
 

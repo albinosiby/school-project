@@ -33,7 +33,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
               create: () => getIt<RosterBloc>(),
               dataKey: bus.id,
               builder: (context, roster) {
-                final rows = roster.where((s) =>
+                final rows = inRouteOrder(roster, [for (final x in bus.stops) x.id]).where((s) =>
                     (_q.isEmpty || '${s.name} ${s.classLabel} ${s.rollLabel} ${s.busStop} ${s.guardian} ${s.phone}'.toLowerCase().contains(_q.toLowerCase())) &&
                     (_stop == 'All' || s.busStop == _stop)).toList();
                 final stops = ['All', for (final s in bus.stops) s.name];

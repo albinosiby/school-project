@@ -111,6 +111,26 @@ Stream<List<T>> combineLatest<T>(List<Stream<T>> streams) {
   return out.stream;
 }
 
+/// For each value of [source], the values of [inner] for it; a new source value cancels the previous inner stream.
+Stream<R> switchLatest<S, R>(Stream<S> source, Stream<R> Function(S value) inner) {
+  late StreamController<R> out;
+  StreamSubscription<S>? outer;
+  StreamSubscription<R>? current;
+  out = StreamController<R>(
+    onListen: () {
+      outer = source.listen((v) {
+        current?.cancel(); // not awaited: Firestore listeners cancel asynchronously
+        current = inner(v).listen(out.add, onError: out.addError);
+      }, onError: out.addError);
+    },
+    onCancel: () async {
+      await outer?.cancel();
+      await current?.cancel();
+    },
+  );
+  return out.stream;
+}
+
 /// `"2026-10-27"` (+ optional `"09:15"`) -> local DateTime; null when unparsable.
 DateTime? parseDay(Object? date, [Object? time]) {
   final d = DateTime.tryParse('${date ?? ''}'.split('T').first);

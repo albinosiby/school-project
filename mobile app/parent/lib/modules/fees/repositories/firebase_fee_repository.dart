@@ -85,9 +85,13 @@ class FirebaseFeeRepository implements IFeeRepository {
     return claimOf(doc.id, data, {invoiceId: fromDoc(invoiceId, inv).title});
   }
 
-  /// Receipt PDFs are not generated yet: returns the receipt's file name so the screen can confirm.
+  /// The school system issues no receipt PDFs (`fee_payments` has no file), so nothing can be saved: say so instead of
+  /// pretending a file was downloaded.
   @override
-  Future<String> downloadReceipt(FeeReceipt receipt) async => receipt.fileName;
+  Future<String> downloadReceipt(FeeReceipt receipt) async => throw AppException(
+        message: 'Receipt ${receipt.number} is recorded by the school. A PDF copy is not available in the app yet; '
+            'ask the school office for a printed receipt.',
+      );
 
   static BankDetails bankOf(Object? v) {
     final b = v is Map ? v : const {};

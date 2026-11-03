@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../config/app_config.dart';
 import '../../../utils/exceptions/app_exception.dart';
+import '../../../utils/helpers/date_helper.dart';
 import '../../../utils/services/firebase/parent_session.dart';
 import '../../../utils/services/link_launcher.dart';
 import '../../family/models/family_models.dart';
@@ -9,8 +11,8 @@ import '../models/student_models.dart';
 import 'student_repository_interface.dart';
 
 /// The child's profile from the school record (`students`, `classes`, `school`) with attendance from
-/// `par_attendance` and the score from published results (`par_results`). Medical, transport, house and
-/// documents are not kept by the school system yet and show as not recorded. Certificates (`certificates`, §13.7)
+/// `par_attendance`, the score from published results (`par_results`) and the school bus from `par_transport` (§14.9).
+/// Medical, house and documents are not kept by the school system yet and show as not recorded. Certificates (`certificates`, §13.7)
 /// are requested here and issued by the office in the admin web.
 class FirebaseStudentRepository implements IStudentRepository {
   FirebaseStudentRepository(this._session, this._links);
@@ -24,7 +26,14 @@ class FirebaseStudentRepository implements IStudentRepository {
     final student = _session.col('students').doc(childId).snapshots();
     final attendance = _session.col('par_attendance').where('studentId', isEqualTo: childId).snapshots();
     final results = _session.col('par_results').where('studentId', isEqualTo: childId).snapshots();
-    return combineLatest<Object>([student, attendance, results]).asyncMap((all) async {
+    // the bus card is optional: a missing or unreadable projection shows "not on a school bus", never an error
+    final bus = _session
+        .col('par_transport')
+        .doc(childId)
+        .snapshots()
+        .map<Json?>((s) => s.data())
+        .transform(StreamTransformer<Json?, Json?>.fromHandlers(handleError: (_, _, sink) => sink.add(null)));
+    return combineLatest<Object?>([student, attendance, results, bus]).asyncMap((all) async {
       final d = (all[0] as DocumentSnapshot<Json>).data() ?? const <String, dynamic>{};
       final cid = '${d['classId'] ?? ''}';
       final cls = cid.isEmpty ? null : (await _session.col('classes').doc(cid).get()).data();
@@ -80,7 +89,7 @@ class FirebaseStudentRepository implements IStudentRepository {
         guardians: [guardian],
         address: '${d['address'] ?? ''}',
         addressVerified: false,
-        transport: const TransportInfo(busNo: '', route: _none, pickup: '', drop: '', stopName: '', stopAddress: '', driver: '', driverPhone: '', supervisorPhone: ''),
+        transport: transportOf(all[3] as Json?),
         medical: MedicalInfo(bloodGroup: '${d['bloodGroup'] ?? ''}', allergies: _none, conditions: _none, medications: _none, doctor: '', doctorPhone: '', heightCm: 0, weightKg: 0, lastCheckup: DateTime.now()),
         emergency: EmergencyContact(name: guardian.name, relation: guardian.relation, phone: guardian.phone),
         documents: const [],
@@ -142,6 +151,33 @@ class FirebaseStudentRepository implements IStudentRepository {
     };
     final ref = await _session.col('certificates').add(data);
     return certificateFromDoc(ref.id, data, childId);
+  }
+
+  /// `par_transport/{studentId}` -> the profile's transport card ("Bus #14", "Route 4B", "06:58 AM"...).
+  static TransportInfo transportOf(Json? d) {
+    if (d == null) return const TransportInfo.none();
+    String clock(Object? hhmm) {
+      final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch('${hhmm ?? ''}'.trim());
+      return m == null ? '' : fmtMinute(int.parse(m[1]!) * 60 + int.parse(m[2]!));
+    }
+
+    Json person(Object? v) => v is Map ? Map<String, dynamic>.from(v) : const {};
+    final driver = person(d['driver']), attendant = person(d['attendant']);
+    final bus = '${d['bus'] ?? ''}'.trim().replaceFirst(RegExp(r'^bus\s*#?\s*', caseSensitive: false), '');
+    final busNo = bus.isEmpty ? '${d['busId'] ?? ''}' : bus;
+    return TransportInfo(
+      busNo: busNo.isEmpty ? '' : 'Bus #$busNo',
+      route: '${d['routeName'] ?? ''}'.trim(),
+      pickup: clock(d['pickupTime']),
+      drop: clock(d['dropTime']),
+      stopName: '${d['stop'] ?? ''}'.trim(),
+      stopAddress: '',
+      driver: '${driver['name'] ?? ''}'.trim(),
+      driverPhone: '${driver['phone'] ?? ''}'.trim(),
+      supervisorPhone: '${attendant['phone'] ?? ''}'.trim(),
+      attendant: '${attendant['name'] ?? ''}'.trim(),
+      scheduleBased: true,
+    );
   }
 
   static CertificateCategory categoryOf(Object? v) =>

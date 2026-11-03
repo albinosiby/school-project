@@ -30,11 +30,12 @@ module.exports = ({ db, notifyParents, guardiansOf, istToday, notifyAdmin, safe 
     return out;
   };
 
-  /** The stop a mark happened at: the bus's stop by id, else the child's own stop; a pickup trip ends at school. */
+  /** Where a child got off: a pickup trip always ends at school (the mark keeps the stop the child boarded at); on a drop
+   *  trip the bus's stop by id, else the child's own stop. */
   const stopName = (stops, mark, student, kind) => {
+    if (kind === "pickup") return "school";
     const byId = mark?.stopId ? stops.find((s) => s?.id === mark.stopId)?.name : null;
     if (byId) return byId;
-    if (kind === "pickup") return "school";
     return student?.busStop || stops.find((s) => s?.id === student?.busStopId)?.name || "the bus stop";
   };
 
@@ -63,7 +64,7 @@ module.exports = ({ db, notifyParents, guardiansOf, istToday, notifyAdmin, safe 
     const rows = guardiansOf(students).map(({ uid, student }) => {
       const { status, mark } = changed.find((c) => c.studentId === student.id);
       return {
-        id: `trp_${tripId}_${student.id}_${status}`, uid, studentId: student.id, type: "transport",
+        id: `trp_${tripId}_${student.id}_${status}_${uid}`, uid, studentId: student.id, type: "transport",
         title: TITLE[status], body: bodyFor(status, student.name ?? "Your child", after, mark, stops, student), route: "/home/track",
       };
     });
@@ -86,5 +87,124 @@ module.exports = ({ db, notifyParents, guardiansOf, istToday, notifyAdmin, safe 
     });
   }));
 
-  return { onTransportAttendanceWritten, onCrewLeaveRequested };
+  // ---------- par_transport/{studentId}: the parent's view of the child's bus (contract 14.9) ----------
+  const TRIP_KINDS = ["pickup", "drop"];
+  const crewCard = (c) => (c ? { name: c.name ?? "", phone: c.phone ?? "" } : { name: "", phone: "" });
+  const iso = (v) => (v == null ? null : typeof v.toDate === "function" ? v.toDate().toISOString() : String(v));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  /** Recomputes par_transport for [studentIds] (all students of the same bus share one read of the bus, crew, trips, marks). */
+  async function rebuildTransport(sid, studentIds) {
+    const ids = [...new Set(studentIds.filter(Boolean))];
+    if (!ids.length) return 0;
+    const snaps = await db.getAll(...ids.map((id) => S(sid).collection("students").doc(id)));
+    const today = istToday();
+    const byBus = new Map();
+    for (const s of snaps) {
+      const busId = s.exists && s.get("deleted") !== true ? s.get("busId") || "" : "";
+      if (!byBus.has(busId)) byBus.set(busId, []);
+      byBus.get(busId).push(s);
+    }
+    let written = 0;
+    for (const [busId, students] of byBus) {
+      const batch = db.batch();
+      if (!busId) {
+        for (const s of students) { batch.delete(S(sid).collection("par_transport").doc(s.id)); written++; }
+        await batch.commit();
+        continue;
+      }
+      const busSnap = await S(sid).collection("tr_buses").doc(busId).get();
+      if (!busSnap.exists) {
+        for (const s of students) { batch.delete(S(sid).collection("par_transport").doc(s.id)); written++; }
+        await batch.commit();
+        continue;
+      }
+      const bus = busSnap.data();
+      const crewIds = [bus.driverId, bus.attendantId].filter(Boolean);
+      const crewSnaps = crewIds.length ? await db.getAll(...crewIds.map((id) => S(sid).collection("tr_crew").doc(id))) : [];
+      const crew = Object.fromEntries(crewSnaps.filter((c) => c.exists).map((c) => [c.id, c.data()]));
+      const dayIds = TRIP_KINDS.map((k) => `${today}_${busId}_${k}`);
+      const [trips, marks] = await Promise.all([
+        db.getAll(...dayIds.map((id) => S(sid).collection("tr_trips").doc(id))),
+        db.getAll(...dayIds.map((id) => S(sid).collection("tr_attendance").doc(id))),
+      ]);
+      const stops = (Array.isArray(bus.stops) ? bus.stops : []).map((x) => ({ id: x.id ?? "", name: x.name ?? "", pickupTime: x.pickupTime ?? "", dropTime: x.dropTime ?? "" }));
+      const existing = await db.getAll(...students.map((s) => S(sid).collection("par_transport").doc(s.id)));
+      students.forEach((s, i) => {
+        const st = s.data();
+        const stop = stops.find((x) => x.id === st.busStopId);
+        const todayFor = (k) => {
+          const t = trips[k].exists ? trips[k].data() : null;
+          const m = marks[k].exists ? marks[k].get(`marks.${s.id}`) ?? marks[k].data()?.marks?.[s.id] : null;
+          return { status: t?.status ?? null, startedAt: iso(t?.startedAt), endedAt: iso(t?.endedAt), mark: m?.status ?? null, markAt: iso(m?.at) };
+        };
+        const doc = {
+          studentId: s.id, busId, bus: `Bus ${bus.number ?? ""}`.trim(), regNo: bus.regNo ?? "", routeName: bus.routeName ?? "", model: bus.model ?? "",
+          stopId: st.busStopId ?? "", stop: stop?.name ?? st.busStop ?? "", pickupTime: stop?.pickupTime ?? "", dropTime: stop?.dropTime ?? "",
+          stops, driver: crewCard(crew[bus.driverId]), attendant: crewCard(crew[bus.attendantId]),
+          today: { date: today, pickup: todayFor(0), drop: todayFor(1) },
+        };
+        const prev = existing[i].exists ? existing[i].data() : null;
+        if (prev) { const { updatedAt: _u, ...rest } = prev; void _u; if (same(rest, doc)) return; }
+        batch.set(S(sid).collection("par_transport").doc(s.id), { ...doc, updatedAt: new Date().toISOString() });
+        written++;
+      });
+      await batch.commit();
+    }
+    return written;
+  }
+
+  // tools (backfill, e2e) call it as onTransportProjectionBus.rebuild(sid, ids); a plain export would not be a function to deploy
+  const studentsOfBus = async (sid, busId) => (busId ? (await S(sid).collection("students").where("busId", "==", busId).get()).docs.map((d) => d.id) : []);
+
+  // a child put on / taken off a bus, moved to another stop, renamed
+  const onTransportProjectionStudent = onDocumentWritten("schools/{sid}/students/{studentId}", safe("onTransportProjectionStudent", async (e) => {
+    const b = e.data?.before?.data(), a = e.data?.after?.data();
+    const keys = ["busId", "busStopId", "busStop", "deleted"];
+    if (b && a && keys.every((k) => b[k] === a[k])) return;
+    if (!b?.busId && !a?.busId) return;
+    await rebuildTransport(e.params.sid, [e.params.studentId]);
+  }));
+
+  // the bus's number, stops or crew changed
+  const onTransportProjectionBus = onDocumentWritten("schools/{sid}/tr_buses/{busId}", safe("onTransportProjectionBus", async (e) => {
+    const b = e.data?.before?.data(), a = e.data?.after?.data();
+    const keys = ["number", "regNo", "routeName", "model", "stops", "driverId", "attendantId"];
+    if (b && a && keys.every((k) => same(b[k], a[k]))) return;
+    await rebuildTransport(e.params.sid, await studentsOfBus(e.params.sid, e.params.busId));
+  }));
+
+  // a crew member's name / phone changed (or they moved bus)
+  const onTransportProjectionCrew = onDocumentWritten("schools/{sid}/tr_crew/{crewId}", safe("onTransportProjectionCrew", async (e) => {
+    const b = e.data?.before?.data(), a = e.data?.after?.data();
+    if (b && a && ["name", "phone", "busId"].every((k) => b[k] === a[k])) return;
+    const buses = [...new Set([b?.busId, a?.busId].filter(Boolean))];
+    const ids = (await Promise.all(buses.map((x) => studentsOfBus(e.params.sid, x)))).flat();
+    await rebuildTransport(e.params.sid, ids);
+  }));
+
+  // today's trip started / ended
+  const onTransportProjectionTrip = onDocumentWritten("schools/{sid}/tr_trips/{tripId}", safe("onTransportProjectionTrip", async (e) => {
+    const b = e.data?.before?.data(), a = e.data?.after?.data();
+    const t = a ?? b;
+    if (!t || t.date !== istToday()) return;
+    if (b && a && ["status", "startedAt", "endedAt"].every((k) => same(b[k], a[k]))) return;
+    await rebuildTransport(e.params.sid, await studentsOfBus(e.params.sid, t.busId));
+  }));
+
+  // a pupil marked on today's trip: only the children whose mark changed
+  const onTransportProjectionMarks = onDocumentWritten("schools/{sid}/tr_attendance/{id}", safe("onTransportProjectionMarks", async (e) => {
+    const b = e.data?.before?.data(), a = e.data?.after?.data();
+    const t = a ?? b;
+    if (!t || t.date !== istToday()) return;
+    const ids = new Set([...Object.keys(b?.marks ?? {}), ...Object.keys(a?.marks ?? {})]);
+    const changed = [...ids].filter((id) => !same(b?.marks?.[id] ?? null, a?.marks?.[id] ?? null));
+    await rebuildTransport(e.params.sid, changed);
+  }));
+
+  onTransportProjectionBus.rebuild = rebuildTransport;
+  return {
+    onTransportAttendanceWritten, onCrewLeaveRequested,
+    onTransportProjectionStudent, onTransportProjectionBus, onTransportProjectionCrew, onTransportProjectionTrip, onTransportProjectionMarks,
+  };
 };

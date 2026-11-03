@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../design_system/design_system.dart';
-import '../../../../utils/helpers/date_helper.dart';
 import '../../models/transport_models.dart';
+import 'trip_labels.dart';
 
 /// Simulated live map (no map SDK): streets, the route (travelled part solid, the rest dashed),
 /// stops and the moving bus, plus the Figma overlays (speed chip, drop ETA bubble, departure chip).
@@ -72,7 +72,9 @@ class BusMap extends StatelessWidget {
             left: bus.dx - 26.r,
             top: bus.dy - 26.r,
             child: Semantics(
-              label: 'Bus ${trip.busNo} live position',
+              label: trip.scheduleBased
+                  ? 'Bus ${trip.busNo} position estimated from the schedule'
+                  : 'Bus ${trip.busNo} live position',
               child: Container(
                 width: 52.r,
                 height: 52.r,
@@ -120,7 +122,7 @@ class BusMap extends StatelessWidget {
                   ),
                   SizedBox(width: 6.w),
                   Text(
-                    'Drop ETA ${fmtClock(trip.dropEta)}',
+                    trip.etaBubble,
                     style: style.copyWith(color: Colors.white),
                   ),
                 ],
@@ -138,7 +140,9 @@ class BusMap extends StatelessWidget {
                     width: 8.r,
                     height: 8.r,
                     decoration: BoxDecoration(
-                      color: trip.phase == TripPhase.completed
+                      color:
+                          trip.phase == TripPhase.completed ||
+                              trip.phase == TripPhase.scheduled
                           ? C.muted
                           : C.success,
                       shape: BoxShape.circle,
@@ -146,9 +150,7 @@ class BusMap extends StatelessWidget {
                   ),
                   SizedBox(width: 6.w),
                   Text(
-                    trip.phase == TripPhase.completed
-                        ? 'Trip ended'
-                        : 'Live • ${trip.speedKmh} km/h',
+                    trip.mapStatus,
                     style: style,
                   ),
                 ],
@@ -188,7 +190,7 @@ class BusMap extends StatelessWidget {
                     SizedBox(width: 6.w),
                     Flexible(
                       child: Text(
-                        '${trip.origin.name} • Departed ${fmtClock(trip.departedAt)}',
+                        trip.originLine,
                         style: style,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -263,7 +265,7 @@ class _MapPainter extends CustomPainter {
     var reachedBus = false;
     for (var i = 1; i < stops.length; i++) {
       final pt = p(stops[i].mapX, stops[i].mapY);
-      if (stops[i].offsetMinutes <= trip.elapsedMinutes) {
+      if (trip.isPassed(stops[i])) {
         solid.lineTo(pt.dx, pt.dy);
       } else {
         if (!reachedBus) {
@@ -287,7 +289,7 @@ class _MapPainter extends CustomPainter {
     }
     for (final s in stops) {
       final c = p(s.mapX, s.mapY);
-      final passed = s.offsetMinutes <= trip.elapsedMinutes;
+      final passed = trip.isPassed(s);
       if (s.isChildDrop) {
         canvas.drawCircle(
           c,

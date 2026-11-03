@@ -12,11 +12,19 @@ class ForgotPasswordScreen extends StatefulWidget {
 
 class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _email = TextEditingController();
+  // kept from initState: dispose() must not look up ancestors (the element is already deactivated)
+  late final AuthBloc _auth = context.read<AuthBloc>();
+
+  @override
+  void initState() {
+    super.initState();
+    _auth; // resolve while the element is active
+  }
 
   @override
   void dispose() {
     _email.dispose();
-    context.read<AuthBloc>().add(const PasswordResetCleared());
+    _auth.add(const PasswordResetCleared());
     super.dispose();
   }
 

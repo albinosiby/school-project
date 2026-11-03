@@ -43,7 +43,7 @@ class _AttendanceListState extends State<AttendanceList> {
         }
         final att = state.attendance;
         final stops = ['All', for (final s in widget.bus.stops) s.name];
-        final rows = widget.roster.where((s) {
+        final rows = inRouteOrder(widget.roster, [for (final x in widget.bus.stops) x.id]).where((s) {
           if (_q.isNotEmpty && !'${s.name} ${s.classLabel} ${s.rollLabel} ${s.busStop} ${s.guardian}'.toLowerCase().contains(_q.toLowerCase())) return false;
           if (_stop != 'All' && s.busStop != _stop) return false;
           final m = att?.of(s.id)?.status;

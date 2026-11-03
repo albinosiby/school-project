@@ -19,11 +19,14 @@ class FamilyBloc extends Bloc<FamilyEvent, FamilyState> {
           family: family,
           selectedId: state.selectedId ?? family.children.firstOrNull?.id,
         ),
-        onError: (e, _) => FamilyState(
-          status: LoadStatus.error,
-          error: errorMessage(e),
-          selectedId: state.selectedId,
-        ),
+        // a failed refresh keeps the family on screen; only an empty start shows the error
+        onError: (e, _) => state.family != null
+            ? state
+            : FamilyState(
+                status: LoadStatus.error,
+                error: errorMessage(e),
+                selectedId: state.selectedId,
+              ),
       ),
       transformer: restartable(),
     );

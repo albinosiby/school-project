@@ -40,11 +40,39 @@ class TransportInfo extends Equatable {
     required this.driver,
     required this.driverPhone,
     required this.supervisorPhone,
+    this.attendant = '',
+    this.scheduleBased = false,
   });
+
+  /// The child is not on a school bus.
+  const TransportInfo.none()
+    : busNo = '',
+      route = '',
+      pickup = '',
+      drop = '',
+      stopName = '',
+      stopAddress = '',
+      driver = '',
+      driverPhone = '',
+      supervisorPhone = '',
+      attendant = '',
+      scheduleBased = false;
+
   final String busNo, route, pickup, drop, stopName, stopAddress;
-  final String driver, driverPhone, supervisorPhone;
+  final String driver, driverPhone;
+
+  /// The bus attendant's (supervisor's) phone; [attendant] is their name when known.
+  final String supervisorPhone, attendant;
+
+  /// No GPS feed: Track Live shows a schedule-based position.
+  final bool scheduleBased;
+
+  bool get onBus => busNo.isNotEmpty;
+
   @override
   List<Object?> get props => [
+    attendant,
+    scheduleBased,
     busNo,
     route,
     pickup,

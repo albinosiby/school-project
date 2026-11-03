@@ -4,6 +4,7 @@ import '../../../../config/routes/routes.dart';
 import '../../../../design_system/design_system.dart';
 import '../../../../utils/helpers/date_helper.dart';
 import '../../../transport/models/transport_models.dart';
+import '../../../transport/screens/widgets/trip_labels.dart';
 
 /// Live bus tracking card (Figma Home): status line, LIVE GPS chip, drop ETA, next stop, Track Live
 /// button and progress to the child's stop.
@@ -15,11 +16,15 @@ class HomeBusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final phase = trip.phase;
     final inTransit = phase == TripPhase.inTransit;
+    final live = !trip.scheduleBased;
     final status = switch (phase) {
-      TripPhase.inTransit => 'IN TRANSIT',
-      TripPhase.droppedOff => 'DROPPED OFF',
+      TripPhase.scheduled => 'SCHEDULED',
+      TripPhase.inTransit => live ? 'IN TRANSIT' : 'ON THE WAY',
+      TripPhase.droppedOff =>
+        live ? 'DROPPED OFF' : (trip.markVerb ?? 'Stop passed').toUpperCase(),
       TripPhase.completed => 'TRIP ENDED',
     };
+    final route = trip.route.isEmpty ? '' : ' (ROUTE ${trip.route})';
     void track() => context.push(RoutePaths.trackLive);
     return AppElevatedCard(
       onTap: track,
@@ -39,7 +44,7 @@ class HomeBusCard extends StatelessWidget {
               SizedBox(width: 8.w),
               Expanded(
                 child: Text(
-                  'BUS #${trip.busNo} (ROUTE ${trip.route}) • $status',
+                  'BUS #${trip.busNo}$route • $status',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: T.smallStrong.copyWith(
@@ -59,13 +64,13 @@ class HomeBusCard extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      Icons.gps_fixed_rounded,
+                      live ? Icons.gps_fixed_rounded : Icons.schedule_rounded,
                       size: 11.r,
                       color: C.successDark,
                     ),
                     SizedBox(width: 4.w),
                     Text(
-                      'LIVE GPS',
+                      live ? 'LIVE GPS' : 'SCHEDULE',
                       style: T.smallStrong.copyWith(
                         color: C.successDark,
                         fontSize: 10.5.sp,
@@ -108,7 +113,11 @@ class HomeBusCard extends StatelessWidget {
                         Text(
                           inTransit
                               ? 'ETA ${trip.minutesToDrop} mins'
-                              : 'Arrived',
+                              : phase == TripPhase.scheduled
+                              ? 'Scheduled ${trip.stopWord}'
+                              : live
+                              ? 'Arrived'
+                              : 'Stop time passed',
                           style: T.smallStrong.copyWith(color: C.emerald),
                         ),
                       ],
@@ -116,7 +125,11 @@ class HomeBusCard extends StatelessWidget {
                     Text(
                       inTransit
                           ? 'Next: ${trip.nextStop?.name ?? trip.dropStop.name}'
-                          : 'Dropped at ${trip.dropStop.name}',
+                          : phase == TripPhase.scheduled
+                          ? '${trip.stopTitle} at ${trip.dropStop.name} • starts ${fmtClock(trip.departedAt)}'
+                          : live
+                          ? 'Dropped at ${trip.dropStop.name}'
+                          : '${trip.markVerb ?? 'Passed'} • ${trip.dropStop.name}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: T.small,
@@ -152,6 +165,14 @@ class HomeBusCard extends StatelessWidget {
               ),
             ],
           ),
+          if (!live) ...[
+            SizedBox(height: 6.h),
+            Text(
+              'Schedule-based: this bus has no GPS feed.',
+              key: const Key('home-bus-schedule-caption'),
+              style: T.small.copyWith(color: C.muted, fontSize: 11.sp),
+            ),
+          ],
         ],
       ),
     );

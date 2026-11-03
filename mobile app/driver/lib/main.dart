@@ -16,20 +16,23 @@ import 'firebase_options.dart';
 import 'modules/auth/bloc/auth_bloc.dart';
 import 'modules/crew/bloc/crew_bloc.dart';
 
-Future<void> main() async {
+Future<void> main() async => runApp(await bootstrap());
+
+/// Firebase (when BACKEND=firebase), DI and the restored session; returns the app. Integration tests call it too.
+Future<DriverApp> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Plus Jakarta Sans ships in assets/fonts; never fetch fonts over the network (buses have no data on the road)
   GoogleFonts.config.allowRuntimeFetching = false;
   usePathUrlStrategy();
-  if (AppConfig.isFirebase) {
+  if (AppConfig.isFirebase && Firebase.apps.isEmpty) {
     final options = DefaultFirebaseOptions.currentPlatform;
     // test builds talk to the emulators' demo project, never the live one
     await Firebase.initializeApp(options: AppConfig.useEmulator ? options.copyWith(projectId: AppConfig.emulatorProject) : options);
     // offline cache: reads show cached data at once and refresh from the server (works offline too)
     FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
     if (AppConfig.useEmulator) {
-      await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099);
-      FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080);
+      await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099, automaticHostMapping: !AppConfig.emulatorUsb);
+      FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080, automaticHostMapping: !AppConfig.emulatorUsb);
     }
   }
   await configureDependencies();
@@ -41,7 +44,7 @@ Future<void> main() async {
   ));
   final auth = getIt<AuthBloc>()..add(const AuthStarted());
   await auth.stream.firstWhere((s) => s.status != AuthStatus.unknown); // saved session restored
-  runApp(DriverApp(router: createRouter(auth)));
+  return DriverApp(router: createRouter(auth));
 }
 
 final rootMessengerKey = GlobalKey<ScaffoldMessengerState>();

@@ -176,6 +176,8 @@ service cloud.firestore {
           || col == 'ptm_slots'
           // a month of attendance by id ({studentId}_{YYYY-MM}), also before the function has written it
           || (col == 'par_attendance' && docId.matches('.+_[0-9]{4}-[0-9]{2}') && docId[0:docId.size() - 8] in myStudents())
+          // the child's bus (contract 14.9), by id also before the function has written it
+          || (col == 'par_transport' && (docId in myStudents() || resource.data.get('studentId', '') in myStudents()))
           || (col in ['fee_invoices', 'fee_payments'] && resource.data.get('grn', '') in myGrns())
           || (col in ['com_notices', 'calendar_events'] && resource.data.get('parentVisible', false) == true)
           || (col in ['msg_threads', 'msg_messages'] && request.auth.uid in resource.data.get('parentUids', []))

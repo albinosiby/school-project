@@ -18,6 +18,11 @@ class AppConfig {
   static const String emulatorHost = String.fromEnvironment('EMULATOR_HOST', defaultValue: '127.0.0.1');
   static const String emulatorProject = String.fromEnvironment('EMULATOR_PROJECT', defaultValue: 'demo-school-e2e');
 
+  /// A USB-connected phone tunnelled to the computer with `adb reverse tcp:8080 tcp:8080` and `adb reverse tcp:9099 tcp:9099`:
+  /// `--dart-define=EMULATOR_USB=true` keeps 127.0.0.1 as is (FlutterFire otherwise rewrites it to 10.0.2.2, the
+  /// Android *emulator's* route to the computer).
+  static const bool emulatorUsb = bool.fromEnvironment('EMULATOR_USB');
+
   static bool get isLocal => backend == BackendType.local;
   static bool get isFirebase => backend == BackendType.firebase;
 }
