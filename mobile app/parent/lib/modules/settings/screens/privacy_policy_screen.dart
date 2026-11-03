@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../../di/injection.dart';
+import '../../consent/bloc/consent_bloc.dart';
+import '../../consent/screens/widgets/consent_sheet.dart';
 import 'package:flutter/services.dart';
 import '../../../config/routes/routes.dart';
 import '../../../constants/app_constants.dart';
@@ -58,6 +62,8 @@ class PrivacyPolicyScreen extends StatelessWidget {
     body: ListView(
       padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h),
       children: [
+        const _YourConsent(),
+        SizedBox(height: 16.h),
         PanelCard(
           padding: EdgeInsets.all(16.r),
           child: Column(
@@ -69,7 +75,11 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 spacing: 8.w,
                 runSpacing: 6.h,
                 children: [
-                  const Pill('Official document', tone: Tone.brand, icon: Icons.verified_outlined),
+                  const Pill(
+                    'Official document',
+                    tone: Tone.brand,
+                    icon: Icons.verified_outlined,
+                  ),
                   Text('Effective: Oct 2025 - v4.2', style: T.small),
                 ],
               ),
@@ -115,9 +125,15 @@ class PrivacyPolicyScreen extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const IconTile(Icons.support_agent_rounded, tone: Tone.neutral, size: 32),
+                    const IconTile(
+                      Icons.support_agent_rounded,
+                      tone: Tone.neutral,
+                      size: 32,
+                    ),
                     SizedBox(width: 10.w),
-                    Expanded(child: Text('5. Contact & grievance', style: T.h3)),
+                    Expanded(
+                      child: Text('5. Contact & grievance', style: T.h3),
+                    ),
                   ],
                 ),
                 SizedBox(height: 10.h),
@@ -129,7 +145,11 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 SizedBox(height: 10.h),
                 Row(
                   children: [
-                    Icon(Icons.mail_outline_rounded, size: 18.r, color: C.primary),
+                    Icon(
+                      Icons.mail_outline_rounded,
+                      size: 18.r,
+                      color: C.primary,
+                    ),
                     SizedBox(width: 6.w),
                     Expanded(
                       child: Text(
@@ -147,13 +167,19 @@ class PrivacyPolicyScreen extends StatelessWidget {
                       icon: Icons.copy_rounded,
                       onPressed: () {
                         Clipboard.setData(const ClipboardData(text: _dpoEmail));
-                        AppDialogs.showSnackBar(context, message: 'DPO email copied: $_dpoEmail');
+                        AppDialogs.showSnackBar(
+                          context,
+                          message: 'DPO email copied: $_dpoEmail',
+                        );
                       },
                     ),
                   ],
                 ),
                 SizedBox(height: 6.h),
-                Text('Administrative office, Block B - 08:30 AM - 04:00 PM', style: T.small),
+                Text(
+                  'Administrative office, Block B - 08:30 AM - 04:00 PM',
+                  style: T.small,
+                ),
               ],
             ),
           ),
@@ -167,6 +193,82 @@ class PrivacyPolicyScreen extends StatelessWidget {
           ),
         ),
       ],
+    ),
+  );
+}
+
+/// The guardian's recorded consent with the optional items (data contract 13.3); saving writes `consents/{uid}`.
+class _YourConsent extends StatefulWidget {
+  const _YourConsent();
+  @override
+  State<_YourConsent> createState() => _YourConsentState();
+}
+
+class _YourConsentState extends State<_YourConsent> {
+  @override
+  void initState() {
+    super.initState();
+    getIt<ConsentBloc>().add(const LoadConsent());
+  }
+
+  @override
+  Widget build(BuildContext context) => BlocProvider<ConsentBloc>.value(
+    value: getIt<ConsentBloc>(),
+    child: BlocConsumer<ConsentBloc, ConsentState>(
+      listenWhen: (a, b) => a.saving && !b.saving && b.error == null,
+      listener: (context, s) => AppDialogs.showSnackBar(
+        context,
+        message: s.record?.withdrawn == true
+            ? 'Consent withdrawn'
+            : 'Consent saved',
+      ),
+      builder: (context, s) => PanelCard(
+        padding: EdgeInsets.all(16.r),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text('Your consent', style: T.h2)),
+                Pill(
+                  s.record == null
+                      ? 'Not given'
+                      : s.record!.withdrawn
+                      ? 'Withdrawn'
+                      : 'Given',
+                  tone: s.record?.isCurrent == true
+                      ? Tone.success
+                      : Tone.warning,
+                ),
+              ],
+            ),
+            SizedBox(height: 8.h),
+            ConsentForm(
+              key: ValueKey(
+                'consent-form-${s.record?.photos}-${s.record?.notifications}-${s.record?.withdrawn}',
+              ),
+              initial: s.record,
+              submitLabel: 'Save consent',
+              onSubmit: (p, n) => context.read<ConsentBloc>().add(
+                SaveConsent(photos: p, notifications: n),
+              ),
+            ),
+            if (s.record?.isCurrent == true)
+              TextButton(
+                key: const Key('consent-withdraw'),
+                onPressed: s.saving
+                    ? null
+                    : () => context.read<ConsentBloc>().add(
+                        const WithdrawConsent(),
+                      ),
+                child: Text(
+                  'Withdraw consent',
+                  style: T.smallStrong.copyWith(color: C.danger),
+                ),
+              ),
+          ],
+        ),
+      ),
     ),
   );
 }

@@ -50,9 +50,10 @@ bool found(Finder f) {
 Future<void> reveal(WidgetTester t, Finder f) async {
   for (final dy in [-300.0, 300.0]) {
     for (var i = 0; i < 30 && !found(f); i++) {
-      // the page's list is the tallest vertical scrollable (a multi-line text field has its own small one)
+      // the page's list is the largest vertical scrollable by area (a multi-line text field and the side rail have small ones)
+      double area(Element e) => (e.size?.width ?? 0) * (e.size?.height ?? 0);
       final lists = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).evaluate().toList()
-        ..sort((a, b) => (b.size?.height ?? 0).compareTo(a.size?.height ?? 0));
+        ..sort((a, b) => area(b).compareTo(area(a)));
       if (lists.isNotEmpty) await t.dragFrom(t.getCenter(find.byElementPredicate((e) => e == lists.first)), Offset(0, dy));
       await t.pump(const Duration(milliseconds: 250));
     }

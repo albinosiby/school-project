@@ -1,4 +1,7 @@
 import 'package:get_it/get_it.dart';
+import '../../modules/consent/bloc/consent_bloc.dart';
+import '../../modules/consent/repositories/consent_repository_interface.dart';
+import '../../modules/consent/repositories/mock_consent_repository.dart';
 import '../../modules/family/repositories/family_repository_interface.dart';
 import '../../modules/notices/bloc/notices_bloc.dart';
 import '../../modules/notices/repositories/mock_notice_repository.dart';
@@ -19,6 +22,10 @@ import '../../utils/services/cache_service.dart';
 /// Backend switch: choose the implementation with AppConfig here (mock today; settings are device-local).
 /// Must run after registerAuthModule (it decorates IFamilyRepository).
 void registerProfileModule(GetIt getIt) {
+  // guardian consent (contract 13.3); global: Home asks once, Settings > Privacy changes it
+  getIt.registerLazySingleton<IConsentRepository>(() => MockConsentRepository());
+  getIt.registerLazySingleton<ConsentBloc>(() => ConsentBloc(getIt()));
+
   getIt.registerLazySingleton<INoticeRepository>(
     () => MockNoticeRepository(getIt<CacheService>()),
   );

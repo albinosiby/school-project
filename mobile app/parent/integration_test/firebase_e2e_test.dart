@@ -45,9 +45,10 @@ Future<void> until(WidgetTester t, Finder f, {int seconds = 40}) async {
 Future<void> reveal(WidgetTester t, Finder f) async {
   for (final dy in [-300.0, 300.0]) {
     for (var i = 0; i < 30 && !found(f); i++) {
-      // the page's list is the tallest vertical scrollable (a multi-line text field has its own small one)
+      // the page's list is the largest vertical scrollable by area (a multi-line text field and the side rail have small ones)
+      double area(Element e) => (e.size?.width ?? 0) * (e.size?.height ?? 0);
       final lists = find.byWidgetPredicate((w) => w is Scrollable && w.axisDirection == AxisDirection.down).evaluate().toList()
-        ..sort((a, b) => (b.size?.height ?? 0).compareTo(a.size?.height ?? 0));
+        ..sort((a, b) => area(b).compareTo(area(a)));
       if (lists.isNotEmpty) await t.dragFrom(t.getCenter(find.byElementPredicate((e) => e == lists.first)), Offset(0, dy));
       await t.pump(const Duration(milliseconds: 250));
     }
@@ -93,6 +94,26 @@ void main() {
     await until(t, find.text('Select Student Profile'));
     await tapIn(t, find.byKey(const ValueKey('select-child-stu_101')));
     await tapIn(t, find.byKey(const Key('select-child-continue')));
+
+    // first sign-in: the consent sheet (contract 13.3); the admin web shows the family as "Given" from consents/{uid}
+    await until(t, find.byKey(const Key('consent-submit')));
+    final photos = find.descendant(of: find.byKey(const Key('consent-photos')), matching: find.byType(Switch));
+    await t.ensureVisible(photos);
+    await t.pump(const Duration(milliseconds: 300));
+    await t.tap(photos);
+    await t.pump(const Duration(milliseconds: 300));
+    await t.ensureVisible(find.byKey(const Key('consent-submit')));
+    await t.pump(const Duration(milliseconds: 300));
+    await t.tap(find.byKey(const Key('consent-submit')));
+    final me = FirebaseAuth.instance.currentUser!.uid;
+    Map<String, dynamic>? consent;
+    for (var i = 0; i < 60 && consent == null; i++) {
+      consent = (await FirebaseFirestore.instance.doc('schools/$_school/consents/$me').get()).data();
+      if (consent == null) await t.pump(const Duration(milliseconds: 500));
+    }
+    expect(consent?['items'], {'dataProcessing': true, 'photos': true, 'notifications': true});
+    expect((consent?['studentIds'] as List).toSet(), {'stu_101', 'stu_201'});
+    await reveal(t, find.text('Track Live'));
 
     // Home: the bus card from par_transport (schedule-based, no GPS)
     await reveal(t, find.text('Track Live'));

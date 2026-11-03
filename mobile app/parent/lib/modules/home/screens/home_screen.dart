@@ -6,6 +6,8 @@ import '../../../config/routes/routes.dart';
 import '../../../core/widgets/child_data_view.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
+import '../../consent/bloc/consent_bloc.dart';
+import '../../consent/screens/widgets/consent_sheet.dart';
 import '../../family/models/family_models.dart';
 import '../../family/screens/widgets/parent_tab_header.dart';
 import '../../live_classes/bloc/live_classes_bloc.dart';
@@ -26,21 +28,45 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => BlocProvider<LiveClassesBloc>(
     create: (_) => getIt<LiveClassesBloc>(), // only used to record Join taps
-    child: ColoredBox(
-      color: C.surface,
-      child: Column(
-        children: [
-          const ParentTabHeader(title: 'Home'),
-          Expanded(
-            child: ChildDataView<HomeBloc, HomeSummary>(
-              create: () => getIt<HomeBloc>(),
-              builder: (context, s, child) =>
-                  _HomeBody(summary: s, child: child),
+    child: _ConsentOnHome(
+      child: ColoredBox(
+        color: C.surface,
+        child: Column(
+          children: [
+            const ParentTabHeader(title: 'Home'),
+            Expanded(
+              child: ChildDataView<HomeBloc, HomeSummary>(
+                create: () => getIt<HomeBloc>(),
+                builder: (context, s, child) =>
+                    _HomeBody(summary: s, child: child),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
+  );
+}
+
+/// Loads the guardian's consent and asks for it once when none is recorded (data contract 13.3).
+class _ConsentOnHome extends StatefulWidget {
+  const _ConsentOnHome({required this.child});
+  final Widget child;
+  @override
+  State<_ConsentOnHome> createState() => _ConsentOnHomeState();
+}
+
+class _ConsentOnHomeState extends State<_ConsentOnHome> {
+  @override
+  void initState() {
+    super.initState();
+    getIt<ConsentBloc>().add(const LoadConsent());
+  }
+
+  @override
+  Widget build(BuildContext context) => BlocProvider<ConsentBloc>.value(
+    value: getIt<ConsentBloc>(),
+    child: ConsentGate(child: widget.child),
   );
 }
 

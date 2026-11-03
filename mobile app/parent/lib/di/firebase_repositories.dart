@@ -1,5 +1,7 @@
 import 'package:get_it/get_it.dart';
 import '../modules/auth/repositories/firebase_registration_repository.dart';
+import '../modules/consent/repositories/consent_repository_interface.dart';
+import '../modules/consent/repositories/firebase_consent_repository.dart';
 import '../modules/auth/repositories/registration_repository_interface.dart';
 import '../modules/behaviour/repositories/behaviour_repository_interface.dart';
 import '../modules/behaviour/repositories/firebase_behaviour_repository.dart';
@@ -77,6 +79,7 @@ void registerFirebaseRepositories(GetIt getIt) {
   replace<ITeachersRepository>(FirebaseTeachersRepository(session));
   replace<IPtmRepository>(FirebasePtmRepository(session, getIt()));
   replace<ITransportRepository>(FirebaseTransportRepository(session, storage));
+  replace<IConsentRepository>(FirebaseConsentRepository(session));
   // conduct records and parent registration have no parent-readable data in the contract yet
   replace<IBehaviourRepository>(FirebaseBehaviourRepository());
   replace<IRegistrationRepository>(FirebaseRegistrationRepository());
