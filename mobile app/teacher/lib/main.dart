@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
@@ -16,19 +18,32 @@ import 'di/injection.dart';
 import 'utils/services/firebase/push_notification_service.dart';
 
 Future<void> main() async {
+  runApp(await bootstrap());
+  if (AppConfig.isFirebase) _listenForPush();
+}
+
+/// Firebase (when BACKEND=firebase), DI and the restored session; returns the app. Integration tests call it too.
+Future<TeacherApp> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
-  if (AppConfig.isFirebase) {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  if (AppConfig.isFirebase && Firebase.apps.isEmpty) {
+    final options = DefaultFirebaseOptions.currentPlatform;
+    // test builds talk to the emulators' demo project, never the live one
+    await Firebase.initializeApp(options: AppConfig.useEmulator ? options.copyWith(projectId: AppConfig.emulatorProject) : options);
     // offline cache (default on mobile, opt-in on web) so cached data shows instantly and works offline
     FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
+    if (AppConfig.useEmulator) {
+      final map = !AppConfig.emulatorUsb;
+      await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099, automaticHostMapping: map);
+      FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080, automaticHostMapping: map);
+      await FirebaseStorage.instance.useStorageEmulator(AppConfig.emulatorHost, 9199, automaticHostMapping: map);
+    }
   }
   await configureDependencies();
   // Restore the saved session before the first frame so the router guard starts on the right screen.
   final auth = getIt<AuthBloc>()..add(const AuthStarted());
   await auth.stream.firstWhere((s) => s.status != AuthStatus.unknown);
-  runApp(const TeacherApp());
-  if (AppConfig.isFirebase) _listenForPush();
+  return const TeacherApp();
 }
 
 /// Shows snack bars for messages that arrive while the app is open, and opens the screen of a tapped notification.

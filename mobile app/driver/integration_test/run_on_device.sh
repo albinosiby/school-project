@@ -6,10 +6,11 @@ DEV="${1:?device id}"
 APP="$(cd "$(dirname "$0")/.." && pwd)"; WEB="$APP/../../website"
 ADB="${ADB:-adb}"
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
-# stop the previous run's app first: its open listeners make the emulator reject writes for a few seconds
-"$ADB" -s "$DEV" shell am force-stop com.tatos.school.driver_app || true
+# stop every app of the suite first: an app killed while holding Firestore listeners makes the emulator refuse
+# writes (CANCELLED) for a few seconds
+for p in com.tatos.school.driver_app tech.tatos.parent_app com.greenfield.teacher_app; do "$ADB" -s "$DEV" shell am force-stop "$p" || true; done
+sleep 8
 "$ADB" -s "$DEV" shell pm clear com.tatos.school.driver_app >/dev/null 2>&1 || true
-sleep 5
 (cd "$WEB" && node tools/e2e/seed.mjs && node tools/e2e/act.mjs link >/dev/null)
 "$ADB" -s "$DEV" reverse tcp:8080 tcp:8080 >/dev/null; "$ADB" -s "$DEV" reverse tcp:9099 tcp:9099 >/dev/null
 "$ADB" -s "$DEV" shell input keyevent KEYCODE_WAKEUP

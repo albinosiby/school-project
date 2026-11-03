@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: plain HTTP to the local Firebase emulators, reached via `adb reverse` (localhost) or over Wi-Fi
+     (EMULATOR_HOST = the computer's LAN address). Release builds keep the default: HTTPS only. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -7,7 +7,7 @@ const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { setGlobalOptions, logger } = require("firebase-functions/v2");
-const { onDocumentCreated, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentDeleted, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 
 initializeApp();
 setGlobalOptions({ region: "asia-south1", maxInstances: 5 });
@@ -380,6 +380,27 @@ async function publishDueNotices(now = Date.now()) {
 }
 exports.publishScheduledNotices = onSchedule({ schedule: "every 5 minutes", timeZone: "Asia/Kolkata" }, async () => { await publishDueNotices(); });
 exports.publishScheduledNotices.runFor = publishDueNotices; // tools/e2e: run the check without the scheduler
+
+// ---------------------------------------------------------------------------
+// A teacher withdraws a pending leave or regularization (the teacher app deletes the Pending doc). Teachers cannot write
+// approvals, so the admin queue kept a pending mirror for a request that no longer exists: remove it here.
+// ---------------------------------------------------------------------------
+async function dropPendingMirrors(sid, source, sourceId) {
+  const col = db.collection("schools").doc(sid).collection("approvals");
+  const snap = await col.where("sourceId", "==", sourceId).get();
+  const rows = snap.docs.filter((d) => (d.get("source") ?? source) === source && String(d.get("status") ?? "pending").toLowerCase() === "pending");
+  await Promise.all(rows.map((d) => d.ref.delete()));
+  if (rows.length) logger.info("withdrawn request: approval mirror removed", { sid, source, sourceId, removed: rows.length });
+  return rows.length;
+}
+exports.onStaffLeaveWithdrawn = onDocumentDeleted("schools/{sid}/staff_leaves/{id}", async (e) => {
+  if (e.data?.data()?.status !== "Pending") return;
+  await dropPendingMirrors(e.params.sid, "staff_leaves", e.params.id);
+});
+exports.onRegularizationWithdrawn = onDocumentDeleted("schools/{sid}/staff_regularizations/{id}", async (e) => {
+  if (e.data?.data()?.status !== "Pending") return;
+  await dropPendingMirrors(e.params.sid, "staff_regularizations", e.params.id);
+});
 
 const shared = {};
 Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));

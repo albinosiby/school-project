@@ -219,6 +219,14 @@ flow("staff leave: teacher applies, admin bell, admin decides, teacher notified"
   await updateDoc(A.d("staff_leaves/slv_sync_1"), { status: "Approved", decidedBy: A.uid, decidedAt: now(), ...stamp(A) });
   await updateDoc(A.d("approvals/lv_slv_sync_1"), { status: "approved" });
   await check("teacher gets the decision row", () => until(async () => (await teacherRows()).some((n) => /approved/i.test(`${n.title} ${n.body}`) && /leave/i.test(`${n.title} ${n.body}`)), "teacher leave decided"));
+  await check("teacher withdraws a pending leave; its approval row leaves the admin queue", async () => {
+    const b2 = writeBatch(T.db);
+    b2.set(T.d("staff_leaves/slv_sync_w"), { staffId: "stf_025", type: "Casual Leave", from: today, to: today, days: 1, reason: "Plans changed", status: "Pending", ...stamp(T) });
+    b2.set(T.d("approvals/lv_slv_sync_w"), { kind: "leave", source: "staff_leaves", sourceId: "slv_sync_w", status: "pending", title: "Casual Leave", by: "Mrs. Anita Sharma", at: now() });
+    await b2.commit();
+    await deleteDoc(T.d("staff_leaves/slv_sync_w"));
+    await until(async () => !(await getDoc(A.d("approvals/lv_slv_sync_w"))).exists(), "approval mirror removed");
+  });
   await check("teacher cannot approve own leave", async () => {
     await setDoc(T.d("staff_leaves/slv_sync_2"), { staffId: "stf_025", type: "Casual Leave", from: today, to: today, days: 1, reason: "x", status: "Pending" });
     await updateDoc(T.d("staff_leaves/slv_sync_2"), { status: "Approved" }).then(() => { throw new Error("allowed"); }, () => {});

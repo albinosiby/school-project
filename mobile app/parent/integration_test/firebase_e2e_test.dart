@@ -16,6 +16,8 @@ import 'package:parent_app/modules/auth/bloc/auth_bloc.dart';
 const _email = String.fromEnvironment('E2E_EMAIL');
 const _password = String.fromEnvironment('E2E_PASSWORD');
 const _school = String.fromEnvironment('E2E_SCHOOL', defaultValue: 'e2e_school');
+/// "after_teacher": second pass after the teacher app approved the leave and marked Aarav absent
+const _phase = String.fromEnvironment('E2E_PHASE');
 
 bool found(Finder f) {
   try {
@@ -94,6 +96,20 @@ void main() {
     await until(t, find.text('Select Student Profile'));
     await tapIn(t, find.byKey(const ValueKey('select-child-stu_101')));
     await tapIn(t, find.byKey(const Key('select-child-continue')));
+
+    if (_phase == 'after_teacher') {
+      // the class teacher's decision and attendance reached the parent as in-app notifications
+      await reveal(t, find.text('Track Live'));
+      app.router.go('/notifications');
+      await reveal(t, find.textContaining('Leave approved'));
+      await reveal(t, find.textContaining('Aarav Sharma was marked absent'));
+      app.router.go('/more/leave');
+      for (var i = 0; i < 30 && !found(find.text('Approved')); i++) {
+        await t.pump(const Duration(milliseconds: 300));
+      }
+      await reveal(t, find.text('Approved'));
+      return;
+    }
 
     // first sign-in: the consent sheet (contract 13.3); the admin web shows the family as "Given" from consents/{uid}
     await until(t, find.byKey(const Key('consent-submit')));
