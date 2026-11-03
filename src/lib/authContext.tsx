@@ -25,8 +25,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const NOT_ADMIN = "This account is not an administrator account. Teachers and parents must use the mobile app.";
-const NO_SCHOOL = "No school is linked to this account. Contact your school administrator.";
+export const NOT_ADMIN = "This account is not an administrator account. Teachers and parents must use the mobile app.";
+export const NO_SCHOOL = "No school is linked to this account. Contact your school administrator.";
 
 class Blocked extends Error {}
 
@@ -36,8 +36,9 @@ class Blocked extends Error {}
  */
 async function loadProfile(u: FbUser): Promise<User> {
   const ref = doc(db, "users", u.uid);
-  let snap = await getDoc(ref).catch(() => null);
-  let p = snap?.exists() ? (snap.data() as { schoolId?: string; role?: string }) : null;
+  // a failed read is an error (network / rules), never "no profile": only a missing doc may take the legacy self-create path
+  let snap = await getDoc(ref);
+  let p = snap.exists() ? (snap.data() as { schoolId?: string; role?: string }) : null;
   if (!p) {
     // legacy school: self-create {schoolId: uid, role: admin}, keep it only if schools/{uid} really has data
     await setDoc(ref, { schoolId: u.uid, role: "admin", email: u.email ?? "", name: u.displayName ?? "", createdAt: new Date().toISOString() });
@@ -47,6 +48,11 @@ async function loadProfile(u: FbUser): Promise<User> {
   }
   if (p.role !== "admin") throw new Blocked(NOT_ADMIN);
   if (!p.schoolId) throw new Blocked(NO_SCHOOL);
+  // a sign-up that stopped after users/{uid} but before any school data: finish the starter data now (own school only)
+  if (p.schoolId === u.uid) {
+    const hasSchool = await getDoc(doc(db, "schools", u.uid, "school", "school")).then((d) => d.exists(), () => true);
+    if (!hasSchool) await bootstrapSchool(u.uid, u.displayName || (u.email ?? "").split("@")[0] || "My School", u.email ?? "").catch(() => {});
+  }
   return { id: u.uid, email: u.email ?? "", organizationName: u.displayName ?? "", schoolId: p.schoolId, role: "admin" };
 }
 /** true while signup is writing users/{uid} + the starter data; the auth observer must not resolve a profile yet */
@@ -54,19 +60,29 @@ let signingUp = false;
 const profiles = new Map<string, Promise<User>>();
 const profileFor = (u: FbUser) => { let p = profiles.get(u.uid); if (!p) { p = loadProfile(u); profiles.set(u.uid, p); p.catch(() => profiles.delete(u.uid)); } return p; };
 
-function friendly(e: unknown): Error {
+const AUTH_MESSAGES: Record<string, string> = {
+  "auth/invalid-credential": "Incorrect email or password.",
+  "auth/invalid-login-credentials": "Incorrect email or password.",
+  "auth/invalid-email": "Enter a valid email address.",
+  "auth/missing-email": "Enter your email address.",
+  "auth/missing-password": "Enter your password.",
+  "auth/user-not-found": "No account found for this email.",
+  "auth/wrong-password": "Incorrect email or password.",
+  "auth/user-disabled": "This account has been disabled. Contact your school administrator.",
+  "auth/email-already-in-use": "An account with this email already exists. Sign in instead.",
+  "auth/weak-password": "Password must be at least 6 characters.",
+  "auth/too-many-requests": "Too many attempts. Try again in a few minutes.",
+  "auth/network-request-failed": "Network error. Check your connection.",
+  "auth/operation-not-allowed": "Email sign-in is not enabled for this project.",
+  "unavailable": "Network error. Check your connection.",
+  "permission-denied": "This account cannot open the admin console.",
+};
+/** Maps a Firebase Auth / Firestore error to the message shown on the login and sign-up pages (exported for tests). */
+export function friendly(e: unknown): Error {
   const code = (e as { code?: string })?.code ?? "";
-  const map: Record<string, string> = {
-    "auth/invalid-credential": "Incorrect email or password.",
-    "auth/invalid-email": "Enter a valid email address.",
-    "auth/user-not-found": "No account found for this email.",
-    "auth/wrong-password": "Incorrect email or password.",
-    "auth/email-already-in-use": "An account with this email already exists. Sign in instead.",
-    "auth/weak-password": "Password must be at least 6 characters.",
-    "auth/too-many-requests": "Too many attempts. Try again in a few minutes.",
-    "auth/network-request-failed": "Network error. Check your connection.",
-  };
-  return new Error(map[code] ?? (e instanceof Error ? e.message : "Something went wrong"));
+  const fromMsg = /\((auth\/[a-z-]+)\)/.exec(e instanceof Error ? e.message : "")?.[1] ?? "";
+  const raw = e instanceof Error && e.message ? e.message.replace(/^Firebase:\s*/, "") : "Something went wrong";
+  return new Error(AUTH_MESSAGES[code] ?? AUTH_MESSAGES[fromMsg] ?? raw);
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

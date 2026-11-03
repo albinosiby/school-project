@@ -5,7 +5,8 @@ import { CheckCheck, Mail, MailOpen, Trash2 } from "lucide-react";
 import { Badge, Button, Card, EmptyState, SearchBox, Tabs, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
-import { addDays, errMsg, relTime, useHydrated, TODAY, type Notif } from "./data";
+import { errMsg, relTime, useHydrated, TODAY, type Notif } from "./data";
+import { filterNotifs, groupNotifs, notifAt, notifGroup, unreadCount } from "./logic";
 
 const PER = 7;
 
@@ -18,15 +19,14 @@ export function NotificationsView() {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
 
-  const sorted = useMemo(() => [...rows].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")), [rows]);
   const count = (c: string) => rows.filter((r) => c === "all" || r.category === c).length;
-  const view = sorted.filter((r) => (tab === "all" || r.category === tab) && (!q || `${r.title ?? ""} ${r.body ?? ""}`.toLowerCase().includes(q.toLowerCase())));
+  const view = useMemo(() => filterNotifs(rows, tab, q), [rows, tab, q]);
   const pages = Math.max(1, Math.ceil(view.length / PER));
   const cur = Math.min(page, pages);
   const slice = view.slice((cur - 1) * PER, cur * PER);
-  const groupOf = (n: Notif) => { const d = (n.createdAt ?? "").slice(0, 10); return d === TODAY ? "TODAY" : d === addDays(TODAY, -1) ? "YESTERDAY" : "EARLIER"; };
-  const groups = ["TODAY", "YESTERDAY", "EARLIER"].map((g) => ({ g, items: slice.filter((n) => groupOf(n) === g) })).filter((x) => x.items.length);
-  const unread = rows.filter((r) => !r.read).length;
+  const groupOf = (n: Notif) => notifGroup(n, TODAY);
+  const groups = groupNotifs(slice, TODAY);
+  const unread = unreadCount(rows);
 
   const markAll = async (items: Notif[], label: string) => {
     const t = items.filter((n) => !n.read);
@@ -60,7 +60,7 @@ export function NotificationsView() {
                     <span className={cn("size-2 shrink-0 rounded-full", n.read ? "bg-transparent" : "bg-secondary")} aria-label={n.read ? "Read" : "Unread"} />
                     <span className="min-w-0 flex-1"><b className={cn(n.read && "font-semibold")}>{n.title}:</b> <span className="text-on-surface-variant">{n.body}</span>
                       {n.category === "urgent" && <Badge tone="danger" className="ml-2">Urgent</Badge>}</span>
-                    <span className="shrink-0 text-xs text-outline">{relTime(n.createdAt)}</span></button>
+                    <span className="shrink-0 text-xs text-outline">{relTime(notifAt(n))}</span></button>
                   <button aria-label={n.read ? "Mark unread" : "Mark read"} title={n.read ? "Mark unread" : "Mark read"} className="cursor-pointer rounded p-1.5 text-outline hover:bg-surface-container" onClick={() => safe(() => update(n.id, { read: !n.read }))}>{n.read ? <Mail size={15} /> : <MailOpen size={15} />}</button>
                   <button aria-label="Delete notification" className="cursor-pointer rounded p-1.5 text-outline hover:bg-error-container hover:text-error" onClick={() => safe(() => remove(n.id), "Notification deleted")}><Trash2 size={15} /></button>
                 </div>))}

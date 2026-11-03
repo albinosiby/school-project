@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Button, Field, Input, Select, Textarea } from "@/components/ui";
-import { isEmail, isPhone } from "./lib";
+import { validateAnswers } from "./logic";
 import type { FormField, FormSection } from "./types";
 
 export function FieldInput({ f, value, onChange, disabled }: { f: FormField; value: string; onChange: (v: string) => void; disabled?: boolean }) {
@@ -34,15 +34,7 @@ export function DynamicForm({ sections, onSubmit, preview, submitLabel = "Submit
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (preview) return;
-    const er: Record<string, string> = {};
-    for (const s of sections) for (const f of s.fields) {
-      const val = (v[f.key] ?? "").trim();
-      if (f.required && !val) er[f.key] = `${f.label} is required`;
-      else if (val && f.type === "tel" && !isPhone(val)) er[f.key] = "Enter a valid mobile number";
-      else if (val && f.type === "email" && !isEmail(val)) er[f.key] = "Enter a valid email address";
-      else if (val && f.key === "aadhaar" && !/^\d{12}$/.test(val.replace(/\s/g, ""))) er[f.key] = "Aadhaar must be 12 digits";
-      else if (val && f.type === "date" && new Date(val) > new Date()) er[f.key] = "Date cannot be in the future";
-    }
+    const er = validateAnswers(sections, v);
     setErr(er);
     if (Object.keys(er).length) return;
     setBusy(true); setFormErr("");
@@ -58,9 +50,18 @@ export function DynamicForm({ sections, onSubmit, preview, submitLabel = "Submit
           <div className="grid gap-4 sm:grid-cols-2">
             {s.fields.map((f) => (
               <div key={f.id} className={f.type === "textarea" || f.type === "radio" ? "sm:col-span-2" : ""}>
-                <Field label={f.label} required={f.required} error={err[f.key]} hint={f.rule}>
-                  <FieldInput f={f} value={v[f.key] ?? ""} onChange={(x) => setV((p) => ({ ...p, [f.key]: x }))} />
-                </Field>
+                {f.type === "radio" ? (
+                  // not inside a <label>: a label would name only the first option button after the whole caption
+                  <div>
+                    <span className="mb-1.5 block text-xs font-semibold text-on-surface-variant">{f.label}{f.required && <span className="text-error"> *</span>}</span>
+                    <FieldInput f={f} value={v[f.key] ?? ""} onChange={(x) => setV((p) => ({ ...p, [f.key]: x }))} />
+                    {err[f.key] ? <span className="mt-1 block text-xs text-error">{err[f.key]}</span> : f.rule ? <span className="mt-1 block text-xs text-outline">{f.rule}</span> : null}
+                  </div>
+                ) : (
+                  <Field label={f.label} required={f.required} error={err[f.key]} hint={f.rule}>
+                    <FieldInput f={f} value={v[f.key] ?? ""} onChange={(x) => setV((p) => ({ ...p, [f.key]: x }))} />
+                  </Field>
+                )}
               </div>))}
           </div>
         </fieldset>))}

@@ -2,8 +2,9 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, Send, TriangleAlert } from "lucide-react";
 import { Badge, Button, Checkbox, Field, Input, Select, SlideOver, Textarea, useToast } from "@/components/ui";
-import { ageOn, isEmail, isPhone, nextRef, useAdm } from "./lib";
-import { GRADES, SOURCES, STAFF } from "./types";
+import { ageOn, nextRef, todayISO, useAdm, useCounsellors } from "./lib";
+import { enquiryErrors } from "./logic";
+import { GRADES, SOURCES } from "./types";
 
 const blank = { name: "", grade: "1", dob: "", prevSchool: "", guardian: "", relation: "Father", phone: "", email: "", area: "", source: "Walk-In", assignee: "", followUp: "", note: "", sibling: false, wa: true };
 
@@ -18,7 +19,8 @@ function EnquiryForm({ open, onClose }: { open: boolean; onClose: () => void }) 
   const [err, setErr] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const set = <K extends keyof typeof blank>(k: K, v: (typeof blank)[K]) => setF((x) => ({ ...x, [k]: v }));
-  const refId = useMemo(() => nextRef("ENQ", enq.rows), [enq.rows]);
+  const refId = useMemo(() => nextRef("ENQ", enq.rows, 1, new Date().getFullYear()), [enq.rows]);
+  const counsellors = useCounsellors();
 
   const age = f.dob ? ageOn(f.dob) : null;
   const g = GRADES.find((x) => x.id === f.grade)!;
@@ -26,12 +28,7 @@ function EnquiryForm({ open, onClose }: { open: boolean; onClose: () => void }) 
   const eligible = ageAtCutoff ? ageAtCutoff.years >= g.minAge : null;
 
   async function submit() {
-    const e: Record<string, string> = {};
-    if (!f.name.trim()) e.name = "Student name is required";
-    if (!f.dob) e.dob = "Date of birth is required"; else if (new Date(f.dob) > new Date()) e.dob = "DOB cannot be in the future";
-    if (!f.guardian.trim()) e.guardian = "Guardian name is required";
-    if (!isPhone(f.phone)) e.phone = "Enter a valid mobile number";
-    if (!isEmail(f.email)) e.email = "Enter a valid email";
+    const e = enquiryErrors(f, todayISO());
     setErr(e);
     if (Object.keys(e).length) return;
     setBusy(true);
@@ -56,7 +53,7 @@ function EnquiryForm({ open, onClose }: { open: boolean; onClose: () => void }) 
           <h3 className="t-label-caps border-b border-outline-variant/60 pb-2">1. Candidate Information</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Student Full Name" required error={err.name}><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Samaira Kapoor" /></Field>
-            <Field label="Target Grade / Cohort" required><Select value={f.grade} onChange={(e) => set("grade", e.target.value)}>{GRADES.map((x) => <option key={x.id} value={x.id}>{x.label} (CBSE) - AY 2026-27</option>)}</Select></Field>
+            <Field label="Target Grade / Cohort" required error={err.grade}><Select value={f.grade} onChange={(e) => set("grade", e.target.value)}>{GRADES.map((x) => <option key={x.id} value={x.id}>{x.label} (CBSE) - AY 2026-27</option>)}</Select></Field>
           </div>
           <div className="grid items-end gap-4 sm:grid-cols-[1fr_auto]">
             <Field label="Date of Birth" required error={err.dob}><Input type="date" value={f.dob} onChange={(e) => set("dob", e.target.value)} /></Field>
@@ -92,8 +89,8 @@ function EnquiryForm({ open, onClose }: { open: boolean; onClose: () => void }) 
             </div>
           </fieldset>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Assign to Counsellor"><Select value={f.assignee} onChange={(e) => set("assignee", e.target.value)}><option value="">Unassigned</option>{STAFF.map((s) => <option key={s}>{s}</option>)}</Select></Field>
-            <Field label="Follow-up Date"><Input type="date" value={f.followUp} onChange={(e) => set("followUp", e.target.value)} /></Field>
+            <Field label="Assign to Counsellor"><Select value={f.assignee} onChange={(e) => set("assignee", e.target.value)}><option value="">Unassigned</option>{counsellors.map((s) => <option key={s}>{s}</option>)}</Select></Field>
+            <Field label="Follow-up Date" error={err.followUp}><Input type="date" value={f.followUp} onChange={(e) => set("followUp", e.target.value)} /></Field>
           </div>
           <Field label="Notes"><Textarea value={f.note} onChange={(e) => set("note", e.target.value)} placeholder="Parent requests, transport route, sibling details…" /></Field>
           <label className="flex items-center gap-2 text-sm"><Checkbox checked={f.sibling} onChange={(e) => set("sibling", e.target.checked)} />Sibling currently enrolled (priority intake)</label>

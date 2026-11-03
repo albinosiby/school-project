@@ -6,13 +6,13 @@ import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { DynamicForm, FieldInput } from "./DynamicForm";
 import { useAdm } from "./lib";
+import { validateFieldDef } from "./logic";
 import type { FieldType, FormDoc, FormField, FormSection } from "./types";
 import { useMyName } from "@/lib/useMe";
 
 const TYPES: { v: FieldType; l: string }[] = [{ v: "text", l: "Text" }, { v: "textarea", l: "Long text" }, { v: "select", l: "Dropdown" }, { v: "radio", l: "Radio / select" }, { v: "date", l: "Date picker" }, { v: "tel", l: "Phone & OTP" }, { v: "email", l: "Email" }, { v: "number", l: "Number" }];
 const move = <T,>(a: T[], i: number, d: number) => { const j = i + d; if (j < 0 || j >= a.length) return a; const r = [...a]; [r[i], r[j]] = [r[j]!, r[i]!]; return r; };
 const uid = () => Math.random().toString(36).slice(2, 8);
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "field";
 
 export function FormBuilder() {
   const form = useCollection<FormDoc>("adm_form");
@@ -130,7 +130,7 @@ export function FormBuilder() {
       <FieldEditor key={edit ? `${edit.sec}-${edit.field?.id ?? "new"}` : "none"} state={edit} onClose={() => setEdit(null)} onSave={(sid, f, isNew) => {
         setSections((s) => s.map((x) => (x.id === sid ? { ...x, fields: isNew ? [...x.fields, f] : x.fields.map((y) => (y.id === f.id ? f : y)) } : x)));
         toast(isNew ? "Field added" : "Field updated"); setEdit(null);
-      }} keys={doc.sections.flatMap((s) => s.fields.map((f) => f.key))} />
+      }} keys={doc.sections.flatMap((s) => s.fields.filter((f) => f.id !== edit?.field?.id).map((f) => f.key))} />
 
       <Modal open={publishing} onClose={() => setPublishing(false)} title={`Publish v${doc.version + 1}`} subtitle="The public form and QR link will use this schema immediately."
         footer={<><Button variant="outline" onClick={() => setPublishing(false)}>Cancel</Button><Button onClick={publish}>Publish now</Button></>}>
@@ -148,20 +148,23 @@ function FieldEditor({ state, onClose, onSave, keys }: { state: { sec: string; f
   const needsOpts = f.type === "select" || f.type === "radio";
   if (!state) return null;
   const save = () => {
-    if (!f.label.trim()) return setErr("Label is required");
-    const options = opts.split("\n").map((x) => x.trim()).filter(Boolean);
-    if (needsOpts && options.length < 2) return setErr("Add at least two options (one per line)");
-    let key = f.key || slug(f.label);
-    if (!state.field) while (keys.includes(key)) key += "_" + uid().slice(0, 2);
-    onSave(state.sec, { ...f, key, label: f.label.trim(), options: needsOpts ? options : undefined }, !state.field);
+    const r = validateFieldDef(f, opts, keys, !state.field);
+    if ("error" in r) return setErr(r.error ?? "");
+    setErr("");
+    onSave(state.sec, { ...f, key: r.key, label: r.label, options: r.options }, !state.field);
   };
+  const errFor = (what: "label" | "options" | "key") => !err ? undefined
+    : err === "Label is required" ? (what === "label" ? err : undefined)
+    : err.startsWith("Add at least") ? (what === "options" ? err : undefined)
+    : what === "key" ? err : undefined;
   return (
     <Modal open onClose={onClose} title={state.field ? "Edit field" : "Add field"} footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save}>Save field</Button></>}>
       <div className="space-y-4">
-        <Field label="Label" required error={err && !f.label.trim() ? err : undefined}><Input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
+        <Field label="Label" required error={errFor("label")}><Input value={f.label} onChange={(e) => setF({ ...f, label: e.target.value })} /></Field>
+        <Field label="Field key" hint={f.core ? "Core field: the key is fixed" : "Stored answer name; generated from the label if blank"} error={errFor("key")}><Input value={f.key} disabled={f.core || !!state.field} onChange={(e) => setF({ ...f, key: e.target.value.trim() })} placeholder="e.g. bloodGroup" /></Field>
         <Field label="Field type"><Select value={f.type} disabled={f.core} onChange={(e) => setF({ ...f, type: e.target.value as FieldType })}>{TYPES.map((t) => <option key={t.v} value={t.v}>{t.l}</option>)}</Select></Field>
         {!needsOpts && <Field label="Placeholder"><Input value={f.placeholder ?? ""} onChange={(e) => setF({ ...f, placeholder: e.target.value })} /></Field>}
-        {needsOpts && <Field label="Options (one per line)" error={err && f.label.trim() ? err : undefined}><Textarea value={opts} onChange={(e) => setOpts(e.target.value)} /></Field>}
+        {needsOpts && <Field label="Options (one per line)" error={errFor("options")}><Textarea value={opts} onChange={(e) => setOpts(e.target.value)} /></Field>}
         <Field label="Validation rule note (shown to parents)"><Input value={f.rule ?? ""} onChange={(e) => setF({ ...f, rule: e.target.value })} /></Field>
         <label className="flex items-center gap-2 text-sm"><Checkbox checked={f.required} disabled={f.core} onChange={(e) => setF({ ...f, required: e.target.checked })} />Required</label>
       </div>

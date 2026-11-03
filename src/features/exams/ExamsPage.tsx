@@ -7,6 +7,7 @@ import { useCollection } from "@/lib/useCollection";
 import { fmtDate } from "@/lib/format";
 import { downloadCsv, parseCsv } from "@/features/fees/csv";
 import { ExamDuties } from "./ExamDuties";
+import { labelToClassId, markError, markValue, paperCoversClass, publishBlocker, rosterOf, studentIdOf, subjectTeacherId, withLabel, withoutLabel, type StudentRow } from "./logic";
 import { endTime, evaluate, startLabel, type Candidate, type Cycle, type Eval, type Mark, type Paper } from "./types";
 
 /** draft cycles may hold papers without a date/time yet */
@@ -19,23 +20,37 @@ const stateBadge = (e: Eval) => {
     case "passed": return <Badge tone="neutral">✓ Passed</Badge>;
     case "failed": return <Badge tone="warning">Below pass mark</Badge>;
     case "medical": return <Badge tone="warning">Medical / Re-exam</Badge>;
+    case "absent": return <Badge tone="warning">{e.grade === "DQ" ? "Disqualified" : "Absent"}</Badge>;
     case "invalid": return <Badge tone="danger"><AlertTriangle size={12} />Error: out of range</Badge>;
     default: return <Badge tone="neutral">Pending</Badge>;
   }
 };
 
-function MarkInput({ value, max, disabled, onCommit, label }: { value: number | null; max: number; disabled?: boolean; onCommit: (v: number | null) => void; label: string }) {
+/** One mark cell: a blank or a whole number 0..max is saved on blur / Enter; anything else shows an error and is not saved. */
+function MarkInput({ value, max, disabled, onCommit, label, what }: { value: number | null; max: number; disabled?: boolean; onCommit: (v: number | null) => void; label: string; what: string }) {
   const [v, setV] = useState<string | null>(null);
+  const [err, setErr] = useState("");
   const shown = v ?? (value === null ? "" : String(value));
-  const bad = value !== null && (value > max || value < 0);
+  const bad = !!err || (value !== null && (value > max || value < 0));
+  const commit = () => {
+    if (v === null) return;
+    const e = markError(v, max, what);
+    if (e) return setErr(e);
+    setErr(""); setV(null);
+    const next = markValue(v);
+    if (next !== value) onCommit(next); // unchanged: nothing to write
+  };
   return (
-    <div className="flex items-center gap-2">
-      <input aria-label={label} inputMode="numeric" disabled={disabled} value={shown} placeholder="--"
-        onChange={(e) => setV(e.target.value.replace(/[^0-9]/g, ""))}
-        onBlur={() => { if (v !== null) { onCommit(v === "" ? null : Number(v)); setV(null); } }}
-        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-        className={`h-9 w-16 rounded border px-2 text-center font-mono text-sm focus:outline-2 focus:outline-secondary/30 ${bad ? "border-error bg-error-container/40 text-error" : "border-outline-variant bg-surface-container-lowest"} disabled:bg-surface-container`} />
-      <span className={`font-mono text-xs ${bad ? "text-error" : "text-outline"}`}>/ {max}</span>
+    <div>
+      <div className="flex items-center gap-2">
+        <input aria-label={label} inputMode="numeric" disabled={disabled} value={shown} placeholder="--" aria-invalid={bad || undefined}
+          onChange={(e) => { setV(e.target.value); setErr(""); }}
+          onBlur={commit}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          className={`h-9 w-16 rounded border px-2 text-center font-mono text-sm focus:outline-2 focus:outline-secondary/30 ${bad ? "border-error bg-error-container/40 text-error" : "border-outline-variant bg-surface-container-lowest"} disabled:bg-surface-container`} />
+        <span className={`font-mono text-xs ${bad ? "text-error" : "text-outline"}`}>/ {max}</span>
+      </div>
+      {err && <p role="alert" className="mt-1 max-w-40 text-xs text-error">{err}</p>}
     </div>
   );
 }
@@ -45,8 +60,12 @@ export function ExamsPage() {
   const router = useRouter();
   const cycles = useCollection<Cycle>("exm_cycles");
   const papers = useCollection<Paper>("exm_papers");
-  const cands = useCollection<Candidate>("exm_candidates");
+  const candCol = useCollection<Candidate>("exm_candidates");
+  const students = useCollection<StudentRow>("students").rows;
+  const assignments = useCollection<{ id: string; classId: string; subject: string; teacherId: string }>("assignments").rows;
   const marks = useCollection<Mark>("exm_marks");
+  // persisted candidates + generated ones for students without a row yet (a new school has no exm_candidates)
+  const cands = useMemo(() => ({ rows: rosterOf(candCol.rows, students) }), [candCol.rows, students]);
 
   const [cycleId, setCycleId] = useState<string>("");
   const [gradeFilter, setGradeFilter] = useState("all");
@@ -85,7 +104,7 @@ export function ExamsPage() {
   // fall back to a class that has candidates (the default "8-A" may not exist in this school)
   const cls = classes.includes(clsPick) ? clsPick : classes[0] ?? clsPick;
   const grade = cls.split("-")[0];
-  const classPapers = papers.rows.filter((p) => p.cycleId === curId && p.grade === grade);
+  const classPapers = papers.rows.filter((p) => p.cycleId === curId && p.grade === grade && paperCoversClass(p, cls));
   const paper = classPapers.find((p) => p.id === paperId) ?? classPapers[0];
   const roster = cands.rows.filter((c) => c.cls === cls);
   const markOf = (cid: string) => marks.rows.find((m) => m.paperId === paper?.id && m.candId === cid);
@@ -95,10 +114,15 @@ export function ExamsPage() {
   const save = async (c: Candidate, patch: Partial<Mark>, quiet = false) => {
     if (!paper) return false;
     const ex = markOf(c.id);
+    // contract 4: studentId + classId for par_results and the teacher app; teacherId = the subject teacher, so the teacher
+    // app lists the mark and the rules let that teacher edit it (ownsExisting)
+    const studentId = studentIdOf(c), classId = labelToClassId(c.cls);
+    const teacherId = subjectTeacherId(assignments, paper.subject, classId);
     try {
-      if (ex) await marks.update(ex.id, patch);
-      else await marks.create({ id: `${paper.id}__${c.id}`, paperId: paper.id, candId: c.id, theory: null, internal: null, medical: false, verified: false, ...patch });
-      if (pubOf(paper).includes(cls)) await papers.update(paper.id, { published: pubOf(paper).filter((x) => x !== cls) });
+      if (ex) await marks.update(ex.id, { ...patch, ...(ex.studentId ? {} : { studentId }), ...(ex.classId ? {} : { classId }), ...(ex.teacherId || !teacherId ? {} : { teacherId }) });
+      else await marks.create({ id: `${paper.id}__${c.id}`, paperId: paper.id, candId: c.id, studentId, classId, teacherId, theory: null, internal: null, medical: false, verified: false, ...patch });
+      // editing a published class hides its results again until it is re-published (functions delete its par_results)
+      if (pubOf(paper).includes(cls) && !("verified" in patch && Object.keys(patch).length === 1)) await papers.update(paper.id, { published: withoutLabel(pubOf(paper), cls) });
       return true;
     } catch { if (!quiet) toast("Could not save marks", "error"); return false; }
   };
@@ -112,8 +136,8 @@ export function ExamsPage() {
   const markCols: Column<Row>[] = [
     { key: "name", header: "Candidate & roll no", sortValue: (c) => c.roll, render: (c) => (
       <div><div className="font-semibold">{c.name}</div><div className="text-xs text-outline">{c.roll} · GRN {c.grn}</div></div>) },
-    { key: "theory", header: `Theory (max ${paper?.theory ?? 80})`, render: (c) => <MarkInput label={`Theory marks for ${c.name}`} value={markOf(c.id)?.theory ?? null} max={paper?.theory ?? 80} disabled={!paper} onCommit={(v) => save(c, { theory: v })} /> },
-    { key: "internal", header: `Internal (max ${paper?.internal ?? 20})`, render: (c) => <MarkInput label={`Internal marks for ${c.name}`} value={markOf(c.id)?.internal ?? null} max={paper?.internal ?? 20} disabled={!paper} onCommit={(v) => save(c, { internal: v })} /> },
+    { key: "theory", header: `Theory (max ${paper?.theory ?? 80})`, render: (c) => <MarkInput label={`Theory marks for ${c.name}`} what="Theory" value={markOf(c.id)?.theory ?? null} max={paper?.theory ?? 80} disabled={!paper || !!paper.locked} onCommit={(v) => save(c, { theory: v })} /> },
+    { key: "internal", header: `Internal (max ${paper?.internal ?? 20})`, render: (c) => <MarkInput label={`Internal marks for ${c.name}`} what="Internal" value={markOf(c.id)?.internal ?? null} max={paper?.internal ?? 20} disabled={!paper || !!paper.locked} onCommit={(v) => save(c, { internal: v })} /> },
     { key: "total", header: "Total & %", render: (c) => { const e = evOf(c); return e.state === "invalid" ? <span className="font-semibold text-error">{e.total}/{maxTotal} <span className="font-normal">(Invalid)</span></span> : e.total === null ? <span className="text-outline">-- / {maxTotal} (Pending)</span> : <span><b>{e.total}/{maxTotal}</b> <span className="text-outline">({e.pct!.toFixed(1)}%)</span></span>; } },
     { key: "grade", header: "CBSE grade", render: (c) => { const e = evOf(c); return <Badge tone={e.state === "invalid" ? "danger" : e.grade === "--" ? "neutral" : "brand"} className="font-mono">{e.grade}</Badge>; } },
     { key: "status", header: "Validation status", render: (c) => (
@@ -141,14 +165,12 @@ export function ExamsPage() {
   };
   const publish = async () => {
     if (!paper) return;
-    if (!roster.length) return toast("No candidates in this class", "error");
-    if (errCount) return toast(`Resolve ${errCount} invalid mark entr${errCount > 1 ? "ies" : "y"} first`, "error");
-    const pending = roster.filter((c) => !["verified", "passed", "failed", "medical"].includes(evOf(c).state)).length;
-    if (pending) return toast(`${pending} candidates still have no marks`, "error");
+    const blocker = publishBlocker(roster.map(evOf));
+    if (blocker) return toast(blocker, "error");
     const res = await Promise.all(roster.filter((c) => ["passed", "failed"].includes(evOf(c).state)).map((c) => save(c, { verified: true }, true)));
     if (res.includes(false)) return toast(`${res.filter((x) => !x).length} entries could not be verified; nothing was published`, "error");
     try {
-      await papers.update(paper.id, { published: [...pubOf(paper).filter((x) => x !== cls), cls], marksEntered: true, status: "Completed" });
+      await papers.update(paper.id, { published: withLabel(pubOf(paper), cls), marksEntered: true, status: "Completed" });
       toast(`Report cards published for Grade ${cls} · ${paper.subject}`);
     } catch { toast("Could not publish the results", "error"); }
   };
@@ -167,8 +189,10 @@ export function ExamsPage() {
     if (fileRef.current) fileRef.current.value = ""; // so picking the same file again fires onChange
     if (!file) return;
     if (!paper) return toast("Pick a class with a subject paper first", "error");
+    if (paper.locked) return toast("Marks entry is locked for this paper. Reopen it to import marks.", "error");
     // a cell is blank (no mark) or a whole number; anything else skips the row instead of storing NaN
     const num = (v?: string) => (v == null || v.trim() === "" ? null : /^\d+$/.test(v.trim()) ? Number(v) : NaN);
+    let range = 0;
     let rows: string[][];
     try { rows = parseCsv(await file.text()).filter((r) => r[0] && /^#?\w/.test(r[0]) && r[0].toLowerCase() !== "roll"); } catch { return toast("Could not read the file", "error"); }
     let n = 0, bad = 0, failed = 0;
@@ -177,9 +201,10 @@ export function ExamsPage() {
       if (!c) continue;
       const theory = num(r[1]), internal = num(r[2]);
       if (Number.isNaN(theory) || Number.isNaN(internal)) { bad++; continue; }
+      if ((theory ?? 0) > paper.theory || (internal ?? 0) > paper.internal) { range++; continue; }
       if (await save(c, { theory, internal }, true)) n++; else failed++;
     }
-    const skipped = [bad && `${bad} with non-numeric marks`, failed && `${failed} not saved`].filter(Boolean).join(", ");
+    const skipped = [bad && `${bad} with non-numeric marks`, range && `${range} above the max marks`, failed && `${failed} not saved`].filter(Boolean).join(", ");
     if (n) toast(`Imported marks for ${n} candidate${n > 1 ? "s" : ""}${skipped ? ` (${skipped})` : ""}`, skipped ? "error" : "success");
     else toast(skipped ? `Nothing imported: ${skipped}` : "No matching roll numbers found (expected: roll,theory,internal)", "error");
   };
@@ -240,6 +265,7 @@ export function ExamsPage() {
           searchText={(c) => `${c.name} ${c.roll} ${c.grn}`}
           toolbar={<Button size="sm" variant="outline" onClick={verifySelected} disabled={!sel.length}><ShieldCheck size={14} />Verify selected ({sel.length})</Button>}
           empty={<EmptyState title="No candidates" hint="No roster found for this class." />} />
+        {paper?.locked && <p className="px-5 pb-3 text-xs font-medium text-on-surface-variant"><Lock size={12} className="mr-1 inline" />Marks entry is locked for this paper. Reopen it to edit marks.</p>}
         {errCount > 0 && <p className="px-5 pb-3 text-xs font-medium text-error">● {errCount} mark entr{errCount > 1 ? "ies require" : "y requires"} correction</p>}
       </Card>
 

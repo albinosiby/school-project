@@ -7,6 +7,8 @@ import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 
 type School = { id: string; name?: string; address?: string; city?: string; board?: string; affiliation?: string; phone?: string; email?: string };
+/** Settings > School Profile (set_config/profile) holds the address and affiliation number; school/school (contract 3) may not */
+type Profile = { id: string; name?: string; address?: string; affiliation?: string; phone?: string; email?: string };
 type Stu = { id: string; name: string; grade?: string; section?: string; dob?: string; guardian?: string; admissionDate?: string };
 
 const BODY: Record<string, (s: string, cls: string, purpose: string) => string> = {
@@ -21,14 +23,17 @@ const BODY: Record<string, (s: string, cls: string, purpose: string) => string> 
 function Certificate() {
   const id = useSearchParams().get("id") ?? "";
   const certs = useCollection<Cert>("certificates");
-  const school = useCollection<School>("school").rows.find((s) => s.id === "school");
+  const schoolDoc = useCollection<School>("school").rows.find((s) => s.id === "school");
+  const profile = useCollection<Profile>("set_config").rows.find((s) => s.id === "profile");
+  const pick = (k: "name" | "address" | "affiliation") => schoolDoc?.[k]?.trim() || profile?.[k]?.trim() || "";
+  const school = { ...schoolDoc, name: pick("name"), address: pick("address"), affiliation: pick("affiliation") };
   const students = useCollection<Stu>("students").rows;
   const c = certs.rows.find((x) => x.id === id);
   if (!certs.ready) return <p className="p-10 text-on-surface-variant">Loading…</p>;
   if (!c || c.status !== "Issued") return <p className="p-10 text-on-surface-variant">This certificate was not found or has not been issued.</p>;
   const s = students.find((x) => x.id === c.studentId);
-  const cls = s?.grade ? `${s.grade}-${s.section ?? ""}` : c.classId.replace(/^cls_(\d+)(\w)$/, "$1-$2");
-  const text = (BODY[c.type] ?? BODY.other)(c.studentName, cls, c.purpose ?? "");
+  const cls = s?.grade ? `${s.grade}-${s.section ?? ""}` : (c.classId ?? "").replace(/^cls_(\d+)(\w)$/, "$1-$2");
+  const text = (BODY[c.type] ?? BODY.other)(c.studentName || s?.name || "", cls, c.purpose ?? "");
   return (
     <div className="min-h-screen bg-surface-container-low py-8 print:bg-white print:py-0">
       <div className="mx-auto mb-4 flex max-w-[210mm] justify-end gap-2 print:hidden">
@@ -36,9 +41,9 @@ function Certificate() {
       </div>
       <article className="mx-auto flex min-h-[297mm] max-w-[210mm] flex-col bg-white p-[18mm] text-[#1b1b1f] shadow print:shadow-none">
         <header className="border-b-2 border-[#1b1b1f] pb-4 text-center">
-          <h1 className="text-2xl font-bold uppercase tracking-wide">{school?.name ?? "School"}</h1>
-          <p className="mt-1 text-sm">{[school?.address, school?.city].filter(Boolean).join(", ")}</p>
-          <p className="text-xs">{[school?.board, school?.affiliation && `Affiliation No. ${school.affiliation}`].filter(Boolean).join(" · ")}</p>
+          <h1 className="text-2xl font-bold uppercase tracking-wide">{school.name || "School"}</h1>
+          <p className="mt-1 text-sm">{[school.address, school.city].filter(Boolean).join(", ")}</p>
+          <p className="text-xs">{[school.board, school.affiliation && `Affiliation No. ${school.affiliation}`].filter(Boolean).join(" · ")}</p>
         </header>
         <div className="mt-6 flex justify-between text-sm"><span>Ref: <b className="font-mono">{c.refNo}</b></span><span>Date: {c.issuedOn ? fmtDate(c.issuedOn) : ""}</span></div>
         <h2 className="mt-10 text-center text-xl font-bold uppercase underline underline-offset-4">{c.title}</h2>

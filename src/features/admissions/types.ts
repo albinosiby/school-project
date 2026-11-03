@@ -10,6 +10,7 @@ export type Enquiry = {
   id: string; ref: string; name: string; grade: string; dob: string; prevSchool: string; guardian: string; relation: string;
   phone: string; email: string; area: string; source: string; stage: EnqStage; assignee: string; followUp: string; note: string;
   sibling: boolean; createdAt: string; applicationId: string; lostReason: string; answers?: Record<string, string>;
+  /** ISO date-time of the submission (public form); createdAt stays the local YYYY-MM-DD */ submittedTs?: string;
 };
 
 export type DocState = "verified" | "pending" | "rejected" | "na";

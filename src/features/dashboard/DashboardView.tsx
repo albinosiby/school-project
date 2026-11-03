@@ -12,12 +12,12 @@ import { ReasonModal, useApprovalActions } from "./approvals-shared";
 import {
   catOf, downloadCsv, errMsg, useHydrated, eventsOn, fmtDay, fmtSubmitted, KIND_LABEL, KIND_ORDER, MON, MONTHS, monthGrid, parse, pctOf, TODAY, upcomingEvents, useApprovals, useEvents,
   type Alert, type Notif, type Staff, nowLocal } from "./data";
+import { dayAttendance, deriveAlerts, isOverdue, staffOnLeave, type AttRec, type BusLite, type InvoiceLite, type LeaveLite, type LiveAlert, type PeriodLite, type SubLite } from "./logic";
 
 type Prefs = { id: string; bannerDismissed: boolean };
 type Student = { id: string; status: string };
-type AttRec = { id: string; date: string; classId: string; period: number; total: number; marks?: Record<string, string> };
 type Payment = { id: string; amount: number; date: string };
-type Invoice = { id: string; balance: number; status: string };
+type Invoice = InvoiceLite;
 type Enq = { id: string };
 type App = { id: string; grade: string; status: string; testSlotId?: string; interviewSlotId?: string; panelStatus?: string | null };
 type Seat = { id: string; grade: string; capacity: number };
@@ -80,19 +80,17 @@ function Kpis() {
   const { rows: invs } = useCollection<Invoice>("fee_invoices");
   const { rows: enq } = useCollection<Enq>("adm_enquiries");
   const { rows: apps } = useCollection<App>("adm_applications");
+  const { rows: leaves } = useCollection<LeaveLite>("staff_leaves");
   const { rows: approvals } = useApprovals();
   const active = students.filter((s) => s.status === "Active").length;
-  // today's roll: one record per class (the day-level period 0 record wins, else the earliest period)
-  const byClass = new Map<string, AttRec>();
-  att.filter((r) => r.date === TODAY).forEach((r) => { const c = byClass.get(r.classId); if (!c || r.period < c.period) byClass.set(r.classId, r); });
-  let total = 0, absent = 0, notIn = 0;
-  byClass.forEach((r) => { const v = Object.values(r.marks ?? {}); total += Number(r.total) || 0; absent += v.filter((x) => x === "A").length; notIn += v.filter((x) => x === "A" || x === "E").length; });
-  const attPct = total ? ((total - notIn) / total) * 100 : null;
+  // today's roll: per class the latest submitted record (contract 9: newest updatedAt, ties higher period)
+  const { absent, pct: attPct } = dayAttendance(att, TODAY);
   // fee_payments.date is the LOCAL yyyy-mm-dd (fees todayIso), same as TODAY
   const feesToday = pays.filter((p) => p.date === TODAY).reduce((a, p) => a + (Number(p.amount) || 0), 0);
-  const overdue = invs.filter((i) => i.status === "Overdue");
+  const overdue = invs.filter((i) => isOverdue(i, TODAY));
   const overdueAmt = overdue.reduce((a, i) => a + (Number(i.balance) || 0), 0);
-  const onLeave = staff.filter((s) => s.status === "On leave").length;
+  // status "On leave" or an approved staff_leaves row covering today
+  const onLeave = staffOnLeave(staff, leaves, TODAY).size;
   const pending = approvals.filter((a) => a.status === "pending").length;
   const enrolled = apps.filter((a) => a.status === "enrolled").length;
   return (
@@ -102,7 +100,7 @@ function Kpis() {
       <K label="Fee Collections" href="/fees" icon={<CircleDollarSign size={16} />} value={inr(feesToday)} tag="Today" tone="success" />
       <K label="Fees Overdue" href="/fees" icon={<AlertTriangle size={16} className="text-error" />} value={inr(overdueAmt)} tag={`${overdue.length} Account${overdue.length === 1 ? "" : "s"}`} tone={overdue.length ? "danger" : "success"} />
       <K label="Admissions Enquiries" href="/admissions" icon={<TrendingUp size={16} className="text-secondary" />} value={enq.length} tag={`${enrolled} Enrolled`} tone="success" />
-      <K label="Staff on Leave" href="/staff" icon={<UserX size={16} className="text-warning" />} value={onLeave} unit={`/${staff.length}`} tag={`${staff.length - onLeave} On duty`} tone={onLeave ? "warning" : "success"} />
+      <K label="Staff on Leave" href="/staff" icon={<UserX size={16} className="text-warning" />} value={onLeave} unit={`/${staff.length}`} tag={`${Math.max(0, staff.length - onLeave)} On duty`} tone={onLeave ? "warning" : "success"} />
       <K label="Pending Approvals" href="/approvals" icon={<ClipboardList size={16} />} value={pending} tag={pending ? "Action needed" : "All clear"} tone={pending ? "danger" : "success"} />
     </div>
   );
@@ -211,8 +209,16 @@ function ApprovalsInbox() {
 
 /* ---------------- urgent alerts ---------------- */
 function Alerts() {
-  const { rows, update } = useCollection<Alert>("dash_alerts");
+  // dash_alerts holds only demo / legacy rows (nothing in the live system writes it); the real alerts are derived
+  const { rows: legacy, update } = useCollection<Alert>("dash_alerts");
   const { rows: staff } = useCollection<Staff>("staff");
+  const { rows: leaves } = useCollection<LeaveLite>("staff_leaves");
+  const { rows: periods } = useCollection<PeriodLite>("ops_periods");
+  const { rows: subs } = useCollection<SubLite>("ops_substitutions");
+  const { rows: invoices } = useCollection<InvoiceLite>("fee_invoices");
+  const { rows: buses } = useCollection<BusLite>("tr_buses");
+  const live = useMemo(() => deriveAlerts({ today: TODAY, staff, leaves, periods, subs, invoices, buses }), [staff, leaves, periods, subs, invoices, buses]);
+  const rows: (Alert | LiveAlert)[] = [...live, ...legacy];
   const { create: notify } = useCollection<Notif>("notifications");
   const toast = useToast();
   const [assign, setAssign] = useState<Alert | null>(null);
@@ -237,7 +243,8 @@ function Alerts() {
               <div className="flex items-center gap-2"><I size={16} className={res ? "text-success" : "text-on-surface-variant"} /><span className="text-xs font-bold tracking-wide">{a.title}</span></div>
               <span className="font-mono text-[11px] text-outline">{a.tag}</span></div>
             <p className="mt-1.5 text-sm">{res ? (a.kind === "substitute" ? `${a.body} Covered by ${a.substitute}.` : a.kind === "fee" ? `WhatsApp reminders queued for ${a.tag} (simulated).` : `${a.body} (acknowledged)`) : a.body}</p>
-            {!res && <div className="mt-2 flex justify-end">
+            {!res && "derived" in a && <div className="mt-2 flex justify-end"><Link href={a.href}><Button size="sm" variant="outline">{a.kind === "substitute" ? "Assign cover" : a.kind === "fee" ? "Open fees" : "Open transport"} <ArrowRight size={12} /></Button></Link></div>}
+            {!res && !("derived" in a) && <div className="mt-2 flex justify-end">
               {a.kind === "substitute" && <Button size="sm" className="!bg-warning" disabled={busy} onClick={() => { setAssign(a); setSub(""); }}>Assign <ArrowRight size={12} /></Button>}
               {a.kind === "fee" && <Button size="sm" variant="outline" disabled={busy} onClick={() => run(async () => { await update(a.id, { status: "resolved" }); await notify({ category: "finance", title: "Fee Reminder", body: `WhatsApp reminders dispatched for ${a.tag} (simulated)`, createdAt: nowLocal(), read: false } as never); }, `WhatsApp reminders queued for ${a.tag} (simulated)`)}><MessageSquare size={13} />WhatsApp</Button>}
               {a.kind === "transit" && <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() => update(a.id, { status: "resolved" }), "Alert acknowledged")}>Acknowledge</Button>}</div>}

@@ -23,8 +23,13 @@ export type Approval = {
 export type CalEvent = {
   id: string; title: string; category: CatId; start: string; end: string; startTime: string; endTime: string; venue: string; term: string;
   status: "published" | "draft"; instructional: boolean; grades: string[]; notifyApp: boolean; notifyWhatsapp: boolean; lead: string; desc: string; circular?: string;
+  /** no daily times (startTime / endTime are "") */
+  allDay?: boolean;
+  /** written only by the onCalendarForParents function (contract 13.2); the admin web never sends it */
+  parentVisible?: boolean;
 };
-export type Notif = { id: string; category: string; title: string; body: string; createdAt: string; read: boolean; href?: string };
+/** schools/{sid}/notifications: the admin bell. Rows from Cloud Functions carry `source: "teacher"` (contract 10, 12.1, 14.5). */
+export type Notif = { id: string; category: string; title: string; body: string; createdAt: string; read: boolean; href?: string; source?: string };
 export type SetupStep = { id: string; no: number; title: string; short: string; desc: string; done: boolean; doneAt: string };
 export type SetupExc = { id: string; name: string; guardian: string; grade: string; grn: string; status: string; tone: Approval["tone"]; kind: string; issue: string; action: string; resolved: boolean };
 export type Stats = {
@@ -94,8 +99,12 @@ export const pctOf = (n: number, d: number) => (d > 0 ? (n / d) * 100 : 0);
 /** Firestore errors (e.g. permission-denied) as a short toast message */
 export const errMsg = (e: unknown, what = "Could not save") => `${what}${e instanceof Error && e.message ? `: ${e.message.replace(/^Firebase:\s*/, "")}` : ""}`;
 
-export function downloadCsv(name: string, rows: (string | number)[][]) {
-  const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+/** every cell quoted, quotes doubled; null / undefined cells are empty (not "undefined") */
+export const csvText = (rows: (string | number | null | undefined)[][]) =>
+  rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+
+export function downloadCsv(name: string, rows: (string | number | null | undefined)[][]) {
+  const csv = csvText(rows);
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
   a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 0);

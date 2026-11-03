@@ -4,6 +4,7 @@ import { CalendarPlus, Download, MessageSquare, UserPlus, X } from "lucide-react
 import { Avatar, Badge, Button, Card, CardHeader, Checkbox, DataTable, Field, Input, Modal, ProgressBar, Select, Stat, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { downloadCsv, todayISO, useAdm } from "./lib";
+import { resultPatch, scoreError, slotBatch, slotEligible, slotError } from "./logic";
 import { GRADES, PANEL_LABEL, gradeLabel, type Application, type PanelStatus, type Slot, type SlotStatus } from "./types";
 
 const PANEL_TONE: Record<PanelStatus, "success" | "info" | "warning" | "neutral" | "danger"> = { cleared: "success", scheduled: "info", hall_ticket: "neutral", in_review: "warning", waitlisted: "neutral", rejected: "danger" };
@@ -98,15 +99,13 @@ export function Tests() {
 function SlotModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { slots } = useAdm();
   const toast = useToast();
-  const [f, setF] = useState({ title: "", type: "test", date: "", time: "09:30", venue: "", capacity: "40", invigilator: "Mrs. S. Rao" });
+  const [f, setF] = useState({ title: "", type: "test", date: "", time: "09:30", venue: "", capacity: "40", invigilator: "" });
   const [err, setErr] = useState("");
   if (!open) return null;
   const save = async () => {
-    if (!f.title.trim() || !f.date || !f.venue.trim()) return setErr("Title, date and venue are required");
-    if (f.date < todayISO()) return setErr("Date cannot be in the past");
-    if (!Number.isInteger(Number(f.capacity)) || Number(f.capacity) < 1) return setErr("Capacity must be a whole number of at least 1");
-    const n = slots.rows.filter((s) => s.type === f.type).length + 1;
-    try { await slots.create({ batch: f.type === "test" ? `BATCH #${String(n).padStart(2, "0")}` : `PANEL ${String.fromCharCode(64 + n)}`, title: f.title.trim(), type: f.type as Slot["type"], date: f.date, time: f.time, venue: f.venue.trim(), capacity: Number(f.capacity), invigilator: f.invigilator, status: "scheduled" }); }
+    const why = slotError(f, todayISO());
+    if (why) return setErr(why);
+    try { await slots.create({ batch: slotBatch(f.type as Slot["type"], slots.rows), title: f.title.trim(), type: f.type as Slot["type"], date: f.date, time: f.time, venue: f.venue.trim(), capacity: Number(f.capacity), invigilator: f.invigilator.trim(), status: "scheduled" }); }
     catch { return setErr("Could not save the slot — try again"); }
     toast("Slot scheduled"); onClose(); setF({ ...f, title: "", venue: "" }); setErr("");
   };
@@ -134,7 +133,7 @@ function AssignModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   if (!open) return null;
   const slot = slots.rows.find((s) => s.id === slotId);
   const used = slot ? apps.rows.filter((a) => a.testSlotId === slot.id || a.interviewSlotId === slot.id).length : 0;
-  const eligible = slot ? apps.rows.filter((a) => (slot.type === "test" ? ["verified", "docs_pending"].includes(a.status) && !a.testSlotId && a.feePaid : ["tested", "shortlisted"].includes(a.status) && !a.interviewSlotId)) : [];
+  const eligible = slot ? slotEligible(slot, apps.rows) : [];
   const save = async () => {
     if (!slot) return;
     if (used + pick.length > slot.capacity) return toast(`Only ${slot.capacity - used} places left in this slot`, "error");
@@ -162,22 +161,18 @@ function ScoreModal({ id, onClose }: { id: string | null; onClose: () => void })
   const [panel, setPanel] = useState<string | null>(null);
   if (!a) return null;
   const sc = score ?? (a.writtenScore?.toString() ?? ""), pn = (panel ?? a.panelStatus ?? "in_review") as PanelStatus;
-  const bad = sc !== "" && (isNaN(Number(sc)) || Number(sc) < 0 || Number(sc) > 100);
+  const why = scoreError(sc);
+  const bad = sc.trim() !== "" && !!why;
   const save = async () => {
-    if (bad || sc === "") return;
-    const patch: Partial<Application> = { writtenScore: Number(sc), panelStatus: pn };
-    const locked = ["offered", "enrolled", "withdrawn", "lapsed"].includes(a.status);
-    if (!locked) {
-      patch.status = pn === "cleared" ? "shortlisted" : pn === "waitlisted" ? "waitlisted" : pn === "rejected" ? "rejected" : "tested";
-      if (pn === "waitlisted" && !a.waitlistNo) patch.waitlistNo = apps.rows.filter((x) => x.status === "waitlisted" && x.grade === a.grade).reduce((m, x) => Math.max(m, x.waitlistNo), 0) + 1;
-    }
+    if (why) return;
+    const patch = resultPatch(a, Number(sc), pn, apps.rows);
     try { await apps.update(a.id, patch); } catch { return toast("Could not save result", "error"); }
     toast(`Result saved for ${a.name}`); setScore(null); setPanel(null); onClose();
   };
   return (
-    <Modal open onClose={() => { setScore(null); setPanel(null); onClose(); }} title={`Enter result · ${a.name}`} subtitle={`${a.ref} · ${gradeLabel(a.grade)}`} footer={<><Button variant="outline" onClick={() => { setScore(null); setPanel(null); onClose(); }}>Cancel</Button><Button onClick={save} disabled={bad || sc === ""}>Save result</Button></>}>
+    <Modal open onClose={() => { setScore(null); setPanel(null); onClose(); }} title={`Enter result · ${a.name}`} subtitle={`${a.ref} · ${gradeLabel(a.grade)}`} footer={<><Button variant="outline" onClick={() => { setScore(null); setPanel(null); onClose(); }}>Cancel</Button><Button onClick={save} disabled={!!why}>Save result</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Written score (0–100)" required error={bad ? "Enter a number between 0 and 100" : undefined}><Input type="number" min={0} max={100} value={sc} onChange={(e) => setScore(e.target.value)} /></Field>
+        <Field label="Written score (0–100)" required error={bad ? why : undefined}><Input type="number" min={0} max={100} value={sc} onChange={(e) => setScore(e.target.value)} /></Field>
         <Field label="Panel outcome"><Select value={pn} onChange={(e) => setPanel(e.target.value)}>{Object.entries(PANEL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
       </div>
       <p className="mt-3 text-xs text-on-surface-variant">Cleared moves the application to Shortlisted; Waitlisted adds it to the waitlist ranking.</p>

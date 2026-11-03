@@ -14,6 +14,7 @@ export default function SignUpPage() {
   useEffect(() => { if (user && !justSignedUp) router.replace("/dashboard"); }, [user, justSignedUp, router]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [organizationName, setOrganizationName] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
@@ -23,7 +24,7 @@ export default function SignUpPage() {
 
     if (!email.trim()) {
       newErrors.email = "Email is required";
-    } else if (!/^\S+@\S+\.\S+$/.test(email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       newErrors.email = "Enter a valid email address";
     }
 
@@ -31,12 +32,22 @@ export default function SignUpPage() {
       newErrors.password = "Password is required";
     } else if (password.length < 6) {
       newErrors.password = "Password must be at least 6 characters";
+    } else if (password.length > 128) {
+      newErrors.password = "Password must be at most 128 characters";
+    }
+
+    if (!confirm) {
+      newErrors.confirm = "Confirm your password";
+    } else if (password && confirm !== password) {
+      newErrors.confirm = "Passwords do not match";
     }
 
     if (!organizationName.trim()) {
       newErrors.organizationName = "Organization name is required";
     } else if (organizationName.trim().length < 2) {
       newErrors.organizationName = "Organization name must be at least 2 characters";
+    } else if (organizationName.trim().length > 120) {
+      newErrors.organizationName = "Organization name must be at most 120 characters";
     }
 
     return newErrors;
@@ -149,6 +160,26 @@ export default function SignUpPage() {
                 </div>
               </Field>
               <p className="text-xs text-on-surface-variant mt-1">Minimum 6 characters</p>
+            </div>
+
+            {/* Confirm Password Field */}
+            <div>
+              <Field label="Confirm Password" required error={errors.confirm}>
+                <div className="relative">
+                  <Lock aria-hidden className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-on-surface-variant opacity-50" />
+                  <Input
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => {
+                      setConfirm(e.target.value);
+                      handleFieldChange("confirm");
+                    }}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    className="pl-10"
+                  />
+                </div>
+              </Field>
             </div>
 
             {/* Error Message */}

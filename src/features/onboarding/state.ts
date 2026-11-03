@@ -1,5 +1,6 @@
 "use client";
 import { useCollection } from "@/lib/useCollection";
+import { firstOpenStep, markCompleted } from "./logic";
 
 export const STEPS = [
   { no: 1, title: "School Profile", blurb: "Who you are: name, board and affiliation." },
@@ -22,14 +23,14 @@ export function useOnboarding() {
   const state = st.rows.find((r) => r.id === "state");
   const completed = state?.completed ?? [];
   const ready = st.ready && data.ready && steps.ready;
-  const firstOpen = STEPS.find((s) => !completed.includes(s.no))?.no ?? 8;
+  const firstOpen = firstOpenStep(completed);
 
   const saved = (no: number) => data.rows.find((r) => r.id === `s${no}`)?.values as Record<string, any> | undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
 
   async function complete(no: number, values: Record<string, unknown>) {
     const row = data.rows.find((r) => r.id === `s${no}`);
     if (row) await data.update(row.id, { values }); else await data.create({ id: `s${no}`, values });
-    const next = [...new Set([...completed, no])].sort((a, b) => a - b);
+    const next = markCompleted(completed, no);
     // the marker is written by bootstrap; recreate it if it is missing so progress is never lost
     if (state) await st.update("state", { completed: next }); else await st.create({ id: "state", complete: false, completed: next });
     const step = steps.rows.find((s) => s.no === no);

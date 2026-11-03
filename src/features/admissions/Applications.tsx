@@ -5,10 +5,10 @@ import { Avatar, Badge, Button, Card, CardHeader, DataTable, Field, Modal, Progr
 import { cn } from "@/lib/cn";
 import { fmtDate, inrFull } from "@/lib/format";
 import { docsComplete, downloadCsv, pct, statusTone, useAdm } from "./lib";
+import { MANUAL_STATUSES, OFFERABLE, stageMoveError } from "./logic";
 import { APP_STATUS_LABEL, DOC_LABEL, GRADES, PANEL_LABEL, TAG_LABEL, gradeLabel, type AppStatus, type Application, type DocKey } from "./types";
 import { useEnquirySlide } from "./AdmissionsShell";
 
-const MANUAL_STATUSES: AppStatus[] = ["submitted", "docs_pending", "verified", "test_scheduled", "tested", "shortlisted", "waitlisted", "rejected"];
 const ORDER: AppStatus[] = ["submitted", "docs_pending", "verified", "test_scheduled", "tested", "shortlisted", "offered", "enrolled"];
 
 function academic(a: Application): { t: string; tone: "success" | "brand" | "warning" | "neutral" | "info" | "danger" } {
@@ -151,7 +151,11 @@ function Detail({ a, onGenerate, setDoc }: { a: Application; onGenerate: () => v
   const [note, setNote] = useState<string | null>(null);
   const idx = ORDER.indexOf(a.status);
   const fail = () => toast("Could not save — check your connection", "error");
-  const move = (s: AppStatus) => apps.update(a.id, { status: s }).then(() => toast(`Moved to ${APP_STATUS_LABEL[s]}`)).catch(fail);
+  const move = (s: AppStatus) => {
+    const why = stageMoveError(a, s);
+    if (why) return toast(why, "error");
+    return apps.update(a.id, { status: s }).then(() => toast(`Moved to ${APP_STATUS_LABEL[s]}`)).catch(fail);
+  };
   return (
     <div className="space-y-5">
       <ol className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Status pipeline">
@@ -183,7 +187,7 @@ function Detail({ a, onGenerate, setDoc }: { a: Application; onGenerate: () => v
       <Field label="Internal notes"><Textarea value={note ?? a.notes} onChange={(e) => setNote(e.target.value)} onBlur={() => note !== null && note !== a.notes && apps.update(a.id, { notes: note }).then(() => toast("Note saved")).catch(fail)} /></Field>
       <div className="flex justify-end gap-2">
         {a.enquiryId && <span className="mr-auto self-center text-xs text-on-surface-variant">Linked enquiry: {enq.rows.find((e) => e.id === a.enquiryId)?.ref ?? "—"}</span>}
-        {["shortlisted", "waitlisted", "tested", "verified"].includes(a.status) && <Button onClick={onGenerate}>Generate offer</Button>}
+        {OFFERABLE.includes(a.status) && <Button onClick={onGenerate}>Generate offer</Button>}
       </div>
     </div>
   );

@@ -8,9 +8,12 @@ import { cn } from "@/lib/cn";
 import { DashHeader, useSetupProgress } from "./DashHeader";
 import { useDashPrefs } from "./DashboardView";
 import { errMsg, fmtDay, parse, type Notif, type SetupExc, type Staff, nowLocal, TODAY } from "./data";
+import { dataExceptions, EXC_KIND_LABEL, isIngestionPhase, type DataException } from "./logic";
 
 type Me = { id: string; name: string; title: string };
-type Stu = { id: string; grade: string; section: string; status: string; phone?: string; guardian?: string };
+type Stu = { id: string; name: string; grn?: string; grade: string; section: string; classId?: string; status: string; phone?: string; guardian?: string };
+type Exc = SetupExc | DataException;
+const isDerived = (e: Exc): e is DataException => "derived" in e && e.derived === true;
 type Sec = { id: string; grade: string; sections: string[]; cap: number };
 type Term = { id: string; name: string; start: string; end: string };
 const TEACHING = /PGT|TGT|PRT|HOD|teacher/i;
@@ -18,7 +21,9 @@ const TEACHING = /PGT|TGT|PRT|HOD|teacher/i;
 export function SetupView() {
   const { steps, done, total, pct } = useSetupProgress();
   const { rows: steps0, update: updStep } = useCollection<{ id: string; done: boolean; doneAt: string }>("setup_steps");
-  const { rows: excs, update: updExc } = useCollection<SetupExc>("setup_exceptions");
+  // setup_exceptions only holds demo / imported rows (nothing in the live system writes it): the real checks are derived
+  // from the student roster and clear themselves once the record is fixed
+  const { rows: legacyExcs, update: updExc } = useCollection<SetupExc>("setup_exceptions");
   const { prefs, save: savePref } = useDashPrefs();
   const { rows: me } = useCollection<Me>("me");
   const { create: notify } = useCollection<Notif>("notifications");
@@ -41,6 +46,7 @@ export function SetupView() {
   const [sign, setSign] = useState(false);
   void steps0;
 
+  const excs: Exc[] = [...dataExceptions(students), ...legacyExcs];
   const current = steps.find((s) => !s.done);
   const unresolved = excs.filter((e) => !e.resolved);
   const resolvedN = excs.length - unresolved.length;
@@ -69,9 +75,7 @@ export function SetupView() {
   const allPass = checks.every((c) => c[4]);
   const FILTERS = [
     { id: "all", label: `All Exceptions (${unresolved.length})` },
-    { id: "uid", label: `Missing Aadhaar / UID (${unresolved.filter((e) => e.kind === "uid").length})` },
-    { id: "sibling", label: `Sibling Link Broken (${unresolved.filter((e) => e.kind === "sibling").length})` },
-    { id: "address", label: `Address & Transport Mismatch (${unresolved.filter((e) => e.kind === "address").length})` },
+    ...[...new Set(unresolved.map((e) => e.kind))].map((k) => ({ id: k, label: `${EXC_KIND_LABEL[k] ?? k} (${unresolved.filter((e) => e.kind === k).length})` })),
   ];
   const view = unresolved.filter((e) => filter === "all" || e.kind === filter);
   const pages = Math.max(1, Math.ceil(view.length / 6));
@@ -80,13 +84,17 @@ export function SetupView() {
   const velocity = total ? Math.round(((done + (current ? resolvedN / Math.max(1, excs.length) : 0)) / total) * 100) : 0;
 
   const complete = (id: string, no: number) => {
-    if (no === current?.no && unresolved.length) { toast(`Resolve all ${unresolved.length} flagged exceptions before completing this phase`, "error"); return; }
+    const step = steps.find((s) => s.id === id);
+    // only the data ingestion phase (07) is gated by the flagged records
+    if (step && isIngestionPhase(step) && unresolved.length) { toast(`Resolve all ${unresolved.length} flagged exceptions before completing this phase`, "error"); return; }
     return run(async () => {
       await updStep(id, { done: true, doneAt: TODAY });
       await notify({ category: "statutory", title: "Setup Wizard", body: `Phase ${String(no).padStart(2, "0")} completed — setup is now ${Math.round(((done + 1) / total) * 100)}% done`, createdAt: nowLocal(), read: false, href: "/setup" } as never);
     }, `Phase ${no} marked complete`);
   };
   const resolve = (e: SetupExc) => run(() => updExc(e.id, { resolved: true }), `${e.name}: ${(e.status ?? "exception").toLowerCase()} resolved`);
+  /** only stored rows can be marked resolved; derived ones are fixed in the student record */
+  const selStored = sel.filter((id) => legacyExcs.some((x) => x.id === id && !x.resolved));
   const batchResolve = (ids: string[]) => run(async () => { await Promise.all(ids.map((id) => updExc(id, { resolved: true }))); setSel([]); }, `${ids.length} exception${ids.length > 1 ? "s" : ""} resolved`);
 
   const stat = (label: string, value: React.ReactNode, sub: React.ReactNode, icon: React.ReactNode) => (
@@ -151,17 +159,18 @@ export function SetupView() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] border-collapse text-left">
                 <thead><tr className="border-b border-outline-variant/60 bg-surface-container-low">
-                  <th className="w-10 py-2.5 pl-5"><Checkbox aria-label="Select all" checked={rows.length > 0 && rows.every((r) => sel.includes(r.id))} onChange={(e) => setSel(e.target.checked ? rows.map((r) => r.id) : [])} /></th>
+                  <th className="w-10 py-2.5 pl-5"><Checkbox aria-label="Select all" checked={rows.some((r) => !isDerived(r)) && rows.filter((r) => !isDerived(r)).every((r) => sel.includes(r.id))} onChange={(e) => setSel(e.target.checked ? rows.filter((r) => !isDerived(r)).map((r) => r.id) : [])} /></th>
                   {["Student Name & Guardian", "Grade / Sec", "GRN No.", "DigiLocker Status", "Flagged Discrepancy", "Quick Action"].map((h) => <th key={h} className="px-3 py-2.5 t-label-caps !text-[11px] text-on-surface-variant">{h}</th>)}</tr></thead>
                 <tbody>
                   {rows.map((e) => (
                     <tr key={e.id} className="border-b border-outline-variant/40">
-                      <td className="py-3 pl-5"><Checkbox aria-label={`Select ${e.name}`} checked={sel.includes(e.id)} onChange={(ev) => setSel(ev.target.checked ? [...sel, e.id] : sel.filter((x) => x !== e.id))} /></td>
+                      <td className="py-3 pl-5">{!isDerived(e) && <Checkbox aria-label={`Select ${e.name}`} checked={sel.includes(e.id)} onChange={(ev) => setSel(ev.target.checked ? [...sel, e.id] : sel.filter((x) => x !== e.id))} />}</td>
                       <td className="px-3 py-3"><div className="flex items-center gap-2"><Avatar name={e.name} size={32} /><div><p className="font-semibold">{e.name}</p><p className="text-xs text-outline">(G: {e.guardian})</p></div></div></td>
                       <td className="px-3 py-3 font-semibold">{e.grade}</td><td className="px-3 py-3 font-mono text-xs text-on-surface-variant">{e.grn}</td>
                       <td className="px-3 py-3"><Badge tone={e.tone}>● {e.status}</Badge></td>
                       <td className="max-w-[240px] px-3 py-3 text-xs text-on-surface-variant">{e.issue}</td>
-                      <td className="px-3 py-3"><Button size="sm" variant="outline" disabled={busy} onClick={() => resolve(e)}>{e.action || "Resolve"}</Button></td>
+                      <td className="px-3 py-3">{isDerived(e) ? <Link href={e.href}><Button size="sm" variant="outline">{e.action}</Button></Link>
+                        : <Button size="sm" variant="outline" disabled={busy} onClick={() => resolve(e)}>{e.action || "Resolve"}</Button>}</td>
                     </tr>))}
                 </tbody>
               </table>
@@ -170,7 +179,7 @@ export function SetupView() {
             <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-on-surface-variant">
               <span>Showing {view.length ? (cur - 1) * 6 + 1 : 0}–{Math.min(view.length, cur * 6)} of {view.length} discrepancies</span>
               <div className="flex items-center gap-2">
-                {sel.length > 0 && <Button size="sm" disabled={busy} onClick={() => batchResolve(sel)}>Resolve {sel.length} selected</Button>}
+                {selStored.length > 0 && <Button size="sm" disabled={busy} onClick={() => batchResolve(selStored)}>Resolve {selStored.length} selected</Button>}
                 <Button size="sm" variant="outline" disabled={cur <= 1} onClick={() => setPage(cur - 1)}>Prev</Button><span className="text-sm">Page {cur} of {pages}</span>
                 <Button size="sm" variant="outline" disabled={cur >= pages} onClick={() => setPage(cur + 1)}>Next</Button></div>
             </div>

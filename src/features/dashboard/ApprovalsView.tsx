@@ -7,11 +7,9 @@ import { DashHeader } from "./DashHeader";
 import { KindIcon, KIND_LABEL, ReasonModal, useApprovalActions } from "./approvals-shared";
 import { errMsg, fmtSubmitted, KIND_ORDER, MONTHS, type Approval, type Notif, type Policy, nowLocal } from "./data";
 
+import { avg, fmtHrs, turnaround } from "./logic";
+
 type Me = { id: string; name: string; title?: string };
-/** hours between submission and decision (null when either timestamp is missing) */
-const turnaround = (r: Approval) => { const a = Date.parse(r.submitted ?? ""), b = Date.parse(r.decidedAt ?? ""); return Number.isNaN(a) || Number.isNaN(b) || b < a ? null : (b - a) / 36e5; };
-const fmtHrs = (h: number | null) => h === null ? "—" : h < 1 ? `${Math.round(h * 60)} min` : `${h.toFixed(1)} hrs`;
-const avg = (xs: number[]) => xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : null;
 
 export function ApprovalsView() {
   const { rows, approve, reject, reopen, update } = useApprovalActions();

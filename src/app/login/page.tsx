@@ -14,7 +14,7 @@ export default function LoginPage() {
   useEffect(() => { if (user) router.replace("/dashboard"); }, [user, router]);
   const forgot = async () => {
     setError(""); setInfo("");
-    if (!/^\S+@\S+\.\S+$/.test(email)) return setError("Enter your email above first.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter your email above first.");
     try { await resetPassword(email); setInfo("Password reset email sent. Check your inbox."); } catch (e) { setError(e instanceof Error ? e.message : "Could not send reset email"); }
   };
   const [email, setEmail] = useState("");
@@ -25,7 +25,8 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(""); setInfo("");
-    if (!/^\S+@\S+\.\S+$/.test(email.trim())) return setError("Enter a valid email address.");
+    if (!email.trim()) return setError("Enter your email address.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter a valid email address.");
     if (!password) return setError("Enter your password.");
     setIsLoading(true);
 

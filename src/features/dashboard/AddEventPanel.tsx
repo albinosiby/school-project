@@ -5,56 +5,69 @@ import { Badge, Button, Checkbox, Field, Input, Select, SlideOver, Switch, useTo
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { CATS, errMsg, MONTHS, monthGrid, parse, TODAY, useEvents, type CalEvent, type CatId, type Staff, nowLocal } from "./data";
+import { eventClashes, termOf, validateEvent } from "./logic";
 
 const GRADES = ["6", "7", "8", "9", "10", "11", "12"];
 const TERMS = ["Term 1 (Apr – Oct)", "Term 2 (Nov – Mar)"];
 /** Apr–Oct is Term 1, Nov–Mar Term 2 */
-const termFor = (date: string) => { const m = parse(date).getMonth(); return m >= 3 && m <= 9 ? TERMS[0]! : TERMS[1]!; };
+const termFor = (date: string) => (termOf(date) === "Term 1" ? TERMS[0]! : TERMS[1]!);
 const VENUES = ["Main Campus", "Main Auditorium & Science Labs Block B", "Main Field & Amphitheatre", "Examination Wing", "Thyagaraj Stadium", "Library & Seminar Hall"];
 
-type Form = { title: string; category: CatId; term: string; start: string; end: string; startTime: string; endTime: string; instructional: boolean; grades: string[];
+type Form = { title: string; category: CatId; term: string; start: string; end: string; allDay: boolean; startTime: string; endTime: string; instructional: boolean; grades: string[];
   venue: string; lead: string; notifyApp: boolean; notifyWhatsapp: boolean; circular: string; desc: string };
-const blank = (date: string): Form => ({ title: "", category: "ptm", term: termFor(date), start: date, end: date, startTime: "08:30", endTime: "14:30",
+const blank = (date: string): Form => ({ title: "", category: "ptm", term: termFor(date), start: date, end: date, allDay: false, startTime: "08:30", endTime: "14:30",
   instructional: true, grades: [], venue: VENUES[0]!, lead: "", notifyApp: true, notifyWhatsapp: false, circular: "", desc: "" });
+/** the form for an existing event (edit) */
+const fromEvent = (e: CalEvent): Form => ({
+  title: e.title ?? "", category: (CATS.some((c) => c.id === e.category) ? e.category : "ptm"), term: e.term === "Term 1" ? TERMS[0]! : e.term === "Term 2" ? TERMS[1]! : termFor(e.start || TODAY),
+  start: e.start ?? "", end: e.end ?? e.start ?? "", allDay: !!e.allDay || (!e.startTime && !e.endTime), startTime: e.startTime || "08:30", endTime: e.endTime || "14:30",
+  instructional: e.instructional ?? true, grades: e.grades ?? [], venue: e.venue || VENUES[0]!, lead: e.lead ?? "", notifyApp: e.notifyApp ?? true, notifyWhatsapp: e.notifyWhatsapp ?? false,
+  circular: e.circular ?? "", desc: e.desc ?? "",
+});
 
-export function AddEventPanel({ open, onClose, initialDate }: { open: boolean; onClose: () => void; initialDate?: string }) {
-  const { rows: events, create } = useEvents();
+/** calendar_events/{id} as the admin web writes it (contract 3 / 10: status "published" | "draft", notifyApp; never parentVisible) */
+export function eventDoc(f: Form, status: "published" | "draft"): Omit<CalEvent, "id"> {
+  return {
+    title: f.title.trim(), category: f.category, term: f.term.startsWith("Term 1") ? "Term 1" : "Term 2", start: f.start, end: f.end,
+    allDay: f.allDay, startTime: f.allDay ? "" : f.startTime, endTime: f.allDay ? "" : f.endTime, venue: f.venue, lead: f.lead, grades: f.grades,
+    instructional: f.instructional, notifyApp: f.notifyApp, notifyWhatsapp: f.notifyWhatsapp, circular: f.circular, desc: f.desc.trim(), status,
+  };
+}
+
+export function AddEventPanel({ open, onClose, initialDate, event }: { open: boolean; onClose: () => void; initialDate?: string; event?: CalEvent | null }) {
+  const { rows: events, create, update } = useEvents();
   const { rows: staff } = useCollection<Staff>("staff");
   const { create: notify } = useCollection<{ id: string }>("notifications");
   const toast = useToast();
-  const [f, setF] = useState<Form>(blank(initialDate ?? TODAY));
+  const init = () => (event ? fromEvent(event) : blank(initialDate ?? TODAY));
+  const [f, setF] = useState<Form>(init);
   const [errs, setErrs] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
-  useEffect(() => { if (open) { setF(blank(initialDate ?? TODAY)); setErrs({}); } }, [open, initialDate]);
+  // keyed on the event id: a function writing parentVisible on the doc must not reset what the admin is typing
+  useEffect(() => { if (open) { setF(event ? fromEvent(event) : blank(initialDate ?? TODAY)); setErrs({}); } }, [open, initialDate, event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
 
-  const days = Math.max(1, Math.round((parse(f.end).getTime() - parse(f.start).getTime()) / 864e5) + 1);
-  const clashes = useMemo(() => events.filter((e) => e.status === "published" && e.start <= f.end && e.end >= f.start &&
-    ((e.venue === f.venue && e.venue !== "Main Campus") || (f.lead && e.lead === f.lead))), [events, f.start, f.end, f.venue, f.lead]);
-  const [mm, setMm] = useState(() => { const d = parse(f.start); return { y: d.getFullYear(), m: d.getMonth() }; });
-  useEffect(() => { const d = parse(f.start); setMm({ y: d.getFullYear(), m: d.getMonth() }); }, [f.start]);
+  const days = f.start && f.end && f.end >= f.start ? Math.round((parse(f.end).getTime() - parse(f.start).getTime()) / 864e5) + 1 : 1;
+  const clashes = useMemo(() => eventClashes(events, { id: event?.id, start: f.start, end: f.end, venue: f.venue, lead: f.lead }), [events, event?.id, f.start, f.end, f.venue, f.lead]);
+  const [mm, setMm] = useState(() => { const d = parse(f.start || TODAY); return { y: d.getFullYear(), m: d.getMonth() }; });
+  useEffect(() => { if (!f.start) return; const d = parse(f.start); setMm({ y: d.getFullYear(), m: d.getMonth() }); }, [f.start]);
   const grid = monthGrid(mm.y, mm.m);
 
-  const validate = () => {
-    const e: Record<string, string> = {};
-    if (!f.title.trim()) e.title = "Event title is required";
-    if (!f.start) e.start = "Start date required";
-    if (!f.end || f.end < f.start) e.end = "End date must be on or after start date";
-    if (f.startTime >= f.endTime && f.start === f.end) e.endTime = "End time must be after start time";
-    setErrs(e); return Object.keys(e).length === 0;
-  };
   const save = async (status: "published" | "draft") => {
-    if (!validate()) { toast("Please fix the highlighted fields", "error"); return; }
-    const { circular, ...rest } = f;
+    const e = validateEvent(f);
+    setErrs(e);
+    if (Object.keys(e).length) { toast("Please fix the highlighted fields", "error"); return; }
+    const body = eventDoc(f, status);
     setBusy(true);
     try {
-      await create({ ...rest, title: f.title.trim(), term: f.term.startsWith("Term 1") ? "Term 1" : "Term 2", circular, status } as Omit<CalEvent, "id">);
-      if (status === "published" && f.notifyApp) {
-        await notify({ category: "statutory", title: "Calendar", body: `“${f.title.trim()}” published to the master calendar (${f.start}${f.end !== f.start ? ` → ${f.end}` : ""})`, createdAt: nowLocal(), read: false, href: "/calendar" } as never);
+      if (event) await update(event.id, body); else await create(body);
+      // the bell row only when the event goes live (the onCalendarEventPublished function pushes the teachers)
+      if (status === "published" && f.notifyApp && event?.status !== "published") {
+        await notify({ category: "statutory", title: "Calendar", body: `“${body.title}” published to the master calendar (${f.start}${f.end !== f.start ? ` → ${f.end}` : ""})`, createdAt: nowLocal(), read: false, href: "/calendar" } as never);
       }
-      toast(status === "published" ? "Event published to master calendar" : "Saved as unapproved draft");
+      toast(event ? (status === "published" ? "Event updated on the master calendar" : "Draft updated") : status === "published" ? "Event published to master calendar" : "Saved as unapproved draft");
       onClose();
-    } catch (e) { toast(errMsg(e, "Could not save the event"), "error"); } finally { setBusy(false); }
+    } catch (err) { toast(errMsg(err, "Could not save the event"), "error"); } finally { setBusy(false); }
   };
   const chip = (on: boolean) => cn("inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors", on ? "border-secondary bg-secondary text-on-secondary" : "border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-low");
   const section = (n: string, title: string, sub: string, tag: string, body: React.ReactNode) => (
@@ -67,12 +80,12 @@ export function AddEventPanel({ open, onClose, initialDate }: { open: boolean; o
     </section>);
 
   return (
-    <SlideOver open={open} onClose={onClose} width="max-w-5xl" title="Add Academic Milestone / Statutory Event"
+    <SlideOver open={open} onClose={onClose} width="max-w-5xl" title={event ? "Edit Academic Event" : "Add Academic Milestone / Statutory Event"}
       subtitle="Create and publish term milestones, statutory examinations, holidays, PTMs or sports events to the 2026-27 master institutional calendar."
       footer={<div className="flex w-full flex-wrap items-center gap-2">
-        <Button variant="ghost" className="!text-error" onClick={() => { setF(blank(initialDate ?? TODAY)); setErrs({}); onClose(); }}><Trash2 size={14} />Discard Changes</Button>
+        <Button variant="ghost" className="!text-error" onClick={() => { setF(init()); setErrs({}); onClose(); }}><Trash2 size={14} />Discard Changes</Button>
         <span className="text-xs text-outline">• Nothing is saved until you publish or save a draft</span>
-        <div className="ml-auto flex gap-2"><Button variant="outline" disabled={busy} onClick={() => save("draft")}>Save as Unapproved Draft</Button><Button disabled={busy} onClick={() => save("published")}>{busy ? "Saving…" : "Publish to Master Calendar"}</Button></div></div>}>
+        <div className="ml-auto flex gap-2"><Button variant="outline" disabled={busy} onClick={() => save("draft")}>{event?.status === "published" ? "Unpublish to Draft" : "Save as Unapproved Draft"}</Button><Button disabled={busy} onClick={() => save("published")}>{busy ? "Saving…" : event?.status === "published" ? "Save Changes" : "Publish to Master Calendar"}</Button></div></div>}>
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
         <div className="space-y-5">
           {section("01", "Event Classification & Identity", "Institutional nomenclature and statutory registry category", "MASTER REGISTRY", <>
@@ -82,16 +95,20 @@ export function AddEventPanel({ open, onClose, initialDate }: { open: boolean; o
             <p className="mt-1 text-right text-xs text-outline">{f.title.length} / 120 chars</p>
             <p className="mb-2 mt-3 text-xs font-semibold text-on-surface-variant">Statutory Classification</p>
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Classification">
-              {CATS.map((c) => <button key={c.id} role="radio" aria-checked={f.category === c.id} onClick={() => set("category", c.id)} className={chip(f.category === c.id)}>
+              {CATS.map((c) => <button key={c.id} type="button" role="radio" aria-checked={f.category === c.id} onClick={() => set("category", c.id)} className={chip(f.category === c.id)}>
                 <span className={cn("size-2 rounded-full", f.category === c.id ? "bg-white" : c.dot)} />{c.label}{f.category === c.id && " ✓"}</button>)}
-            </div></>)}
+            </div>{errs.category && <span className="mt-1 block text-xs text-error">{errs.category}</span>}</>)}
           {section("02", "Date, Time & Term Alignment", "Institutional timetable mapping & instructional day calculation", "Quarter Q3", <>
             <Field label="Academic Term Alignment"><Select value={f.term.startsWith("Term 1") ? TERMS[0] : TERMS[1]} onChange={(e) => set("term", e.target.value)}>{TERMS.map((t) => <option key={t}>{t}</option>)}</Select></Field>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <Field label="Start date" required error={errs.start}><Input type="date" value={f.start} onChange={(e) => { const v = e.target.value; set("start", v); if (v && f.end < v) set("end", v); if (v) set("term", termFor(v)); }} /></Field>
+              <Field label="Start date" required error={errs.start}><Input type="date" value={f.start} onChange={(e) => { const v = e.target.value; set("start", v); if (v && (!f.end || f.end < v)) set("end", v); if (v) set("term", termFor(v)); }} /></Field>
               <Field label="End date" required error={errs.end} hint={`${days} consecutive day${days > 1 ? "s" : ""}`}><Input type="date" value={f.end} min={f.start} onChange={(e) => set("end", e.target.value)} /></Field>
-              <Field label="Daily start time"><Input type="time" value={f.startTime} onChange={(e) => set("startTime", e.target.value)} /></Field>
-              <Field label="Daily end time" error={errs.endTime}><Input type="time" value={f.endTime} onChange={(e) => set("endTime", e.target.value)} /></Field>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/60 px-3 py-2 sm:col-span-2"><span className="text-sm font-semibold">All-day event</span>
+                <Switch checked={f.allDay} onChange={(v) => set("allDay", v)} label="All-day event" /></div>
+              {!f.allDay && <>
+                <Field label="Daily start time" required error={errs.startTime}><Input type="time" value={f.startTime} onChange={(e) => set("startTime", e.target.value)} /></Field>
+                <Field label="Daily end time" required error={errs.endTime}><Input type="time" value={f.endTime} onChange={(e) => set("endTime", e.target.value)} /></Field>
+              </>}
             </div>
             <div className="mt-4 flex items-center justify-between gap-4 rounded-lg border border-success/30 bg-success-container/50 p-4">
               <div><p className="font-semibold">CBSE Rule 14.1 Instructional Day Quota</p>

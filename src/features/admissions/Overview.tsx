@@ -5,9 +5,10 @@ import { ArrowRight, CalendarClock, MessageSquare, Phone, UserPlus } from "lucid
 import { Badge, Button, Card, EmptyState, Field, Input, Modal, ProgressBar, SearchBox, Select, Stat, Textarea, useToast, Avatar } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate, inrFull } from "@/lib/format";
-import { addDays, downloadCsv, pct, useToday, useAdm } from "./lib";
+import { downloadCsv, pct, useToday, useAdm, useCounsellors } from "./lib";
+import { overviewStats } from "./logic";
 import { useCollection } from "@/lib/useCollection";
-import { type FormDoc, type Enquiry, type EnqStage, GROUPS, SOURCES, STAFF, gradeLabel } from "./types";
+import { type FormDoc, type Enquiry, type EnqStage, GROUPS, SOURCES, gradeLabel } from "./types";
 import { useEnquirySlide } from "./AdmissionsShell";
 
 const COLS: { id: string; label: string; stages: EnqStage[]; dot: string }[] = [
@@ -25,6 +26,7 @@ export function Overview() {
   const open = useEnquirySlide();
   const form = useCollection<FormDoc>("adm_form").rows[0];
   const toast = useToast();
+  const counsellors = useCounsellors();
   const [q, setQ] = useState("");
   const [src, setSrc] = useState("");
   const [who, setWho] = useState("");
@@ -32,24 +34,7 @@ export function Overview() {
   const [detail, setDetail] = useState<string | null>(null);
   const today = useToday();
 
-  const s = useMemo(() => {
-    const d30 = addDays(today, -30), d60 = addDays(today, -60);
-    const recent = enq.rows.filter((e) => e.createdAt >= d30).length, prev = enq.rows.filter((e) => e.createdAt >= d60 && e.createdAt < d30).length;
-    const unassigned = enq.rows.filter((e) => !e.assignee && ["new", "contacted", "campus"].includes(e.stage)).length;
-    const paid = apps.rows.filter((a) => a.feePaid).length;
-    const tested = apps.rows.filter((a) => a.testSlotId);
-    const scores = apps.rows.filter((a) => a.writtenScore != null);
-    const accepted = offers.rows.filter((o) => o.status === "accepted" || o.status === "enrolled").length;
-    const enrolled = apps.rows.filter((a) => a.status === "enrolled").length;
-    const cap = seatRows.reduce((x, r) => x + r.capacity, 0);
-    return {
-      total: enq.rows.length, growth: prev ? Math.round(((recent - prev) / prev) * 100) : recent ? 100 : 0, unassigned,
-      apps: apps.rows.length, conv: pct(apps.rows.length, enq.rows.length), fees: paid * (config?.appFee ?? 2500),
-      tested: tested.length, avgScore: scores.length ? Math.round((scores.reduce((x, a) => x + (a.writtenScore ?? 0), 0) / scores.length) * 10) / 10 : 0,
-      offers: offers.rows.length, accept: pct(accepted, offers.rows.length), waitlist: apps.rows.filter((a) => a.status === "waitlisted").length,
-      enrolled, cap, token: offers.rows.reduce((x, o) => x + o.tokenPaid, 0),
-    };
-  }, [enq.rows, apps.rows, offers.rows, seatRows, config, today]);
+  const s = useMemo(() => overviewStats(enq.rows, apps.rows, offers.rows, seatRows, config?.appFee ?? 2500, today), [enq.rows, apps.rows, offers.rows, seatRows, config, today]);
 
   const filtered = useMemo(() => enq.rows.filter((e) => {
     if (src && e.source !== src) return false;
@@ -92,7 +77,7 @@ export function Overview() {
       <div className="flex flex-wrap gap-3">
         <SearchBox value={q} onChange={setQ} placeholder="Search applicant name, parent mobile, enquiry ID (e.g. ENQ-2026-0084)…" className="min-w-64 flex-1" />
         <Select aria-label="Source filter" value={src} onChange={(e) => setSrc(e.target.value)} className="w-44"><option value="">All sources</option>{SOURCES.map((x) => <option key={x}>{x}</option>)}</Select>
-        <Select aria-label="Assignee filter" value={who} onChange={(e) => setWho(e.target.value)} className="w-44"><option value="">All counsellors</option><option value="__none">Unassigned</option>{STAFF.map((x) => <option key={x}>{x}</option>)}</Select>
+        <Select aria-label="Assignee filter" value={who} onChange={(e) => setWho(e.target.value)} className="w-44"><option value="">All counsellors</option><option value="__none">Unassigned</option>{counsellors.map((x) => <option key={x}>{x}</option>)}</Select>
       </div>
 
       {!ready ? <p className="text-on-surface-variant">Loading pipeline…</p> : (
@@ -127,7 +112,7 @@ export function Overview() {
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="flex flex-col p-5">
             <div className="flex items-center justify-between"><span className="t-label-caps text-on-surface-variant">Online Form Builder</span><Badge tone="success">{form ? `Live v${form.version}` : "—"}</Badge></div>
-            <h3 className="mt-3 t-headline-md !text-[18px]">CBSE AY 2026–27 Admission Form</h3>
+            <h3 className="mt-3 t-headline-md !text-[18px]">{form?.name ?? "Admission Form"}</h3>
             <p className="mt-1 text-on-surface-variant">{form ? `${form.published.reduce((n, x) => n + x.fields.length, 0)} fields across ${form.published.length} sections in the live version.` : "Loading form…"}</p>
             <div className="mt-auto flex items-center justify-between border-t border-outline-variant/60 pt-3 text-xs text-on-surface-variant">
               <span>Last submission: {lastWeb ? fmtDate(lastWeb.createdAt) : "—"}</span>
@@ -155,7 +140,8 @@ export function Overview() {
         </div>
       </section>
       <p className="sr-only">{enq.rows.length} enquiries loaded</p>
-      <EnquiryDetail e={sel} onClose={() => setDetail(null)} onNew={open} />
+      {/* keyed per enquiry so a lost-reason / note draft never carries over to the next enquiry */}
+      <EnquiryDetail key={sel?.id ?? "none"} e={sel} onClose={() => setDetail(null)} onNew={open} />
     </div>
   );
 }
@@ -194,6 +180,7 @@ function EnquiryDetail({ e, onClose, onNew }: { e: Enquiry | null; onClose: () =
   const toast = useToast();
   const [reason, setReason] = useState("");
   const [note, setNote] = useState<string | null>(null);
+  const counsellors = useCounsellors(e?.assignee ?? "");
   if (!e) return null;
   const patch = (p: Partial<Enquiry>) => enq.update(e.id, p).then(() => toast("Enquiry updated")).catch(() => toast("Update failed", "error"));
   return (
@@ -208,7 +195,7 @@ function EnquiryDetail({ e, onClose, onNew }: { e: Enquiry | null; onClose: () =
           <div key={k}><dt className="text-xs text-on-surface-variant">{k}</dt><dd className="font-medium">{v || "—"}</dd></div>))}
       </dl>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <Field label="Counsellor"><Select value={e.assignee} onChange={(ev) => patch({ assignee: ev.target.value })}><option value="">Unassigned</option>{STAFF.map((s) => <option key={s}>{s}</option>)}</Select></Field>
+        <Field label="Counsellor"><Select value={e.assignee} onChange={(ev) => patch({ assignee: ev.target.value })}><option value="">Unassigned</option>{counsellors.map((s) => <option key={s}>{s}</option>)}</Select></Field>
         <Field label="Follow-up date"><Input type="date" value={e.followUp} onChange={(ev) => patch({ followUp: ev.target.value })} /></Field>
       </div>
       <Field label="Notes" className="mt-4"><Textarea value={note ?? e.note} onChange={(ev) => setNote(ev.target.value)} onBlur={() => note !== null && note !== e.note && patch({ note })} /></Field>

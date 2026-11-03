@@ -5,14 +5,17 @@ import { Badge, Button, Card, LineChart, Modal, ProgressBar, Switch, useToast } 
 import { useCollection } from "@/lib/useCollection";
 import { inrFull } from "@/lib/format";
 import { DynamicForm } from "./DynamicForm";
-import { copyText, downloadBlob, pct, useAdm } from "./lib";
+import { copyText, downloadBlob, pct, useAdm, useToday } from "./lib";
+import { intakeStats, submissionBlocker } from "./logic";
 import { qrSvg } from "./qr";
 import { gradeIdFromLabel, type FormDoc } from "./types";
 
 export function PublicFormPortal() {
   const { enq, apps, config, cfg, createEnquiry, logMessage, ready } = useAdm();
   const form = useCollection<FormDoc>("adm_form").rows[0];
+  const school = useCollection<{ id: string; name?: string; short?: string; city?: string; academicYear?: string }>("school").rows[0];
   const toast = useToast();
+  const today = useToday();
   const [origin, setOrigin] = useState("");
   const [fillOpen, setFillOpen] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -25,44 +28,45 @@ export function PublicFormPortal() {
     return () => clearTimeout(t);
   }, []);
 
-  const link = `${origin || "https://admissions.greenfield.edu.in"}/admissions/public-form?apply=1`;
+  const link = `${origin}/admissions/public-form?apply=1`;
+  const schoolName = school?.name || "School";
+  const fileStem = (school?.short || schoolName).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "school";
+  const ay = school?.academicYear ? `AY ${school.academicYear}` : "";
   const svg = useMemo(() => qrSvg(link, { margin: 1 }), [link]);
   const stats = config?.stats;
+  // live figures come from the enquiries; the stored counters (visitors / begun) have no real writer yet, so they only add history
+  const intake = useMemo(() => intakeStats(enq.rows, today), [enq.rows, today]);
   const web = enq.rows.filter((e) => e.source === "Website Form");
-  const submitted = apps.rows.filter((a) => a.feePaid).length;
+  const webIds = new Set(web.map((e) => e.id));
+  const submitted = apps.rows.filter((a) => a.feePaid && webIds.has(a.enquiryId)).length;
   const visitors = (stats?.visitors ?? 0) + web.length;
   const begun = (stats?.begun ?? 0) + web.length;
-  const snippet = `<iframe src="${link}&embed=1" width="100%" height="900" style="border:0" title="Greenfield admissions form"></iframe>`;
+  const snippet = `<iframe src="${link}&embed=1" width="100%" height="900" style="border:0" title="${schoolName} admissions form"></iframe>`;
 
   const copy = async (t: string, what: string) => { const ok = await copyText(t); toast(ok ? `${what} copied to clipboard` : "Copy failed — select and copy manually", ok ? "success" : "error"); };
   const dl = (kind: "svg" | "png") => {
-    if (kind === "svg") { downloadBlob("greenfield-admissions-qr.svg", new Blob([svg], { type: "image/svg+xml" })); return toast("Vector SVG downloaded"); }
+    if (kind === "svg") { downloadBlob(`${fileStem}-admissions-qr.svg`, new Blob([svg], { type: "image/svg+xml" })); return toast("Vector SVG downloaded"); }
     const img = new Image(), c = document.createElement("canvas"); c.width = c.height = 1200;
-    img.onload = () => { const x = c.getContext("2d")!; x.imageSmoothingEnabled = false; x.drawImage(img, 0, 0, 1200, 1200); c.toBlob((b) => { if (b) { downloadBlob("greenfield-admissions-qr-300dpi.png", b); toast("PNG downloaded"); } }); };
+    img.onload = () => { const x = c.getContext("2d")!; x.imageSmoothingEnabled = false; x.drawImage(img, 0, 0, 1200, 1200); c.toBlob((b) => { if (b) { downloadBlob(`${fileStem}-admissions-qr-300dpi.png`, b); toast("PNG downloaded"); } }); };
     img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   };
   const simulate = async (kind: string, to: string, text: string, toastMsg: string) => { try { await logMessage(kind, to, text); toast(toastMsg); } catch { toast("Could not log the send", "error"); } };
 
   async function onSubmit(v: Record<string, string>) {
     // enforce the cap and dedupe toggles shown on this page (errors are shown inside the form)
-    if (web.length >= cap) throw new Error("Online submissions are closed for now (cap reached). Please contact the admissions office.");
-    if (config?.safeguards.dedupe) {
-      const digits = (x: string) => x.replace(/\D/g, "");
-      const dup = enq.rows.find((e) => e.dob && e.dob === v.dob && ((v.aadhaar && digits(e.answers?.aadhaar ?? "") === digits(v.aadhaar)) || (e.name.trim().toLowerCase() === (v.name ?? "").trim().toLowerCase() && digits(e.phone) === digits(v.phone ?? ""))));
-      if (dup) throw new Error(`An enquiry for this child already exists (${dup.ref}).`);
-    }
+    const why = submissionBlocker(v, enq.rows, cap, !!config?.safeguards?.dedupe);
+    if (why) throw new Error(why);
     const core = new Set(["name", "grade", "dob", "guardian", "phone", "email", "prevSchool", "area"]);
     const answers = Object.fromEntries(Object.entries(v).filter(([k, x]) => !core.has(k) && x));
     const row = await createEnquiry({
-      name: v.name ?? "", grade: gradeIdFromLabel(v.grade ?? ""), dob: v.dob ?? "", guardian: v.guardian ?? "", phone: v.phone ?? "", email: v.email ?? "", prevSchool: v.prevSchool ?? "", area: v.area ?? "",
+      name: (v.name ?? "").trim(), grade: gradeIdFromLabel(v.grade ?? ""), dob: v.dob ?? "", guardian: (v.guardian ?? "").trim(), phone: (v.phone ?? "").trim(), email: (v.email ?? "").trim(), prevSchool: v.prevSchool ?? "", area: v.area ?? "",
       source: "Website Form", answers,
     });
-    if (config) cfg.update("config", { stats: { ...config.stats, scansToday: config.stats.scansToday + 1 } }).catch(() => {}); // stats only; never block the parent
-    if (config?.safeguards.receipts) await logMessage("Acknowledgement receipt", v.phone ?? "", `Receipt for ${row.ref}: ${v.name}. Interview docket will follow.`);
+    if (config?.safeguards?.receipts) await logMessage("Acknowledgement receipt", v.phone ?? "", `Receipt for ${row.ref}: ${v.name}. Interview docket will follow.`);
     setDone(row.ref);
   }
 
-  const hourly = stats?.hourly ?? [];
+  const hourly = intake.hourly.some(Boolean) ? intake.hourly : (stats?.hourly ?? intake.hourly);
   const sg = config?.safeguards;
   const cap = config?.submissionCap ?? 500;
   const setSg = (k: keyof NonNullable<typeof sg>, v: boolean) => config && cfg.update("config", { safeguards: { ...config.safeguards, [k]: v } }).catch(() => toast("Could not save setting", "error"));
@@ -71,12 +75,12 @@ export function PublicFormPortal() {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3"><Badge tone="info" className="!bg-info-container uppercase">Intake channel active</Badge><span className="text-sm text-on-surface-variant">Zone: Greenfield Main Campus · Bengaluru North</span></div>
+          <div className="flex items-center gap-3"><Badge tone="info" className="!bg-info-container uppercase">Intake channel active</Badge><span className="text-sm text-on-surface-variant">{schoolName}{school?.city ? ` · ${school.city}` : ""}</span></div>
           <h1 className="t-headline-lg mt-2">Public Admission Form &amp; QR Code Portal</h1>
-          <p className="mt-1 max-w-xl text-on-surface-variant">Shareable multi-channel digital intake link, print-ready campus QR stands, and direct WhatsApp onboarding links for AY 2026-27.</p>
+          <p className="mt-1 max-w-xl text-on-surface-variant">Shareable multi-channel digital intake link, print-ready campus QR stands, and direct WhatsApp onboarding links{ay ? ` for ${ay}` : ""}.</p>
         </div>
         <Card className="flex divide-x divide-outline-variant/60">
-          {[["TODAY'S SCANS", String(stats?.scansToday ?? 0)], ["TOTAL INTAKE", String(enq.rows.length)], ["FEE CAPTURED", inrFull(apps.rows.filter((a) => a.feePaid).length * (config?.appFee ?? 2500))]].map(([k, v]) => (
+          {[["TODAY'S SUBMISSIONS", String(intake.today)], ["TOTAL INTAKE", String(enq.rows.length)], ["FEE CAPTURED", inrFull(apps.rows.filter((a) => a.feePaid).length * (config?.appFee ?? 2500))]].map(([k, v]) => (
             <div key={k} className="px-5 py-3"><div className="t-caption text-on-surface-variant">{k}</div><div className="text-xl font-semibold">{v}</div></div>))}
         </Card>
       </header>
@@ -87,7 +91,7 @@ export function PublicFormPortal() {
             <div className="flex items-start justify-between"><div><div className="t-label-caps text-secondary">High-fidelity code</div><h2 className="t-headline-md !text-[18px]">Campus QR Identity</h2></div><Badge tone="success">Active &amp; Accepting</Badge></div>
             <div className="mt-4 rounded-lg bg-surface-container-low p-6 text-center">
               <div role="img" aria-label="QR code for the admissions form" className="mx-auto w-56 rounded bg-white p-3 shadow-card" dangerouslySetInnerHTML={{ __html: svg }} />
-              <p className="mt-3 text-sm font-semibold">Scan to Apply · AY 2026-27</p><p className="text-xs text-on-surface-variant">Direct Admissions Intake Link</p>
+              <p className="mt-3 text-sm font-semibold">Scan to Apply{ay ? ` · ${ay}` : ""}</p><p className="text-xs text-on-surface-variant">Direct Admissions Intake Link</p>
             </div>
             <div className="mt-4"><div className="mb-1.5 text-xs font-semibold text-on-surface-variant">Admissions Intake Permalink</div>
               <div className="flex items-center gap-2 rounded bg-surface-container-low p-1.5 pl-3"><Link2 size={14} className="shrink-0 text-outline" /><input readOnly value={link} aria-label="Permalink" className="min-w-0 flex-1 bg-transparent text-sm outline-none" /><Button size="sm" variant="outline" onClick={() => copy(link, "Link")}>Copy Link</Button></div></div>
@@ -99,7 +103,7 @@ export function PublicFormPortal() {
           <Card className="p-5">
             <div className="flex items-start justify-between"><div><div className="t-label-caps text-secondary">Physical reception asset</div><h2 className="t-headline-md !text-[18px]">Counter Standee Layout</h2></div><Badge>A4 Vertical</Badge></div>
             <div className="mt-4 rounded-lg bg-surface-container-low p-5"><div className="mx-auto max-w-[220px] rounded border-t-4 border-secondary bg-white p-4 text-center shadow-card">
-              <div className="text-xs font-bold">GREENFIELD INT.</div><div className="t-caption text-outline">CAMPUS ADMISSIONS DESK</div>
+              <div className="text-xs font-bold">{(school?.short || schoolName).toUpperCase()}</div><div className="t-caption text-outline">CAMPUS ADMISSIONS DESK</div>
               <div className="mx-auto my-3 w-28" dangerouslySetInnerHTML={{ __html: svg }} />
               <ul className="space-y-1 rounded bg-surface-container-low p-2 text-left text-[11px]"><li>Scan via Camera or UPI app</li><li>Quick {form?.sections.reduce((n, s) => n + s.fields.length, 0) ?? 14}-field intake</li><li>Instant SMS verification</li></ul></div></div>
             <p className="mt-3 text-sm text-on-surface-variant">Ready for placement at Security Gate 1, Administrative Front Desk, and Visitor Lounge. Form tracks source tags automatically (<code className="text-secondary">?ref=reception_standee</code>).</p>
@@ -113,7 +117,7 @@ export function PublicFormPortal() {
               {[
                 { icon: <MessageSquare size={16} />, c: "text-success", t: "WhatsApp Blast", d: `${enq.rows.filter((e) => e.stage === "new" || e.stage === "contacted").length} verified phone enquiries pending application.`, b: "Dispatch Blast", icon2: <Send size={14} />, act: () => simulate("WhatsApp blast", "pending enquiries", "Application link blast to pending enquiries.", "WhatsApp blast logged (simulated — gateway not connected)") },
                 { icon: <Share2 size={16} />, c: "text-secondary", t: "Social Bio Link", d: "Optimized for Instagram, Facebook & LinkedIn campus linktrees.", b: "Copy Bio URL", icon2: <Link2 size={14} />, act: () => copy(`${link}&ref=bio`, "Bio URL") },
-                { icon: <Bell size={16} />, c: "text-error", t: "Sibling Push", d: "Push alert to enrolled parents for sibling preferential intake.", b: "Queue Push", icon2: <Bell size={14} />, act: () => simulate("Sibling push", "enrolled parents", "Sibling preferential intake push notification.", "Sibling push logged (simulated — parent app not built yet)") },
+                { icon: <Bell size={16} />, c: "text-error", t: "Sibling Push", d: "Push alert to enrolled parents for sibling preferential intake.", b: "Queue Push", icon2: <Bell size={14} />, act: () => simulate("Sibling push", "enrolled parents", "Sibling preferential intake push notification.", "Sibling push logged (simulated — no push is sent from here)") },
               ].map((x) => (
                 <div key={x.t} className="flex flex-col rounded-lg bg-surface-container-low p-4"><div className={`flex items-center gap-2 font-semibold ${x.c}`}>{x.icon}{x.t}</div><p className="my-2 flex-1 text-sm text-on-surface-variant">{x.d}</p><Button variant="outline" size="sm" onClick={x.act}>{x.b}{x.icon2}</Button></div>))}
             </div>

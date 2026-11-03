@@ -3,41 +3,17 @@ import { useMemo } from "react";
 import { Download, FileText } from "lucide-react";
 import { Badge, BarChart, Button, Card, CardHeader, DonutChart, LineChart, useToast } from "@/components/ui";
 import { inrFull } from "@/lib/format";
+import { useCollection } from "@/lib/useCollection";
 import { downloadCsv, pct, useAdm } from "./lib";
-import { GROUPS, SOURCES, gradeLabel } from "./types";
-
-const days = (a: string, b: string) => (new Date(b).getTime() - new Date(a).getTime()) / 86400000;
-const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : 0);
+import { admissionsReport } from "./logic";
+import { gradeLabel } from "./types";
 
 export function Reports() {
   const { enq, apps, offers, seatRows, config, logMessage } = useAdm();
   const toast = useToast();
 
-  const d = useMemo(() => {
-    const A = apps.rows, E = enq.rows;
-    const tested = A.filter((a) => a.testSlotId), enrolled = A.filter((a) => a.status === "enrolled");
-    const e2a = avg(A.map((a) => { const e = E.find((x) => x.id === a.enquiryId); return e ? days(e.createdAt, a.submittedAt) : NaN; }).filter((x) => !isNaN(x)));
-    const a2o = avg(offers.rows.map((o) => { const a = A.find((x) => x.id === o.applicationId); return a ? days(a.submittedAt, o.issuedAt) : NaN; }).filter((x) => !isNaN(x)));
-    const o2e = avg(offers.rows.filter((o) => o.tokenPaidAt).map((o) => days(o.issuedAt, o.tokenPaidAt)));
-    const spend = config?.marketingSpend ?? {};
-    const sources = SOURCES.map((s) => {
-      const leads = E.filter((e) => e.source === s), enr = leads.filter((e) => e.stage === "enrolled").length, sp = spend[s] ?? 0;
-      return { s, leads: leads.length, enr, conv: pct(enr, leads.length), cac: enr && sp ? Math.round(sp / enr) : 0, sp };
-    }).sort((a, b) => b.leads - a.leads);
-    const wings = GROUPS.map((g) => { const rs = seatRows.filter((r) => r.group === g.id), cap = rs.reduce((x, r) => x + r.capacity, 0), conf = rs.reduce((x, r) => x + r.enrolled, 0), held = rs.reduce((x, r) => x + r.held, 0), wl = rs.reduce((x, r) => x + r.waitlisted, 0); return { ...g, cap, conf, held, wl, yield: pct(conf, cap) }; });
-    const cap = wings.reduce((x, w) => x + w.cap, 0), conf = wings.reduce((x, w) => x + w.conf, 0);
-    const spendTotal = Object.values(spend).reduce((x, y) => x + y, 0);
-    const rteQuota = seatRows.reduce((x, r) => x + r.rteSeats, 0), rteIn = seatRows.reduce((x, r) => x + r.rte, 0);
-    const boys = enrolled.filter((a) => a.gender === "Male").length, girls = enrolled.filter((a) => a.gender === "Female").length;
-    const sib = enrolled.filter((a) => a.tag === "sibling").length, sibApps = A.filter((a) => a.tag === "sibling").length;
-    const month = new Map<string, number>(); A.forEach((a) => month.set(a.submittedAt.slice(0, 7), (month.get(a.submittedAt.slice(0, 7)) ?? 0) + 1));
-    const months = [...month.entries()].sort();
-    const funnel = [
-      { k: "Inquiries Logged", v: E.length, sub: `Avg ${e2a}d to apply` }, { k: "Applications Submitted", v: A.length, sub: `${pct(A.length, E.length)}% of enquiries` },
-      { k: "Tests & Interviews", v: tested.length, sub: `${tested.filter((a) => (a.writtenScore ?? 0) >= 60).length} pass (≥60)` }, { k: "Offers Issued", v: offers.rows.length, sub: `Avg ${a2o}d from application` }, { k: "Fee Paid & Enrolled", v: enrolled.length, sub: `Avg ${o2e}d to token` },
-    ];
-    return { funnel, sources, wings, cap, conf, spendTotal, rteQuota, rteIn, boys, girls, sib, sibApps, months, enrolledN: enrolled.length, tcN: enrolled.filter((a) => a.docs.tc === "verified").length };
-  }, [enq.rows, apps.rows, offers.rows, seatRows, config]);
+  const school = useCollection<{ id: string; name?: string; academicYear?: string }>("school").rows[0];
+  const d = useMemo(() => admissionsReport(enq.rows, apps.rows, offers.rows, seatRows, config?.marketingSpend ?? {}), [enq.rows, apps.rows, offers.rows, seatRows, config]);
 
   const comp = [
     { cat: "RTE 25% EWS Quota (Sec. 12(1)(c))", target: `${d.rteQuota} seats reserved`, actual: `${d.rteIn} allocated`, p: pct(d.rteIn, d.rteQuota), cap: true },
@@ -84,7 +60,7 @@ export function Reports() {
       </Card>
 
       <Card className="flex flex-wrap items-center justify-between gap-4 p-5">
-        <div className="flex items-center gap-3"><FileText className="text-secondary" /><div><b>AY 2026–27 Statutory Admissions Report</b><p className="text-sm text-on-surface-variant">Verified by Principal Dr. Rajiv Sharma · figures computed from live admissions data</p></div></div>
+        <div className="flex items-center gap-3"><FileText className="text-secondary" /><div><b>{school?.academicYear ? `AY ${school.academicYear} ` : ""}Statutory Admissions Report</b><p className="text-sm text-on-surface-variant">{school?.name ? `${school.name} · ` : ""}figures computed from live admissions data</p></div></div>
         <div className="flex gap-2"><Button variant="outline" onClick={() => logMessage("Report", "Records", "CBSE Return PDF generated (simulated).").then(() => toast("CBSE Return PDF queued (simulated — no PDF service connected)")).catch(() => toast("Could not queue the PDF", "error"))}>Download CBSE Return PDF</Button><Button variant="outline" onClick={() => { ledger(); toast("Full ledger exported"); }}>Export Full Ledger (.csv)</Button></div>
       </Card>
     </div>

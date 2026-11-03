@@ -4,6 +4,7 @@ import { Scale, Settings2, Zap } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, DataTable, Field, Input, Modal, ProgressBar, Stat, useToast, type Column } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { pct, rankValue, useAdm, type SeatRow } from "./lib";
+import { capacityError } from "./logic";
 import { GROUPS, TAG_LABEL, gradeLabel, type Application } from "./types";
 
 type Ranked = Application & { rank: number };
@@ -102,13 +103,14 @@ function CapacityModal({ open, onClose, rows, onSave }: { open: boolean; onClose
   const [v, setV] = useState<Record<string, { capacity: string; rte: string }>>({});
   if (!open) return null;
   const get = (r: SeatRow) => v[r.id] ?? { capacity: String(r.capacity), rte: String(r.rteSeats) };
-  const errs = rows.filter((r) => { const g = get(r); return g.capacity.trim() === "" || !Number.isInteger(Number(g.capacity)) || !(Number(g.capacity) >= r.held) || !Number.isInteger(Number(g.rte)) || !(Number(g.rte) >= 0 && Number(g.rte) <= Number(g.capacity)); });
+  const errOf = (r: SeatRow) => { const g = get(r); return capacityError(r.held, g.capacity, g.rte); };
+  const errs = rows.filter((r) => errOf(r));
   return (
     <Modal open onClose={onClose} width="max-w-2xl" title="Edit seat capacity" subtitle="Capacity cannot drop below enrolled + live offers."
       footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={errs.length > 0} onClick={() => onSave(Object.fromEntries(rows.map((r) => [r.id, { capacity: Number(get(r).capacity), rteSeats: Number(get(r).rte) }])))}>Save</Button></>}>
-      <div className="grid gap-3 sm:grid-cols-2">{rows.map((r) => { const g = get(r); const bad = errs.includes(r); return (
+      <div className="grid gap-3 sm:grid-cols-2">{rows.map((r) => { const g = get(r); const e = errOf(r); return (
         <div key={r.id} className="rounded-lg border border-outline-variant/60 p-3"><div className="mb-2 flex justify-between font-semibold">{gradeLabel(r.grade)}<span className="text-xs font-normal text-on-surface-variant">held {r.held}</span></div>
-          <div className="grid grid-cols-2 gap-2"><Field label="Capacity" error={bad ? "Invalid" : undefined}><Input type="number" min={r.held} value={g.capacity} onChange={(e) => setV({ ...v, [r.id]: { ...g, capacity: e.target.value } })} /></Field><Field label="RTE seats"><Input type="number" min={0} value={g.rte} onChange={(e) => setV({ ...v, [r.id]: { ...g, rte: e.target.value } })} /></Field></div></div>); })}</div>
+          <div className="grid grid-cols-2 gap-2"><Field label="Capacity" error={e.startsWith("Capacity") ? e : undefined}><Input type="number" min={r.held} aria-label={`${gradeLabel(r.grade)} capacity`} value={g.capacity} onChange={(e) => setV({ ...v, [r.id]: { ...g, capacity: e.target.value } })} /></Field><Field label="RTE seats" error={e.startsWith("RTE") ? e : undefined}><Input type="number" min={0} aria-label={`${gradeLabel(r.grade)} RTE seats`} value={g.rte} onChange={(e) => setV({ ...v, [r.id]: { ...g, rte: e.target.value } })} /></Field></div></div>); })}</div>
     </Modal>
   );
 }

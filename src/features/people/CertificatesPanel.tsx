@@ -8,6 +8,8 @@ import { storage } from "@/lib/firebase";
 import { fmtDate } from "@/lib/format";
 import { useMyName } from "@/lib/useMe";
 import { currentSchoolId, useCollection } from "@/lib/useCollection";
+import { classIdOf } from "@/features/ops/shared";
+import { certFileError, issueError, nextCertRef, type IssueForm } from "./studentLogic";
 
 /** certificates (data contract 13.7): requested by parents in the parent app or issued directly by the office. */
 export type Cert = { id: string; studentId: string; classId: string; studentName: string; grn?: string; type: string; title: string; category?: string; purpose?: string;
@@ -23,7 +25,7 @@ export const CERT_TYPES = [
   { id: "other", title: "Other Certificate" },
 ] as const;
 const tone = { Requested: "warning", Issued: "success", Rejected: "danger" } as const;
-const cls = (id: string) => id.replace(/^cls_(\d+)(\w)$/, "$1-$2");
+const cls = (id?: string) => (id ?? "").replace(/^cls_(\d+)(\w)$/, "$1-$2");
 const today = () => new Date().toLocaleDateString("en-CA");
 
 export function CertificatesPanel({ students }: { students: Stu[] }) {
@@ -35,11 +37,7 @@ export function CertificatesPanel({ students }: { students: Stu[] }) {
   const n = (st: string) => rows.filter((c) => c.status === st).length;
   const view = rows.filter((c) => tab === "all" || c.status === tab)
     .sort((a, b) => (b.issuedOn ?? b.requestedAt ?? "").localeCompare(a.issuedOn ?? a.requestedAt ?? ""));
-  const nextRef = () => {
-    const y = new Date().getFullYear();
-    const used = rows.map((c) => new RegExp(`^CERT/${y}/(\\d+)$`).exec(c.refNo ?? "")?.[1]).filter(Boolean).map(Number);
-    return `CERT/${y}/${String((used.length ? Math.max(...used) : 0) + 1).padStart(4, "0")}`;
-  };
+  const nextRef = () => nextCertRef(rows.map((c) => c.refNo), new Date().getFullYear());
 
   const cols: Column<Cert>[] = [
     { key: "student", header: "Student", sortValue: (c) => c.studentName, render: (c) => <div className="flex items-center gap-3"><Avatar name={c.studentName || "?"} />
@@ -69,7 +67,7 @@ export function CertificatesPanel({ students }: { students: Stu[] }) {
       <p className="t-caption mb-3 px-5 text-outline">Parents request certificates in the parent app and are notified when one is issued. Print the certificate, sign it, and upload the signed copy so parents can download it in the app.</p>
       {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading certificates…</p>
         : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No certificates here" hint="Requests sent from the parent app show up under Requested." />} />}
-      <IssueModal target={issuing} students={students} nextRef={nextRef} onClose={() => setIssuing(null)}
+      <IssueModal key={issuing === "new" ? "new" : issuing?.id ?? "none"} target={issuing} students={students} certs={rows} nextRef={nextRef} onClose={() => setIssuing(null)}
         onSave={async (id, data, file) => {
           // new certificates get their id first so the file can be stored under it
           const certId = id ?? `cer_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
@@ -83,8 +81,6 @@ export function CertificatesPanel({ students }: { students: Stu[] }) {
   );
 }
 
-const MAX_FILE = 10 * 1024 * 1024;
-
 /** Uploads the signed certificate to schools/{sid}/certificates/{id}/ (storage.rules) and returns the fields for the doc. */
 async function uploadCertificate(certId: string, file: File) {
   const sid = currentSchoolId();
@@ -96,40 +92,40 @@ async function uploadCertificate(certId: string, file: File) {
   return { fileUrl: await getDownloadURL(r), filePath: path, fileName: file.name };
 }
 
-function IssueModal({ target, students, nextRef, onClose, onSave }: {
-  target: Cert | "new" | null; students: Stu[]; nextRef: () => string; onClose: () => void; onSave: (id: string | null, data: Partial<Cert>, file: File | null) => Promise<void>;
+function IssueModal({ target, students, certs, nextRef, onClose, onSave }: {
+  target: Cert | "new" | null; students: Stu[]; certs: Cert[]; nextRef: () => string; onClose: () => void; onSave: (id: string | null, data: Partial<Cert>, file: File | null) => Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const me = useMyName();
   const existing = target && target !== "new" ? target : null;
-  const [f, setF] = useState<Record<string, string> | null>(null);
+  const [f, setF] = useState<IssueForm | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const form = f ?? {
+  const form: IssueForm = f ?? {
     studentId: existing?.studentId ?? "", type: existing?.type ?? "bonafide", purpose: existing?.purpose ?? "",
     refNo: existing?.refNo || nextRef(), issuedOn: existing?.issuedOn ?? today(), validTill: existing?.validTill ?? "",
     issuer: existing?.issuer ?? `${me.name}${me.title ? `, ${me.title}` : ""}`, note: existing?.note ?? "",
   };
-  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => { setF({ ...form, [k]: e.target.value }); setErr(""); };
+  const set = (k: keyof IssueForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => { setF({ ...form, [k]: e.target.value }); setErr(""); };
   const close = () => { setF(null); setFile(null); setErr(""); onClose(); };
   const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const fl = e.target.files?.[0] ?? null;
     e.target.value = "";
-    if (fl && !/^(application\/pdf|image\/(png|jpeg))$/.test(fl.type)) return setErr("Upload a PDF, PNG or JPG file.");
-    if (fl && fl.size > MAX_FILE) return setErr("The file is larger than 10 MB.");
+    const bad = fl ? certFileError(fl) : "";
+    if (bad) return setErr(bad);
     setFile(fl); setErr("");
   };
 
   async function submit() {
     const s = students.find((x) => x.id === form.studentId);
-    if (!existing && !s) return setErr("Choose a student.");
-    if (!form.refNo.trim() || !form.issuedOn) return setErr("Reference number and issue date are required.");
+    const bad = issueError(form, { isNew: !existing, studentOk: !!s, certId: existing?.id, certs });
+    if (bad) return setErr(bad);
     const type = CERT_TYPES.find((t) => t.id === form.type) ?? CERT_TYPES[0];
     const issue = { status: "Issued", refNo: form.refNo.trim(), issuedOn: form.issuedOn, validTill: form.validTill, issuer: form.issuer.trim(), note: form.note.trim() };
     setBusy(true);
     try {
       if (existing) await onSave(existing.id, issue, file);
-      else await onSave(null, { ...issue, studentId: s!.id, classId: s!.classId ?? `cls_${s!.grade}${s!.section}`, studentName: s!.name, grn: s!.grn, type: type.id, title: type.title,
+      else await onSave(null, { ...issue, studentId: s!.id, classId: s!.classId || classIdOf(s!.grade, s!.section), studentName: s!.name, grn: s!.grn, type: type.id, title: type.title,
         category: "bonafide", purpose: form.purpose.trim(), requestedBy: "School office", requestedAt: new Date().toISOString() }, file);
       close();
     } catch (e) { setErr(/storage|upload/i.test(String(e)) ? "Could not upload the file. Check the file and try again." : "Could not save the certificate."); } finally { setBusy(false); }
@@ -148,7 +144,7 @@ function IssueModal({ target, students, nextRef, onClose, onSave }: {
         <Field label="Reference number" required><Input value={form.refNo} onChange={set("refNo")} className="font-mono" /></Field>
         <Field label="Issue date" required><Input type="date" value={form.issuedOn} onChange={set("issuedOn")} /></Field>
         <Field label="Valid till"><Input type="date" value={form.validTill} onChange={set("validTill")} /></Field>
-        <Field label="Signed by"><Input value={form.issuer} onChange={set("issuer")} /></Field>
+        <Field label="Signed by" required><Input value={form.issuer} onChange={set("issuer")} /></Field>
         <Field label="Signed certificate" hint="PDF, PNG or JPG up to 10 MB. Parents download it in the app; without a file they are told to collect it from the office." className="sm:col-span-2">
           <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-outline-variant px-3 text-sm font-medium hover:bg-surface-container-low">

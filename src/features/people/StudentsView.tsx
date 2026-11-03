@@ -3,19 +3,22 @@ import { useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Download, Pencil, Plus, Trash2, UserCheck, Users, TriangleAlert, Percent } from "lucide-react";
 import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, ProgressBar, SearchBox, Select, SlideOver, Stat, Tabs, useToast, type Column } from "@/components/ui";
-import { SECTIONS, classIdOf, nextId } from "@/features/ops/shared";
+import { SECTIONS, todayIso } from "@/features/ops/shared";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "@/features/communication/csv";
 import type { Tone } from "@/components/ui";
-import { consentState, normEmail, useSchoolUsers, validEmail, type Consent, type ConsentState } from "@/lib/parentAccount";
+import { consentMap, consentState, useSchoolUsers, type Consent, type ConsentState, type SchoolUser } from "@/lib/parentAccount";
 import { ParentLoginSection } from "./ParentLoginSection";
 import { StudentLeavesPanel } from "./StudentLeavesPanel";
 import { MeetingsPanel } from "./MeetingsPanel";
 import { useNow } from "@/lib/useNow";
 import { CertificatesPanel } from "./CertificatesPanel";
+import { nextStudentId, studentClassId, validateStudent, type StudentDoc, type StudentFormValues } from "./studentLogic";
 
 export type Student = { id: string; name: string; grn: string; grade: string; section: string; guardian: string; phone: string; status: string; attendance: number;
   email?: string; dob?: string; address?: string; relation?: string;
+  /** contract 3: class id `cls_{grade}{SECTION}` and the integer roll in that class (older rows may lack them) */
+  classId?: string; roll?: number; deleted?: boolean;
   /** contract 13.1: parent login email and the linked parent auth uids (siblings share a uid) */
   guardianEmail?: string; guardianUids?: string[];
   /** contract 14.2: bus + stop assigned in Transport > Buses (display names kept by the admin web) */
@@ -25,11 +28,18 @@ const pctOf = (s: Student) => Number(s.attendance) || 0; // attendance may be mi
 const tone = (s: string): Tone => (s === "Active" ? "success" : s === "Transferred" ? "neutral" : "warning");
 const GRADES = Array.from({ length: 12 }, (_, i) => String(i + 1));
 const CONSENT: { v: ConsentState; label: string; tone: Tone }[] = [{ v: "Given", label: "Consent given", tone: "success" }, { v: "Pending", label: "Consent pending", tone: "warning" }, { v: "None", label: "No parent login", tone: "neutral" }];
-const blank = { name: "", grn: "", grade: "6", section: "A", guardian: "", relation: "Parent", phone: "", email: "", guardianEmail: "", dob: "", address: "", status: "Active", attendance: 100 };
+const blank: StudentFormValues = { name: "", grn: "", grade: "6", section: "A", roll: "", guardian: "", relation: "Parent", phone: "", email: "", guardianEmail: "", dob: "", address: "", status: "Active", attendance: 100 };
+/** The form's copy of a student (only the fields the form edits). */
+const formOf = (s: Student): StudentFormValues => ({ name: s.name ?? "", grn: s.grn ?? "", grade: String(s.grade ?? "6"), section: String(s.section ?? "A"), roll: s.roll ? String(s.roll) : "",
+  guardian: s.guardian ?? "", relation: s.relation ?? "Parent", phone: s.phone ?? "", email: s.email ?? "", guardianEmail: s.guardianEmail ?? "", dob: s.dob ?? "", address: s.address ?? "",
+  status: s.status ?? "Active", attendance: s.attendance ?? 100 });
 
 export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   const toast = useToast();
-  const { rows, ready, create, update, remove } = useCollection<Student>("students");
+  const all = useCollection<Student>("students");
+  const { ready, create, update, remove } = all;
+  // soft-deleted rows (contract 2: `deleted: true`) are not shown anywhere
+  const rows = useMemo(() => all.rows.filter((s) => s.deleted !== true), [all.rows]);
   const [q, setQ] = useState(initialQ);
   const [grade, setGrade] = useState(""); const [section, setSection] = useState(""); const [status, setStatus] = useState("");
   const [profile, setProfile] = useState<Student | null>(null);
@@ -41,13 +51,13 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   const params = useSearchParams(); const router = useRouter(); const path = usePathname();
   const tab = ["leaves", "meetings", "certificates"].find((t) => t === params.get("tab")) ?? "directory";
   const setTab = (t: string) => router.replace(t === "directory" ? path : `${path}?tab=${t}`, { scroll: false });
-  const pendingLeaves = useCollection<{ id: string; status: string }>("student_leaves").rows.filter((l) => l.status === "Pending").length;
+  const pendingLeaves = useCollection<{ id: string; status?: string; deleted?: boolean }>("student_leaves").rows.filter((l) => !l.deleted && (l.status ?? "Pending").toLowerCase() === "pending").length;
   const now = useNow();
   const bookedMeetings = useCollection<{ id: string; status: string; startMs: number }>("ptm_bookings").rows.filter((b) => b.status === "Scheduled" && b.startMs > now).length;
   const certRequests = useCollection<{ id: string; status: string }>("certificates").rows.filter((c) => c.status === "Requested").length;
   const { users } = useSchoolUsers();
   const consentRows = useCollection<Consent>("consents").rows;
-  const consents = useMemo(() => new Map(consentRows.map((c) => [c.uid || c.id, c])), [consentRows]);
+  const consents = useMemo(() => consentMap(consentRows), [consentRows]);
   const cstate = (s: Student) => consentState(s.guardianUids, consents);
 
   const view = useMemo(() => rows.filter((s) => (!grade || s.grade === grade) && (!section || s.section === section) && (!status || s.status === status) && (!consent || cstate(s) === consent)
@@ -74,7 +84,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   return (
     <div>
       <PageHeader title="Students & Guardians" subtitle="Manage student records, guardian contacts and enrolment status."
-        actions={<><Button variant="outline" onClick={() => downloadCsv("students", ["GRN", "Name", "Grade", "Section", "Guardian", "Phone", "Status", "Attendance %", "Parent app"], view.map((s) => [s.grn, s.name, s.grade, s.section, s.guardian, s.phone, s.status, pctOf(s), CONSENT.find((c) => c.v === cstate(s))!.label]))}><Download size={16} />Export CSV</Button>
+        actions={<><Button variant="outline" onClick={() => downloadCsv("students", ["GRN", "Name", "Grade", "Section", "Roll", "Guardian", "Phone", "Status", "Attendance %", "Parent app"], view.map((s) => [s.grn, s.name, s.grade, s.section, s.roll ?? "", s.guardian, s.phone, s.status, pctOf(s), CONSENT.find((c) => c.v === cstate(s))!.label]))}><Download size={16} />Export CSV</Button>
           <Button onClick={() => setForm({})}><Plus size={16} />Add Student</Button></>} />
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Total students" value={rows.length} icon={<Users size={16} />} />
@@ -99,7 +109,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
           : <p className="px-5 pb-5 text-on-surface-variant">Loading students…</p>}
       </Card>}
 
-      <SlideOver open={!!live} onClose={() => setProfile(null)} title={live?.name ?? ""} subtitle={live ? `${live.grn} · Grade ${live.grade}-${live.section}` : ""}
+      <SlideOver open={!!live} onClose={() => setProfile(null)} title={live?.name ?? ""} subtitle={live ? `${live.grn} · Grade ${live.grade}-${live.section}${live.roll ? ` · Roll ${live.roll}` : ""}` : ""}
         footer={live && <><Button variant="danger" onClick={() => setDel(live)}><Trash2 size={14} />Delete</Button><Button onClick={() => { setForm({ edit: live }); setProfile(null); }}><Pencil size={14} />Edit</Button></>}>
         {live && <div className="space-y-5">
           <div className="flex items-center gap-4"><Avatar name={live.name} size={56} /><div><Badge tone={tone(live.status)}>{live.status}</Badge><div className="mt-1 text-on-surface-variant">DOB: {live.dob || "—"}</div></div></div>
@@ -111,14 +121,14 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
         </div>}
       </SlideOver>
 
-      {form && <StudentForm key={form.edit?.id ?? "new"} edit={form.edit} existing={rows} onClose={() => setForm(null)}
+      {form && <StudentForm key={form.edit?.id ?? "new"} edit={form.edit} existing={all.rows} users={users} onClose={() => setForm(null)}
         onSave={async (v) => { try {
-          // contract: classId + int roll (next free roll in the class when a student joins or changes class)
-          const classId = classIdOf(v.grade, v.section);
-          const inClass = rows.filter((r) => ((r as { classId?: string }).classId ?? classIdOf(r.grade, r.section)) === classId && r.id !== form.edit?.id);
-          const keep = form.edit && (form.edit as { classId?: string }).classId === classId ? (form.edit as { roll?: number }).roll : undefined;
-          const roll = keep ?? Math.max(0, ...inClass.map((r) => Number((r as { roll?: number }).roll) || 0)) + 1;
-          if (form.edit) { await update(form.edit.id, { ...v, classId, roll } as never); toast("Student updated"); } else { await create({ ...v, classId, roll, id: nextId("stu", rows.map((r) => r.id)) } as never); toast("Student added"); } setForm(null); } catch { toast("Save failed", "error"); } }} />}
+          // only the form's own fields are written: guardianUids (Parent login) and bus* (Transport, 14.2) are never sent back
+          if (form.edit) { await update(form.edit.id, v as Partial<Student>); toast("Student updated"); }
+          // ids continue after every id ever used in the collection, soft-deleted rows included
+          else { await create({ ...v, guardianUids: [], id: nextStudentId(all.rows.map((r) => r.id)) } as Student); toast("Student added"); }
+          setForm(null);
+        } catch { toast("Save failed", "error"); } }} />}
       <Modal open={!!del} onClose={() => setDel(null)} title="Delete student?" subtitle={del?.name}
         footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" onClick={confirmDelete} disabled={deleting}>{deleting ? "Deleting…" : "Delete"}</Button></>}>
         <p className="text-on-surface-variant">This permanently removes the student record. This cannot be undone.</p>
@@ -127,32 +137,18 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   );
 }
 
-function StudentForm({ edit, existing, onClose, onSave }: { edit?: Student; existing: Student[]; onClose: () => void; onSave: (v: Omit<Student, "id">) => Promise<void> }) {
-  const [f, setF] = useState({ ...blank, ...(edit ?? {}) });
+function StudentForm({ edit, existing, users, onClose, onSave }: { edit?: Student; existing: Student[]; users: SchoolUser[]; onClose: () => void; onSave: (v: StudentDoc) => Promise<void> }) {
+  const [f, setF] = useState<StudentFormValues>(() => (edit ? formOf(edit) : blank));
   const [err, setErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const set = (k: string, v: string | number) => setF((p) => ({ ...p, [k]: v }));
+  // a class change clears the roll, so the student gets the next free roll of the new class unless one is typed
+  const set = (k: keyof StudentFormValues, v: string | number) => setF((p) => ({ ...p, [k]: v, ...((k === "grade" || k === "section") && v !== p[k] ? { roll: "" } : {}) }));
   async function submit() {
-    const e: Record<string, string> = {};
-    if (!f.name.trim()) e.name = "Name is required";
-    if (!f.guardian.trim()) e.guardian = "Guardian name is required";
-    if (!/^[+\d][\d\s-]{7,}$/.test(f.phone.trim())) e.phone = "Enter a valid phone number";
-    if (f.email.trim() && !/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = "Enter a valid email";
-    const gEmail = normEmail(f.guardianEmail ?? "");
-    if (gEmail && !validEmail(gEmail)) e.guardianEmail = "Enter a valid email";
-    const att = Number(f.attendance); if (isNaN(att) || att < 0 || att > 100) e.attendance = "0–100";
-    if (f.dob && f.dob > new Date().toISOString().slice(0, 10)) e.dob = "Date of birth cannot be in the future";
-    const taken = new Set(existing.filter((s) => s.id !== edit?.id).map((s) => (s.grn ?? "").trim().toLowerCase()));
-    // auto GRN: next number that is not taken (count-based ids collide after deletes)
-    let grn = f.grn.trim();
-    if (!grn) { let k = 8801 + existing.length; while (taken.has(`gis-${k}`)) k++; grn = `GIS-${k}`; }
-    else if (taken.has(grn.toLowerCase())) e.grn = "GRN already exists";
-    setErr(e);
-    if (Object.keys(e).length) return;
-    // guardianUids is changed only by Parent login (arrayUnion/arrayRemove); never write back a stale copy from the form
-    const { id: _id, guardianUids: _g, ...rest } = f as typeof f & { id?: string; guardianUids?: string[] }; void _id; void _g;
+    const r = validateStudent(f, { existing, edit, users, today: todayIso() });
+    setErr(r.errors);
+    if (!r.doc) return;
     setSaving(true);
-    try { await onSave({ ...rest, name: f.name.trim(), guardian: f.guardian.trim(), phone: f.phone.trim(), email: f.email.trim(), guardianEmail: gEmail, grn, attendance: att }); } finally { setSaving(false); }
+    try { await onSave(r.doc); } finally { setSaving(false); }
   }
   return (
     <SlideOver open onClose={onClose} title={edit ? "Edit Student" : "Add Student"} subtitle="Student and guardian details" width="max-w-lg"
@@ -163,6 +159,7 @@ function StudentForm({ edit, existing, onClose, onSave }: { edit?: Student; exis
         <Field label="Date of birth" error={err.dob}><Input type="date" value={f.dob} onChange={(e) => set("dob", e.target.value)} /></Field>
         <Field label="Grade"><Select value={f.grade} onChange={(e) => set("grade", e.target.value)}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
         <Field label="Section"><Select value={f.section} onChange={(e) => set("section", e.target.value)}>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select></Field>
+        <Field label="Roll no." error={err.roll} hint={edit && studentClassId(edit) === studentClassId(f) ? "Blank keeps the current roll" : "Next free roll in the class if blank"}><Input inputMode="numeric" value={f.roll} onChange={(e) => set("roll", e.target.value)} /></Field>
         <Field label="Status"><Select value={f.status} onChange={(e) => set("status", e.target.value)}>{[...new Set([f.status, ...STATUS])].map((g) => <option key={g}>{g}</option>)}</Select></Field>
         <Field label="Attendance %" error={err.attendance}><Input type="number" value={f.attendance} onChange={(e) => set("attendance", e.target.value)} /></Field>
         <h3 className="t-label-caps sm:col-span-2 mt-2 text-on-surface-variant">Guardian</h3>
@@ -171,7 +168,7 @@ function StudentForm({ edit, existing, onClose, onSave }: { edit?: Student; exis
         <Field label="Phone" required error={err.phone}><Input value={f.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+91 98xxxxxxxx" /></Field>
         <Field label="Email" error={err.email}><Input value={f.email} onChange={(e) => set("email", e.target.value)} /></Field>
         <Field label="Parent app login email" error={err.guardianEmail} className="sm:col-span-2" hint="Used by Create & invite in the student profile (Parent login). Stored lowercase.">
-          <Input type="email" value={f.guardianEmail ?? ""} onChange={(e) => set("guardianEmail", e.target.value)} placeholder="guardian@example.com" /></Field>
+          <Input type="email" value={f.guardianEmail} onChange={(e) => set("guardianEmail", e.target.value)} placeholder="guardian@example.com" /></Field>
         <Field label="Address" className="sm:col-span-2"><Input value={f.address} onChange={(e) => set("address", e.target.value)} /></Field>
       </div>
     </SlideOver>

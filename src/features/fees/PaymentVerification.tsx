@@ -1,11 +1,14 @@
 "use client";
 import { useState } from "react";
+import { setDoc, writeBatch } from "firebase/firestore";
 import { Landmark, Pencil, TriangleAlert } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Tabs, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { fmtDate, inrFull } from "@/lib/format";
 import { useMyName } from "@/lib/useMe";
+import { auth, db } from "@/lib/firebase";
 import { useCollection } from "@/lib/useCollection";
+import { applyPayment, balanceOf, createStamp, duplicateReference, newId, nextReceiptNo, normRef, paymentAmountError, paymentMode, round2, schoolDoc, stamp } from "./logic";
 import type { Invoice, Payment } from "./types";
 
 /** fee_claims (data contract 13.8): payments parents made to the school account and reported in the parent app. */
@@ -17,10 +20,7 @@ type School = { id: string; bank?: Bank };
 const tone = { Pending: "warning", Verified: "success", Rejected: "danger" } as const;
 const cls = (id = "") => id.replace(/^cls_(\d+)(\w)$/, "$1-$2");
 
-export function PaymentVerification({ invoices, payments, createPayment, updateInvoice }: {
-  invoices: Invoice[]; payments: Payment[];
-  createPayment: (p: Omit<Payment, "id">) => Promise<Payment>; updateInvoice: (id: string, patch: Partial<Invoice>) => Promise<unknown>;
-}) {
+export function PaymentVerification({ invoices, payments, today }: { invoices: Invoice[]; payments: Payment[]; today: string }) {
   const toast = useToast();
   const me = useMyName();
   const claims = useCollection<Claim>("fee_claims");
@@ -32,20 +32,26 @@ export function PaymentVerification({ invoices, payments, createPayment, updateI
   const [editBank, setEditBank] = useState(false);
   const n = (st: string) => claims.rows.filter((c) => c.status === st).length;
   const view = claims.rows.filter((c) => tab === "all" || c.status === tab).sort((a, b) => (b.submittedAt ?? "").localeCompare(a.submittedAt ?? ""));
-  // the same reference on another claim or on a recorded payment is a likely duplicate
-  const dupOf = (c: Claim) => claims.rows.some((x) => x.id !== c.id && x.status !== "Rejected" && x.reference === c.reference)
-    || payments.some((p) => p.mode?.toUpperCase().includes(c.reference));
+  // the same reference on another claim (not rejected) or on a recorded payment is a likely duplicate
+  const dupOf = (c: Claim) => !!duplicateReference(c, claims.rows, payments);
 
+  /**
+   * 13.8 Verify: the fee_payments receipt exactly like the counter, the invoice's paid / balance / status, and the claim
+   * {Verified, receiptNo, paymentId, verifiedBy, verifiedAt}, in one batch so a failure leaves nothing half-done.
+   */
   async function verify(c: Claim, amount: number) {
     const inv = invoices.find((i) => i.id === c.invoiceId);
     if (!inv) throw new Error("The invoice of this payment was not found.");
-    if (amount <= 0 || amount > inv.balance) throw new Error(`Enter an amount up to the due balance of ${inrFull(inv.balance)}.`);
-    const no = `RCP-${Math.max(20400, ...payments.map((p) => Number(p.receiptNo?.split("-").pop()) || 0)) + 1}`;
-    const p = await createPayment({ receiptNo: no, invoiceId: inv.id, invoiceNo: inv.no, student: inv.student, grade: inv.grade, grn: inv.grn, amount,
-      mode: `${c.mode} · ${c.reference}`, date: c.paidOn, by: me.name });
-    const balance = inv.balance - amount;
-    await updateInvoice(inv.id, { paid: inv.paid + amount, balance, status: balance === 0 ? "Paid" : inv.status === "Overdue" ? "Overdue" : "Partial" });
-    await claims.update(c.id, { status: "Verified", amount, receiptNo: no, paymentId: p.id, verifiedBy: me.name, verifiedAt: new Date().toISOString() });
+    const err = verifyAmountError(amount, balanceOf(inv));
+    if (err) throw new Error(err);
+    const no = nextReceiptNo(payments);
+    const p: Payment = { id: newId("pay"), receiptNo: no, invoiceId: inv.id, invoiceNo: inv.no, student: inv.student, grade: inv.grade, grn: inv.grn, amount: round2(amount),
+      mode: paymentMode(c.mode, c.reference), reference: normRef(c.reference), claimId: c.id, date: c.paidOn || today, by: me.name };
+    const b = writeBatch(db); const st = stamp();
+    b.set(schoolDoc("fee_payments", p.id), { ...p, ...createStamp() });
+    b.update(schoolDoc("fee_invoices", inv.id), { ...applyPayment(inv, amount, today), ...st });
+    b.update(schoolDoc("fee_claims", c.id), { status: "Verified", amount: round2(amount), receiptNo: no, paymentId: p.id, verifiedBy: me.name, verifiedByUid: auth.currentUser?.uid ?? "", verifiedAt: new Date().toISOString(), ...st });
+    try { await b.commit(); } catch { throw new Error("Could not record the payment. Nothing was saved; try again."); }
     toast(`Verified · receipt ${no} issued`);
   }
 
@@ -90,10 +96,19 @@ export function PaymentVerification({ invoices, payments, createPayment, updateI
       <VerifyModal claim={verifying} invoice={invoices.find((i) => i.id === verifying?.invoiceId)} duplicate={!!verifying && dupOf(verifying)} onClose={() => setVerifying(null)} onVerify={verify} />
       <ReasonModal ids={rejecting ? [rejecting.id] : null} title="Reject reported payment" label="Note to the parent" onClose={() => setRejecting(null)}
         onSubmit={async (_ids, reason) => { if (rejecting) { await claims.update(rejecting.id, { status: "Rejected", rejectReason: reason, verifiedBy: me.name, verifiedAt: new Date().toISOString() }); toast("Payment rejected"); } }} />
+      {/* merge: a new school may not have its school/school doc yet */}
       <BankModal open={editBank} bank={bank} onClose={() => setEditBank(false)}
-        onSave={async (b) => { await school.update("school", { bank: b }); toast("Account details saved"); }} />
+        onSave={async (b) => { await setDoc(schoolDoc("school", "school"), { bank: b, ...stamp() }, { merge: true }); toast("Account details saved"); }} />
     </div>
   );
+}
+
+/** "" when a verified amount is acceptable (0 < amount ≤ balance, paise allowed), else the message */
+export function verifyAmountError(amount: number, balance: number) {
+  if (balance <= 0) return "This invoice is already settled. Reject the claim if the money did not reach the bank twice.";
+  if (!Number.isFinite(amount) || round2(amount) <= 0) return "Enter the amount that reached the bank.";
+  if (round2(amount) > round2(balance)) return `Enter an amount up to the due balance of ${inrFull(round2(balance))}.`;
+  return paymentAmountError(amount, balance) ? "Enter the amount that reached the bank." : "";
 }
 
 function VerifyModal({ claim, invoice, duplicate, onClose, onVerify }: {
@@ -108,14 +123,17 @@ function VerifyModal({ claim, invoice, duplicate, onClose, onVerify }: {
     <Modal open={!!claim} onClose={close} title="Verify payment" subtitle={claim ? `${claim.studentName} · ${claim.mode} · ${claim.reference}` : undefined}
       footer={<><Button variant="outline" onClick={close}>Cancel</Button><Button disabled={busy} onClick={async () => {
         if (!claim) return; setBusy(true);
-        try { await onVerify(claim, Number(value)); close(); } catch (e) { setErr(e instanceof Error ? e.message : "Could not verify"); } finally { setBusy(false); }
+        const a = value.trim() === "" ? NaN : Number(value);
+        const pre = invoice ? verifyAmountError(a, balanceOf(invoice)) : "";
+        if (pre) { setErr(pre); setBusy(false); return; }
+        try { await onVerify(claim, a); close(); } catch (e) { setErr(e instanceof Error ? e.message : "Could not verify"); } finally { setBusy(false); }
       }}>{busy ? "Recording…" : "Verify & issue receipt"}</Button></>}>
       <p className="text-sm text-on-surface-variant">Confirm that {claim ? inrFull(claim.amount) : ""} with reference <b className="font-mono">{claim?.reference}</b> reached the school account
         {claim?.paidOn ? ` on or after ${fmtDate(claim.paidOn)}` : ""}.</p>
-      {duplicate && <p className="mt-2 flex items-center gap-1 text-sm text-error"><TriangleAlert size={14} />This reference was already used by another payment.</p>}
+      {duplicate && <p className="mt-2 flex items-center gap-1 text-sm text-error"><TriangleAlert size={14} />This reference was already used by another payment. Check the bank statement before verifying.</p>}
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <Field label="Amount received (₹)" hint="Change it if a different amount reached the bank"><Input type="number" value={value} onChange={(e) => { setAmt(e.target.value); setErr(""); }} /></Field>
-        <Field label="Invoice"><Input readOnly value={invoice ? `${invoice.no} · due ${inrFull(invoice.balance)}` : "Not found"} /></Field>
+        <Field label="Invoice"><Input readOnly value={invoice ? `${invoice.no} · due ${inrFull(balanceOf(invoice))}` : "Not found"} /></Field>
       </div>
       {err && <p className="mt-3 text-sm text-error" role="alert">{err}</p>}
     </Modal>

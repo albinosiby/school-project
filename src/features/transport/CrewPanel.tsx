@@ -10,6 +10,7 @@ import { accountError, createAccount, sendInvite } from "@/lib/staffAccount";
 import { fmtDate } from "@/lib/format";
 import { nextId, todayIso } from "@/features/ops/shared";
 import { ROLE_LABEL, applyAllot, busLabel, isLicenseWarning, planAllot, schoolDoc, stamp } from "./shared";
+import { validateCrew } from "./logic";
 import type { Bus, Crew, CrewRole, CrewStatus } from "./types";
 
 const statusTone: Record<CrewStatus, Tone> = { Active: "success", "On leave": "warning", Inactive: "neutral" };
@@ -126,7 +127,7 @@ export function CrewPanel({ role }: { role: CrewRole }) {
           empty={<EmptyState title={rows.length ? `No ${label.toLowerCase()} match` : `No ${label.toLowerCase()} yet`} hint={rows.length ? "Try changing your search or filters." : `Add a ${label.toLowerCase()} to create their driver-app login.`} />} />
           : <p className="px-5 pb-5 text-on-surface-variant">Loading…</p>}
       </Card>
-      {form && <CrewForm key={form.edit?.id ?? "new"} role={role} edit={form.edit} buses={buses} nextEmpId={nextEmpId} emailTaken={emailTaken} empIdTaken={empIdTaken} onClose={() => setForm(null)}
+      {form && <CrewForm key={form.edit?.id ?? "new"} role={role} edit={form.edit} buses={buses} today={today} nextEmpId={nextEmpId} emailTaken={emailTaken} empIdTaken={empIdTaken} onClose={() => setForm(null)}
         onSave={async (v, busId) => {
           try {
             if (form.edit) { await saveEdit(form.edit, v, busId); toast(`${label} updated`); setForm(null); return; }
@@ -142,7 +143,7 @@ export function CrewPanel({ role }: { role: CrewRole }) {
   );
 }
 
-function CrewForm({ role, edit, buses, nextEmpId, emailTaken, empIdTaken, onClose, onSave }: { role: CrewRole; edit?: Crew; buses: Bus[]; nextEmpId: () => string; emailTaken: (email: string, exceptId?: string) => boolean; empIdTaken: (empId: string, exceptId?: string) => boolean; onClose: () => void; onSave: (v: Partial<Crew>, busId: string) => void | Promise<void> }) {
+function CrewForm({ role, edit, buses, today, nextEmpId, emailTaken, empIdTaken, onClose, onSave }: { role: CrewRole; edit?: Crew; buses: Bus[]; today: string; nextEmpId: () => string; emailTaken: (email: string, exceptId?: string) => boolean; empIdTaken: (empId: string, exceptId?: string) => boolean; onClose: () => void; onSave: (v: Partial<Crew>, busId: string) => void | Promise<void> }) {
   const [f, setF] = useState({ name: edit?.name ?? "", empId: edit?.empId ?? "", phone: edit?.phone ?? "", email: edit?.email ?? "", licenseNo: edit?.licenseNo ?? "", licenseExpiry: edit?.licenseExpiry ?? "", joined: edit?.joined ?? "", address: edit?.address ?? "", emergencyName: edit?.emergencyName ?? "", emergencyPhone: edit?.emergencyPhone ?? "", busId: edit?.busId ?? "", status: edit?.status ?? "Active" });
   const [err, setErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -151,17 +152,11 @@ function CrewForm({ role, edit, buses, nextEmpId, emailTaken, empIdTaken, onClos
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
   const seatOf = (b: Bus) => (role === "driver" ? b.driverId : b.attendantId);
   async function submit() {
-    const e: Record<string, string> = {};
-    if (!f.name.trim()) e.name = "Name is required";
-    if (!/^[+\d][\d\s-]{7,}$/.test(f.phone.trim())) e.phone = "Enter a valid phone number";
-    if (!/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = "A valid email is required (it is the driver-app login)";
-    else if (emailTaken(f.email, edit?.id)) e.email = "Another crew member already uses this email";
-    if (f.empId.trim() && empIdTaken(f.empId, edit?.id)) e.empId = "Another crew member has this employee ID";
-    if (f.emergencyPhone.trim() && !/^[+\d][\d\s-]{7,}$/.test(f.emergencyPhone.trim())) e.emergencyPhone = "Enter a valid phone number";
+    const e = validateCrew(f, role, { today, emailTaken: (m) => emailTaken(m, edit?.id), empIdTaken: (x) => empIdTaken(x, edit?.id) });
     setErr(e); if (Object.keys(e).length) return;
     const { busId, status, ...rest } = f;
-    const body: Partial<Crew> = { ...rest, name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim(), empId: f.empId.trim() || nextEmpId(), status: status as CrewStatus };
-    if (role !== "driver") { delete body.licenseNo; delete body.licenseExpiry; }
+    const body: Partial<Crew> = { ...rest, name: f.name.trim(), email: f.email.trim().toLowerCase(), phone: f.phone.trim(), empId: f.empId.trim() || nextEmpId(), status: status as CrewStatus };
+    if (role !== "driver") { delete body.licenseNo; delete body.licenseExpiry; } else body.licenseNo = f.licenseNo.trim().toUpperCase();
     for (const k of ["licenseNo", "licenseExpiry", "joined", "address", "emergencyName", "emergencyPhone"] as const) if (body[k] !== undefined) body[k] = body[k]!.trim();
     setSaving(true);
     try { await onSave(body, busId); } finally { setSaving(false); }
@@ -177,8 +172,8 @@ function CrewForm({ role, edit, buses, nextEmpId, emailTaken, empIdTaken, onClos
         <div className="rounded-lg bg-surface-container-low p-3 text-sm sm:col-span-2"><span className="text-on-surface-variant">Account status: </span>
           {edit?.authUid ? <Badge tone="success">Login active</Badge> : edit ? <Badge tone="warning">No login yet</Badge> : <Badge>Created on save</Badge>}</div>
         {role === "driver" && <>
-          <Field label="License no"><Input value={f.licenseNo} onChange={(e) => set("licenseNo", e.target.value)} placeholder="DL-0420110012345" /></Field>
-          <Field label="License expiry"><Input type="date" value={f.licenseExpiry} onChange={(e) => set("licenseExpiry", e.target.value)} /></Field></>}
+          <Field label="License no" required error={err.licenseNo}><Input value={f.licenseNo} onChange={(e) => set("licenseNo", e.target.value)} placeholder="DL-0420110012345" /></Field>
+          <Field label="License expiry" required error={err.licenseExpiry}><Input type="date" value={f.licenseExpiry} min={today} onChange={(e) => set("licenseExpiry", e.target.value)} /></Field></>}
         <Field label="Bus" hint="Allotting here frees the seat's previous holder"><Select value={f.busId} onChange={(e) => set("busId", e.target.value)}>
           <option value="">Unassigned</option>{buses.map((b) => { const seat = seatOf(b); const taken = seat && seat !== edit?.id; return <option key={b.id} value={b.id}>{busLabel(b)} · {b.routeName}{taken ? ` (${role === "driver" ? b.driver : b.attendant})` : ""}</option>; })}</Select></Field>
         {edit && <Field label="Status"><Select value={f.status} onChange={(e) => set("status", e.target.value)}>{(["Active", "On leave", "Inactive"] as const).map((s) => <option key={s}>{s}</option>)}</Select></Field>}

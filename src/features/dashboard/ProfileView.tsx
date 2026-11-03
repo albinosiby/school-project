@@ -42,9 +42,11 @@ export function ProfileView() {
   const save = async () => {
     const e: Record<string, string> = {};
     if (!f.first.trim()) e.first = "First name is required";
-    if (!EMAIL.test(f.email)) e.email = "Enter a valid email address";
-    if (f.altEmail && !EMAIL.test(f.altEmail)) e.altEmail = "Enter a valid email address";
-    if (f.phone.replace(/\D/g, "").length < 10) e.phone = "Enter a valid phone number";
+    if (!EMAIL.test(f.email.trim())) e.email = "Enter a valid email address";
+    if (f.altEmail.trim() && !EMAIL.test(f.altEmail.trim())) e.altEmail = "Enter a valid email address";
+    else if (f.altEmail.trim() && f.altEmail.trim().toLowerCase() === f.email.trim().toLowerCase()) e.altEmail = "Use a different address from the official email";
+    const digits = f.phone.replace(/\D/g, "");
+    if (digits.length < 10 || digits.length > 13 || /[^\d\s()+-]/.test(f.phone)) e.phone = "Enter a valid phone number";
     setErrs(e);
     if (Object.keys(e).length) { toast("Please fix the highlighted fields", "error"); return; }
     if (!m) return;

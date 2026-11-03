@@ -4,17 +4,16 @@ import { AlertTriangle, Plus } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Tabs, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
-import { GRADES, SECTIONS, SUBJECTS, classIdOf, teachingStaff, type StaffRef } from "./shared";
+import { DAY_NAMES, GRADES, SECTIONS, SUBJECTS, classIdOf, clsLabel, teachingStaff, type StaffRef } from "./shared";
+import { PERIODS, PERIOD_TIMES, findSlotTaken, findTeacherClash, periodClass, periodId, validatePeriod, type Period } from "./logic";
 import { SubstitutionsPanel } from "./SubstitutionsPanel";
 
-export type Period = { id: string; classId?: string; grade: string; section: string; day: string; period: number; subject: string; teacher: string; teacherId?: string; room: string };
-/** rows written before the contract have no classId; derive it */
-export const periodClass = (r: Period) => r.classId ?? classIdOf(r.grade, r.section);
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const PERIODS = [1, 2, 3, 4, 5, 6, 7, 8];
-const TIMES = ["08:00", "08:45", "09:30", "10:30", "11:15", "12:00", "13:00", "13:45"];
+export { periodClass, type Period } from "./logic";
+const DAYS = DAY_NAMES;
 const subjectTone: Record<string, string> = { Physics: "bg-warning-container", "Remedial Lab": "bg-info-container", Mathematics: "bg-info-container", English: "bg-success-container", Science: "bg-warning-container", "Social Science": "bg-error-container", Hindi: "bg-surface-container-high", "Physical Education": "bg-surface-container" };
+type Clash = (r: { id?: string; day: string; period: number; teacherId?: string; teacher: string }) => Period | undefined;
 
+/** ops_periods (data contract section 3): one row per class, day (Mon..Sat) and period (1..8), id per_10B_Mon_3. */
 export function TimetableView() {
   const toast = useToast();
   const { rows, create, update, remove } = useCollection<Period>("ops_periods");
@@ -24,14 +23,11 @@ export function TimetableView() {
   const [grade, setGrade] = useState("10"); const [section, setSection] = useState("B");
   const [edit, setEdit] = useState<{ day: string; period: number; rec?: Period } | null>(null);
   const classId = classIdOf(grade, section);
-  // teacher identity is the staff id; legacy rows that only carry a name are matched by name
-  const key = (r: { teacherId?: string; teacher: string }) => r.teacherId || `n:${r.teacher}`;
   const nameOf = (r: Period) => staff.find((s) => s.id === r.teacherId)?.name ?? r.teacher;
 
   const mine = rows.filter((r) => periodClass(r) === classId);
-  const cell = (d: string, p: number) => mine.find((r) => r.day === d && r.period === p);
-  const clash = (r: { id?: string; day: string; period: number; teacherId?: string; teacher: string }) =>
-    rows.find((o) => o.id !== r.id && o.day === r.day && o.period === r.period && key(o) === key(r) && periodClass(o) !== classId);
+  const cell = (d: string, p: number) => mine.find((r) => r.day === d && Number(r.period) === p);
+  const clash: Clash = (r) => findTeacherClash(rows, { ...r, classId });
   const conflicts = mine.filter((r) => clash(r)).length;
 
   return (
@@ -49,7 +45,7 @@ export function TimetableView() {
           <tbody>
             {PERIODS.map((p) => (
               <tr key={p}>
-                <td className="align-middle"><div className="text-sm font-semibold">Period {p}</div><div className="t-caption font-mono text-outline">{TIMES[p - 1]}</div></td>
+                <td className="align-middle"><div className="text-sm font-semibold">Period {p}</div><div className="t-caption font-mono text-outline">{PERIOD_TIMES[p - 1]}</div></td>
                 {DAYS.map((d) => { const c = cell(d, p); const x = c && clash(c);
                   return (
                     <td key={d} className="h-20 align-top">
@@ -62,11 +58,12 @@ export function TimetableView() {
         </table>
       </Card></>}
       {edit && <PeriodModal key={`${edit.day}${edit.period}${grade}${section}`} ctx={edit} teachers={teachers} staff={staff} clash={clash} grade={grade} section={section} onClose={() => setEdit(null)}
+        taken={edit.rec ? undefined : findSlotTaken(rows, { classId, day: edit.day, period: edit.period })}
         onSave={async (v) => {
           try {
             const body = { ...v, classId, grade, section };
             if (edit.rec) await update(edit.rec.id, body);
-            else await create({ ...body, id: `per_${grade}${section}_${edit.day}_${edit.period}`, day: edit.day, period: edit.period } as never);
+            else await create({ ...body, id: periodId(grade, section, edit.day, edit.period), day: edit.day, period: edit.period } as never);
             toast("Period saved"); setEdit(null);
           } catch { toast("Save failed", "error"); }
         }}
@@ -75,31 +72,44 @@ export function TimetableView() {
   );
 }
 
-function PeriodModal({ ctx, teachers, staff, clash, grade, section, onClose, onSave, onDelete }: {
-  ctx: { day: string; period: number; rec?: Period }; teachers: StaffRef[]; staff: StaffRef[]; clash: (r: { id?: string; day: string; period: number; teacherId?: string; teacher: string }) => Period | undefined;
+function PeriodModal({ ctx, teachers, staff, clash, taken, grade, section, onClose, onSave, onDelete }: {
+  ctx: { day: string; period: number; rec?: Period }; teachers: StaffRef[]; staff: StaffRef[]; clash: Clash; taken?: Period;
   grade: string; section: string; onClose: () => void; onSave: (v: { subject: string; teacher: string; teacherId: string; room: string }) => Promise<void>; onDelete?: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
   const run = async (fn: () => Promise<void>) => { setBusy(true); try { await fn(); } finally { setBusy(false); } };
-  const [subject, setSubject] = useState(ctx.rec?.subject ?? SUBJECTS[0]!);
-  const [teacherId, setTeacherId] = useState(ctx.rec?.teacherId ?? staff.find((s) => s.name === ctx.rec?.teacher)?.id ?? teachers[0]?.id ?? "");
+  // a new period starts without a subject: the admin picks one (subject is required)
+  const [subject, setSubject] = useState(ctx.rec?.subject ?? "");
+  const [teacherId, setTeacherId] = useState(ctx.rec?.teacherId ?? staff.find((s) => s.name === ctx.rec?.teacher)?.id ?? "");
   const [room, setRoom] = useState(ctx.rec?.room ?? `R-${grade}${section}`);
-  const name = staff.find((s) => s.id === teacherId)?.name ?? "";
+  const [err, setErr] = useState<Record<string, string>>({});
+  const name = staff.find((s) => s.id === teacherId)?.name ?? ctx.rec?.teacher ?? "";
   const other = teacherId ? clash({ id: ctx.rec?.id, day: ctx.day, period: ctx.period, teacherId, teacher: name }) : undefined;
-  const subjects = SUBJECTS.includes(subject) ? SUBJECTS : [subject, ...SUBJECTS];
+  const subjects = !subject || SUBJECTS.includes(subject) ? SUBJECTS : [subject, ...SUBJECTS];
+  const takenBy = taken ? `${taken.subject} (${staff.find((s) => s.id === taken.teacherId)?.name ?? taken.teacher})` : "";
+  function save() {
+    const e = validatePeriod({ day: ctx.day, period: ctx.period, subject, teacherId });
+    if (taken) e.slot = `This slot already has ${takenBy}. Edit or clear that period instead.`;
+    setErr(e); if (Object.keys(e).length) return;
+    void run(() => onSave({ subject, teacher: name, teacherId, room: room.trim() }));
+  }
   return (
     <Modal open onClose={onClose} title={ctx.rec ? "Edit period" : "Add period"} subtitle={`Grade ${grade}-${section} · ${ctx.day} · Period ${ctx.period}`}
       footer={<>{onDelete && <Button variant="danger" className="mr-auto" disabled={busy} onClick={() => run(onDelete)}>Clear period</Button>}<Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button onClick={() => run(() => onSave({ subject, teacher: name, teacherId, room: room.trim() }))} disabled={!teacherId || busy}>{other ? "Save anyway" : "Save"}</Button></>}>
+        <Button onClick={save} disabled={busy}>{other ? "Save anyway" : "Save"}</Button></>}>
       <div className="space-y-4">
-        <Field label="Subject"><Select value={subject} onChange={(e) => setSubject(e.target.value)}>{subjects.map((s) => <option key={s}>{s}</option>)}</Select></Field>
-        <Field label="Teacher"><Select value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+        {(err.day || err.period || err.slot) && <div role="alert" className="rounded-lg bg-error-container p-3 text-sm text-on-error-container">{[err.day, err.period, err.slot].filter(Boolean).join(" ")}</div>}
+        <Field label="Subject" required error={err.subject}><Select value={subject} onChange={(e) => { setSubject(e.target.value); setErr((x) => ({ ...x, subject: "" })); }}>
+          {!subject && <option value="">Select a subject…</option>}
+          {subjects.map((s) => <option key={s}>{s}</option>)}</Select></Field>
+        <Field label="Teacher" required error={err.teacherId}><Select value={teacherId} onChange={(e) => { setTeacherId(e.target.value); setErr((x) => ({ ...x, teacherId: "" })); }}>
+          {!teacherId && <option value="">Select a teacher…</option>}
           {!teachers.some((t) => t.id === teacherId) && teacherId && <option value={teacherId}>{name || teacherId}</option>}
           {teachers.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.department})</option>)}</Select></Field>
         <Field label="Room"><Input value={room} onChange={(e) => setRoom(e.target.value)} /></Field>
         {other && <div role="alert" className="flex items-start gap-2 rounded-lg bg-warning-container p-3 text-sm text-warning"><AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <span><b>{name}</b> is already teaching {other.subject} in Grade {other.grade}-{other.section} at this time. Saving creates a double-booking.</span></div>}
-        {!other && <Badge tone="success">No clash</Badge>}
+          <span><b>{name}</b> is already teaching {other.subject} in {clsLabel(periodClass(other))} at this time. Saving creates a double-booking.</span></div>}
+        {!other && teacherId && <Badge tone="success">No clash</Badge>}
       </div>
     </Modal>
   );

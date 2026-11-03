@@ -2,27 +2,30 @@
 // Transport > Attendance: student bus attendance (tr_attendance, contract 14.4) by trip and by student, with admin corrections.
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
-import { deleteField, setDoc, updateDoc } from "firebase/firestore";
+import { deleteField, writeBatch } from "firebase/firestore";
 import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, SearchBox, Select, Stat, Tabs, useToast, type Column, type Tone } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "@/features/communication/csv";
 import { todayIso } from "@/features/ops/shared";
 import { fmtDate } from "@/lib/format";
+import { db } from "@/lib/firebase";
 import type { Student } from "@/features/people/StudentsView";
-import { busLabel, isoTime, schoolDoc, stamp, studentLabel, tripId } from "./shared";
-import type { Bus, Mark, MarkStatus, TripAttendance, TripKind } from "./types";
+import { busLabel, isoTime, schoolDoc, stamp, stopsOf, studentLabel, tripId } from "./shared";
+import { isActiveStudent, markCounts } from "./logic";
+import type { Bus, Mark, MarkStatus, Trip, TripAttendance, TripKind } from "./types";
 
 type Status = MarkStatus | "none";
 const LABEL: Record<Status, string> = { boarded: "Boarded", absent: "Absent", dropped: "Dropped", none: "Not marked" };
 const TONE: Record<Status, Tone> = { boarded: "info", absent: "warning", dropped: "success", none: "neutral" };
-const counts = (marks: Record<string, Mark>) => { const c = { boarded: 0, dropped: 0, absent: 0 }; for (const m of Object.values(marks)) c[m.status]++; return c; };
 type Row = { id: string; s?: Student; name: string; mark?: Mark };
 
 export function AttendancePanel({ init }: { init: { date?: string; bus?: string; kind?: string } }) {
   const toast = useToast();
   const att = useCollection<TripAttendance>("tr_attendance");
   const buses = useCollection<Bus>("tr_buses").rows;
-  const students = useCollection<Student>("students").rows;
+  const allStudents = useCollection<Student>("students").rows;
+  const students = useMemo(() => allStudents.filter(isActiveStudent), [allStudents]);
+  const trips = useCollection<Trip>("tr_trips").rows;
   const [mode, setMode] = useState("trip");
   const [date, setDate] = useState(init.date || todayIso());
   const [busId, setBusId] = useState(init.bus ?? "");
@@ -31,14 +34,14 @@ export function AttendancePanel({ init }: { init: { date?: string; bus?: string;
   const bus = buses.find((b) => b.id === busId) ?? buses[0];
   const id = bus ? tripId(date, bus.id, kind) : "";
   const docRow = att.rows.find((r) => r.id === id);
-  const stopName = (stopId?: string) => bus?.stops.find((s) => s.id === stopId)?.name;
+  const stopName = (stopId?: string) => stopsOf(bus).find((s) => s.id === stopId)?.name;
 
   const rows: Row[] = useMemo(() => {
     if (!bus) return [];
     const marks = docRow?.marks ?? {};
     const ids = new Set([...students.filter((s) => s.busId === bus.id).map((s) => s.id), ...Object.keys(marks)]);
-    return [...ids].map((sid) => { const s = students.find((x) => x.id === sid); return { id: sid, s, name: s?.name ?? sid, mark: marks[sid] }; }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [bus, docRow, students]);
+    return [...ids].map((sid) => { const s = allStudents.find((x) => x.id === sid); return { id: sid, s, name: s?.name ?? sid, mark: marks[sid] }; }).sort((a, b) => a.name.localeCompare(b.name));
+  }, [bus, docRow, students, allStudents]);
 
   async function setMark(r: Row, status: Status) {
     if (!bus) return;
@@ -48,9 +51,13 @@ export function AttendancePanel({ init }: { init: { date?: string; bus?: string;
       const stopId = r.s?.busStopId || r.mark?.stopId;
       const mark: Mark | null = status === "none" ? null : { status, at: new Date().toISOString(), by: "admin", byName: "Admin", ...(stopId ? { stopId } : {}) };
       if (mark) marks[r.id] = mark; else delete marks[r.id];
-      const c = counts(marks);
-      if (docRow) await updateDoc(schoolDoc("tr_attendance", id), { [`marks.${r.id}`]: mark ?? deleteField(), ...c, ...stamp() });
-      else await setDoc(schoolDoc("tr_attendance", id), { id, tripId: id, busId: bus.id, bus: busLabel(bus), date, kind, total: rows.length, marks, ...c, ...stamp(), _o: Date.now() });
+      const c = markCounts(marks); const st = stamp();
+      // contract 14.3 / 14.4: the counts live on both the attendance record and its trip, recomputed on every mark (as the driver app does)
+      const batch = writeBatch(db);
+      if (docRow) batch.update(schoolDoc("tr_attendance", id), { [`marks.${r.id}`]: mark ?? deleteField(), ...c, ...st });
+      else batch.set(schoolDoc("tr_attendance", id), { id, tripId: id, busId: bus.id, bus: busLabel(bus), date, kind, total: rows.length, marks, ...c, ...st, _o: Date.now() });
+      if (trips.some((t) => t.id === id)) batch.update(schoolDoc("tr_trips", id), { ...c, ...st });
+      await batch.commit();
       toast(mark ? `${r.name}: ${LABEL[status]}` : `${r.name}: mark cleared`);
     } catch { toast("Could not save the mark", "error"); } finally { setBusy(null); }
   }
@@ -65,7 +72,7 @@ export function AttendancePanel({ init }: { init: { date?: string; bus?: string;
     { key: "by", header: "Marked by", render: (r) => r.mark ? <span className={r.mark.by === "admin" ? "text-secondary" : ""}>{r.mark.byName || r.mark.by}</span> : <span className="text-outline">—</span> },
     { key: "act", header: "Correct", className: "text-right", render: (r) => <Select aria-label={`Status for ${r.name}`} className="w-36" value={r.mark?.status ?? "none"} disabled={busy === r.id} onChange={(e) => setMark(r, e.target.value as Status)}>{(["none", "boarded", "absent", "dropped"] as Status[]).map((s) => <option key={s} value={s}>{LABEL[s]}</option>)}</Select> },
   ];
-  const c = docRow ? { boarded: docRow.boarded, dropped: docRow.dropped, absent: docRow.absent } : counts({});
+  const c = markCounts(docRow?.marks);
 
   return (
     <div className="space-y-5">

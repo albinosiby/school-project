@@ -12,6 +12,7 @@ import { TripsPanel } from "./TripsPanel";
 import { AttendancePanel } from "./AttendancePanel";
 import { CrewAttendancePanel } from "./CrewAttendancePanel";
 import { LeavesPanel } from "./LeavesPanel";
+import { isActiveStudent } from "./logic";
 import type { Bus, Crew, CrewLeave, Trip } from "./types";
 
 const TABS = ["buses", "drivers", "staff", "trips", "attendance", "crew-attendance", "leaves"] as const;
@@ -20,7 +21,7 @@ type Tab = (typeof TABS)[number];
 export function TransportView() {
   const buses = useCollection<Bus>("tr_buses").rows;
   const crew = useCollection<Crew>("tr_crew").rows;
-  const students = useCollection<Student>("students").rows;
+  const students = useCollection<Student>("students").rows.filter(isActiveStudent);
   const trips = useCollection<Trip>("tr_trips").rows;
   const leaves = useCollection<CrewLeave>("tr_crew_leaves").rows;
   // deep-linkable: /transport?tab=buses&bus=bus_01 | ?tab=attendance&date=…&bus=…&kind=pickup

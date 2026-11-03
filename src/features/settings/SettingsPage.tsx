@@ -7,7 +7,9 @@ import { cn } from "@/lib/cn";
 import { fmtDate, inr } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "@/features/fees/csv";
+import { EMAIL_RE, validPhone } from "@/features/people/staffLogic";
 import { LeavePolicyEditor } from "./LeavePolicyEditor";
+import { bandsError, schoolPatch, termError, termDays } from "./logic";
 
 type Profile = { id: string; name: string; affiliation: string; schoolCode: string; email: string; phone: string; address: string; seal: string; digitalKey: string };
 type Regional = { id: string; language: string; dateFormat: string; timezone: string; currency: string; workingWeek: string };
@@ -23,6 +25,8 @@ type Audit = { id: string; at: string; actor: string; action: string; detail: st
 type Me = { id: string; name: string; title?: string };
 type Stu = { id: string; grade: string; status: string };
 type Inv = { id: string; balance: number };
+/** school/school (contract 3): the master doc the teacher, parent and driver apps read */
+type School = { id: string; name?: string; short?: string; affiliation?: string; academicYear?: string; term?: string };
 
 /** fallbacks when a set_config doc is missing (saved on first Save All) */
 const DEF_PROFILE: Profile = { id: "profile", name: "", affiliation: "", schoolCode: "", email: "", phone: "", address: "", seal: "", digitalKey: "" };
@@ -66,6 +70,8 @@ export function SettingsPage() {
   const me = useCollection<Me>("me").rows[0];
   const students = useCollection<Stu>("students").rows;
   const invoices = useCollection<Inv>("fee_invoices").rows;
+  const schoolCol = useCollection<School>("school");
+  const school = schoolCol.rows.find((x) => x.id === "school");
 
   const profile = cfg.rows.find((r) => r.id === "profile") as unknown as Profile | undefined;
   const regional = cfg.rows.find((r) => r.id === "regional") as unknown as Regional | undefined;
@@ -97,6 +103,9 @@ export function SettingsPage() {
   /** runs a write and toasts the Firestore error instead of failing silently; returns success */
   const guard = async (fn: () => Promise<unknown>, ok?: string) => { try { await fn(); if (ok) toast(ok); return true; } catch (e) { toast(`Could not save: ${errText(e)}`, "error"); return false; } };
   const upsertCfg = (id: string, v: object, exists: boolean) => (exists ? cfg.update(id, v as never) : cfg.create({ ...v, id } as never));
+  /** keeps school/school (read by all three apps) in step with what Settings edits */
+  const syncSchool = (v: Partial<School>) => { const patch = schoolPatch(school, v); if (!patch) return Promise.resolve(); return school ? schoolCol.update("school", patch) : schoolCol.create({ id: "school", short: v.name ?? "", ...patch } as School); };
+  const academicYear = meta?.academicYear || school?.academicYear || "";
 
   const dirty = !!(p && profile && JSON.stringify(p) !== JSON.stringify(profile)) || !!(r && regional && JSON.stringify(r) !== JSON.stringify(regional)) || !!(b && bell && JSON.stringify(b) !== JSON.stringify(bell)) || Object.keys(bd).length > 0;
 
@@ -104,14 +113,17 @@ export function SettingsPage() {
     if (!p || !r || !b) return;
     const e: Record<string, string> = {};
     if (!p.name.trim()) e.name = "Institution name is required";
-    if (!/^\S+@\S+\.\S+$/.test(p.email)) e.email = "Enter a valid email";
-    if (!/^[+\d][\d\s-]{6,}$/.test(p.phone)) e.phone = "Enter a valid phone number";
+    if (!EMAIL_RE.test(p.email.trim())) e.email = "Enter a valid email";
+    if (!validPhone(p.phone)) e.phone = "Enter a valid phone number";
     if (!p.affiliation.trim()) e.affiliation = "Required";
     if (!p.address.trim()) e.address = "Required";
+    const bandErr = bandsError(bands.rows.map((g) => ({ ...g, min: bd[g.id] ?? g.min })));
+    if (bandErr) e.grading = bandErr;
     setErrs(e);
-    if (Object.keys(e).length) { toast("Fix the highlighted fields", "error"); setActive("profile"); return; }
+    if (Object.keys(e).length) { toast("Fix the highlighted fields", "error"); setActive(e.grading && Object.keys(e).length === 1 ? "grading" : "profile"); return; }
     setSaving(true);
     const ok = await guard(() => Promise.all([upsertCfg("profile", p, !!profile), upsertCfg("regional", r, !!regional), upsertCfg("bell", b, !!bell),
+      syncSchool({ name: p.name.trim(), affiliation: p.affiliation.trim() }),
       ...Object.entries(bd).map(([id, min]) => bands.update(id, { min }))]), "All settings saved");
     setSaving(false);
     if (ok) { setBd({}); await log("Saved settings", "School profile, localization and grading updated"); }
@@ -124,7 +136,7 @@ export function SettingsPage() {
   const graduating = activeStu.filter((x) => x.grade === "12").length;
   const dues = invoices.filter((i) => (Number(i.balance) || 0) > 0);
   const duesAmt = dues.reduce((a, i) => a + (Number(i.balance) || 0), 0);
-  const toAy = nextAy(meta?.academicYear);
+  const toAy = nextAy(meta?.academicYear || school?.academicYear);
   const rolled = !!meta?.rolledOver;
   const step = rolled ? 4 : Math.max(1, Math.min(4, 3 + (openExc.length === 0 ? 1 : 0)));
   const canRoll = signed && openExc.length === 0 && !rolled;
@@ -162,7 +174,7 @@ export function SettingsPage() {
             </div>
           </Section>
 
-          <Section id="year" icon={<CalendarDays size={20} />} title="Academic Year & Term Configuration" desc="Active academic calendar timeline & operational bell schedule" badge={<Badge tone="info">Current: AY {meta?.academicYear || "—"}</Badge>}
+          <Section id="year" icon={<CalendarDays size={20} />} title="Academic Year & Term Configuration" desc="Active academic calendar timeline & operational bell schedule" badge={<Badge tone="info">Current: AY {academicYear || "—"}{school?.term ? ` · ${school.term}` : ""}</Badge>}
             actions={<Button size="sm" variant="outline" onClick={() => setTermEdit({ id: "", name: `Term ${terms.rows.length + 1}`, start: "", end: "", days: 0, status: "In Progress" })}><Plus size={14} />New Term</Button>}>
             <div className="overflow-x-auto rounded-lg border border-outline-variant/60"><table className="w-full text-left">
               <thead className="bg-surface-container-low t-label-caps !text-[11px] text-on-surface-variant"><tr><th className="p-3">Term</th><th className="p-3">Date span</th><th className="p-3">Days</th><th className="p-3">Lifecycle</th><th className="p-3" /></tr></thead>
@@ -201,7 +213,7 @@ export function SettingsPage() {
                 <label key={g.id} className="rounded-lg border border-outline-variant/60 p-3 text-center"><span className="font-mono font-bold text-secondary">{g.grade}</span><span className="block text-xs text-outline">{g.point} pts · min %</span>
                   <input aria-label={`Minimum percent for ${g.grade}`} type="number" min={0} max={100} disabled={g.grade === "E"} value={bd[g.id] ?? g.min} onChange={(e) => setBd({ ...bd, [g.id]: Math.max(0, Math.min(100, Number(e.target.value))) })} className="mt-1 h-8 w-full rounded border border-outline-variant text-center font-mono disabled:bg-surface-container" /></label>))}
             </div>
-            <p className="mt-2 text-xs text-outline">Edit values and press Save All Settings.</p>
+            {errs.grading ? <p role="alert" className="mt-2 text-xs text-error">{errs.grading}</p> : <p className="mt-2 text-xs text-outline">Edit values and press Save All Settings.</p>}
           </Section>
 
           <Section id="leave" icon={<CalendarClock size={20} />} title="Leave Policy & Check-in Time" desc="Yearly leave entitlement per type and the check-in time after which teachers are marked late (teacher app quotas use these)">
@@ -239,9 +251,9 @@ export function SettingsPage() {
               <p className="font-bold text-secondary">{(p.name || "School name").toUpperCase()}</p>
               <p className="text-outline">Affiliation No: {p.affiliation.split(" ")[0] || "—"} · School Code: {p.schoolCode.split(" ")[0] || "—"}</p>
               <p className="text-outline">{p.address}</p>
-              <div className="my-3 flex justify-between font-mono text-[10px]"><span>Ref: ADM/{meta?.academicYear || "AY"}/0001 (sample)</span><span>Date: {todayStr ? fmtDate(todayStr) : ""}</span></div>
+              <div className="my-3 flex justify-between font-mono text-[10px]"><span>Ref: ADM/{academicYear || "AY"}/0001 (sample)</span><span>Date: {todayStr ? fmtDate(todayStr) : ""}</span></div>
               <p className="font-bold">TO WHOMSOEVER IT MAY CONCERN</p>
-              <p className="mt-2 text-left">This is to certify that Master/Miss <b>[Student Name]</b>, Son/Daughter of [Guardian Name], is a bona fide student of Grade [Class] in this institution for the Academic Session {meta?.academicYear || "—"}.</p>
+              <p className="mt-2 text-left">This is to certify that Master/Miss <b>[Student Name]</b>, Son/Daughter of [Guardian Name], is a bona fide student of Grade [Class] in this institution for the Academic Session {academicYear || "—"}.</p>
               <div className="mt-3 flex items-end justify-between text-left"><span className={p.seal ? "text-success" : "text-outline"}>{p.seal ? "✓ Institutional seal on file" : "No seal on file"}</span><span className="text-right font-semibold">{me?.name || "Principal"}<br /><span className="font-normal text-outline">{me?.title || "Head of Institution"}</span></span></div>
             </div>
           </Card>
@@ -274,12 +286,14 @@ export function SettingsPage() {
       <Modal open={!!termEdit} onClose={() => setTermEdit(null)} title={termEdit?.id ? "Edit term" : "New term"} footer={<><Button variant="outline" onClick={() => setTermEdit(null)}>Cancel</Button>
         <Button disabled={saving} onClick={async () => {
           if (!termEdit) return;
-          if (!termEdit.name.trim()) return toast("Term name is required", "error");
-          if (!termEdit.start || !termEdit.end || termEdit.end <= termEdit.start) return toast("Pick a start and an end date after it", "error");
-          const days = Math.round((+new Date(termEdit.end) - +new Date(termEdit.start)) / 864e5) + 1;
+          const problem = termError(termEdit, terms.rows);
+          if (problem) return toast(problem, "error");
+          const days = termDays(termEdit.start, termEdit.end);
           const { id, ...rest } = termEdit;
           setSaving(true);
-          const ok = await guard(() => (id ? terms.update(id, { ...rest, name: rest.name.trim(), days }) : terms.create({ ...rest, name: rest.name.trim(), days })), id ? "Term updated" : "Term added");
+          // the In Progress term is the school's current term (school/school.term, contract 3)
+          const ok = await guard(() => Promise.all([id ? terms.update(id, { ...rest, name: rest.name.trim(), days }) : terms.create({ ...rest, name: rest.name.trim(), days }),
+            ...(rest.status === "In Progress" ? [syncSchool({ term: rest.name.trim() })] : [])]), id ? "Term updated" : "Term added");
           setSaving(false);
           if (ok) { await log(id ? "Edited term" : "Added term", termEdit.name); setTermEdit(null); }
         }}>Save</Button></>}>
@@ -325,15 +339,16 @@ function SectionModal({ target, onClose, onSave }: { target: Sec | "new" | null;
     <Modal open onClose={onClose} title={target === "new" ? "New section" : `Edit ${target.grade}`} footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => {
       const sections = v.sections.split(",").map((x) => x.trim()).filter(Boolean);
       if (!v.grade.trim() || !sections.length) return setErr("Grade and at least one section are required");
-      if (!(v.cap >= 1)) return setErr("Capacity must be at least 1");
-      if (!(v.roster >= 0) || v.roster > v.cap) return setErr("Roster must be between 0 and the capacity");
+      if (new Set(sections.map((x) => x.toLowerCase())).size !== sections.length) return setErr("Sections must be unique");
+      if (!Number.isInteger(v.cap) || v.cap < 1) return setErr("Capacity must be a whole number of at least 1");
+      if (!Number.isInteger(v.roster) || v.roster < 0 || v.roster > v.cap) return setErr("Roster must be a whole number between 0 and the capacity");
       return onSave({ id: target === "new" ? "" : target.id, grade: v.grade.trim(), stream: v.stream, sections, roster: v.roster, cap: v.cap });
     }}>Save</Button></>}>
       <div className="grid gap-4"><Field label="Grade level" required><Input value={v.grade} onChange={(e) => setV({ ...v, grade: e.target.value })} placeholder="Grade 9" /></Field>
         <Field label="Stream / board"><Input value={v.stream} onChange={(e) => setV({ ...v, stream: e.target.value })} /></Field>
         <Field label="Sections (comma separated)" required><Input value={v.sections} onChange={(e) => setV({ ...v, sections: e.target.value })} placeholder="9-A, 9-B" /></Field>
         <div className="grid grid-cols-2 gap-4"><Field label="Roster"><Input type="number" value={v.roster} onChange={(e) => setV({ ...v, roster: Number(e.target.value) })} /></Field><Field label="Capacity"><Input type="number" value={v.cap} onChange={(e) => setV({ ...v, cap: Number(e.target.value) })} /></Field></div>
-        {err && <p className="text-xs text-error">{err}</p>}</div>
+        {err && <p role="alert" className="text-xs text-error">{err}</p>}</div>
     </Modal>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, Download, FileText, Mail, MoreVertical, Pin, Plus, Send, Siren, Timer, TriangleAlert, Zap } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Modal, ProgressBar, SearchBox, Select, Tabs, Textarea, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { CommHeader } from "./CommHeader";
-import { Composer, VARS } from "./Composer";
+import { Composer, useAudienceCtx, VARS } from "./Composer";
+import { audienceCount, dueScheduled } from "./logic";
 import { downloadCsv } from "./csv";
 import { AUDIENCES, CHANNELS, fmtWhen, type LogRec, type Notice, type Report, type Template } from "./types";
 import { useMyName } from "@/lib/useMe";
@@ -25,11 +26,31 @@ export function NoticesView() {
 
   const stats = useMemo(() => {
     const pub = rows.filter((n) => n.status === "Published");
-    const rec = pub.reduce((s, n) => s + n.recipients, 0), del = pub.reduce((s, n) => s + n.delivered, 0), rd = pub.reduce((s, n) => s + n.read, 0);
+    const num = (v: unknown) => Number(v) || 0;
+    const rec = pub.reduce((s, n) => s + num(n.recipients), 0), del = pub.reduce((s, n) => s + num(n.delivered), 0), rd = pub.reduce((s, n) => s + num(n.read), 0);
     return { delivery: pct(del, rec), read: pct(rd, del), scheduled: rows.filter((n) => n.status === "Scheduled").length };
   }, [rows]);
   const reports = useCollection<Report>("com_reports").rows;
-  const due = reports.filter((r) => r.tag.startsWith("Mandatory")).length;
+  const due = reports.filter((r) => (r.tag ?? "").startsWith("Mandatory")).length;
+
+  // Scheduled notices go live once their time has passed. No scheduler function exists yet, so the admin web publishes
+  // them when the Notices page is open (checked every minute); the Published write then triggers the push functions.
+  const done = useRef(new Set<string>());
+  useEffect(() => {
+    if (!ready) return;
+    const tick = () => {
+      for (const n of dueScheduled(rows)) {
+        if (done.current.has(n.id)) continue;
+        done.current.add(n.id);
+        update(n.id, { status: "Published", delivered: Number(n.recipients) || 0, read: 0, acked: 0 })
+          .then(() => log.create({ noticeId: n.id, action: "Sent (scheduled)", audience: n.audience, channels: n.channels ?? [], recipients: Number(n.recipients) || 0, at: new Date().toISOString() }))
+          .catch(() => done.current.delete(n.id));
+      }
+    };
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => clearInterval(t);
+  }, [ready, rows, update, log.create]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counts = (s: string) => rows.filter((n) => s === "all" || n.status === s).length;
   const view = rows
@@ -51,7 +72,7 @@ export function NoticesView() {
     try {
       if (what === "delete") { await remove(n.id); toast("Notice deleted"); }
       else if (what === "pin") { await update(n.id, { pinned: !n.pinned }); toast(n.pinned ? "Notice unpinned" : "Notice pinned"); }
-      else { await update(n.id, { status: "Published", sentAt: new Date().toISOString(), delivered: Math.round(n.recipients * 0.99), read: 0, acked: 0 });
+      else { await update(n.id, { status: "Published", sentAt: new Date().toISOString(), delivered: Number(n.recipients) || 0, read: 0, acked: 0 });
         await log.create({ noticeId: n.id, action: "Sent", audience: n.audience, channels: n.channels, recipients: n.recipients, at: new Date().toISOString() }); toast("Notice published (simulated send)"); }
     } catch { toast("Action failed", "error"); }
   }
@@ -126,14 +147,14 @@ function NoticeCard({ n, onEdit, onAck, onResend, onAct }: { n: Notice; onEdit: 
         <span className="ml-auto t-caption text-on-surface-variant">{n.status === "Scheduled" ? "Goes out " : ""}{fmtWhen(n.sentAt)}</span>
       </div>
       <h3 className="t-headline-md mt-3 !text-[20px]">{n.title}</h3>
-      {n.grades && <div className="mt-2 flex flex-wrap gap-1.5">{n.grades.map((g) => <span key={g} className="rounded bg-surface-container px-2 py-0.5 text-xs text-on-surface-variant">{g}</span>)}</div>}
+      {!!n.grades?.length && <div className="mt-2 flex flex-wrap gap-1.5">{n.grades.map((g) => <span key={g} className="rounded bg-surface-container px-2 py-0.5 text-xs text-on-surface-variant">{g}</span>)}</div>}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-        <Avatar name={n.author.replace(/^(Dr|Mr|Mrs|Ms)\.? /, "")} size={24} /><span className="font-medium">{n.author}</span>
+        <Avatar name={(n.author ?? "School Office").replace(/^(Dr|Mr|Mrs|Ms)\.? /, "")} size={24} /><span className="font-medium">{n.author || "School Office"}</span>
         <span className="text-outline">•</span><span className="text-outline">Channels:</span>
-        {n.channels.map((c) => <span key={c} className={cn("rounded px-1.5 py-0.5 text-xs font-medium", chTone[c])}>{c}</span>)}
-        {published && n.grades && <><span className="text-outline">•</span><span className="font-semibold text-success">{n.read} Read / {n.recipients} ({pct(n.read, n.recipients)}% Engagement)</span><span className="text-outline">•</span><span className="font-semibold text-secondary">{n.acked ?? 0} Acknowledged ({pct(n.acked ?? 0, n.recipients)}%)</span></>}
+        {(n.channels ?? []).map((c) => <span key={c} className={cn("rounded px-1.5 py-0.5 text-xs font-medium", chTone[c])}>{c}</span>)}
+        {published && !!n.grades?.length && <><span className="text-outline">•</span><span className="font-semibold text-success">{n.read} Read / {n.recipients} ({pct(n.read, n.recipients)}% Engagement)</span><span className="text-outline">•</span><span className="font-semibold text-secondary">{n.acked ?? 0} Acknowledged ({pct(n.acked ?? 0, n.recipients)}%)</span></>}
       </div>
-      {published && !n.grades && (
+      {published && !n.grades?.length && (
         <div className="mt-4 flex flex-wrap items-center gap-6 rounded-lg border border-outline-variant/60 bg-surface-container-low p-4">
           <div><div className="text-xs text-on-surface-variant">Delivery Success</div><div className="font-semibold"><span className="font-mono">{n.delivered} / {n.recipients}</span> <span className="text-success">({pct(n.delivered, n.recipients)}%)</span></div></div>
           <div><div className="text-xs text-on-surface-variant">Acknowledged Receipts</div><div className="font-semibold"><span className="font-mono">{n.acked ?? 0} Verified</span> <span className="text-secondary">({pct(n.acked ?? 0, n.recipients)}%)</span></div></div>
@@ -166,6 +187,7 @@ function QuickBroadcast({ onCreate, log }: { onCreate: (b: Omit<Notice, "id">) =
   const toast = useToast();
   const me = useMyName();
   const templates = useCollection<Template>("com_templates").rows;
+  const ctx = useAudienceCtx();
   const [aud, setAud] = useState("All School");
   const [tpl, setTpl] = useState("tpl_1");
   const [body, setBody] = useState(templates[0]?.body ?? "");
@@ -177,11 +199,11 @@ function QuickBroadcast({ onCreate, log }: { onCreate: (b: Omit<Notice, "id">) =
   async function go() {
     if (!body.trim()) { toast("Write a message first", "error"); return; }
     setBusy(true);
-    const a = AUDIENCES.find((x) => x.label === aud)!;
+    const a = { count: audienceCount(aud, ctx) };
     const t = templates.find((x) => x.id === tpl);
     try {
       const n = await onCreate({ title: (t && t.id !== "tpl_4" ? t.name.replace(/ \(.*\)/, "") : "Quick Broadcast") + ` – ${aud}`, category: "General", audience: aud, recipients: a.count, sentAt: new Date().toISOString(), status: "Published", pinned: false, urgent: false,
-        author: `${me.name}${me.title ? ` (${me.title})` : ""}`, channels: CHANNELS, delivered: Math.round(a.count * 0.99), acked: 0, read: 0, body });
+        author: `${me.name}${me.title ? ` (${me.title})` : ""}`, channels: CHANNELS, delivered: a.count, acked: 0, read: 0, body, grades: [] });
       await log({ noticeId: n.id, action: "Quick broadcast", audience: aud, channels: CHANNELS, recipients: a.count, at: new Date().toISOString() });
       toast(`Broadcast dispatched to ${a.count} recipients (simulated)`);
     } catch { toast("Dispatch failed", "error"); } finally { setBusy(false); }

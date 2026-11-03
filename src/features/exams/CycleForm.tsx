@@ -2,14 +2,32 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { doc, writeBatch } from "firebase/firestore";
 import { Check, FileText, Plus, Trash2, Upload, X } from "lucide-react";
 import { Badge, Button, Card, Field, Input, PageHeader, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { useCollection } from "@/lib/useCollection";
+import { auth, db } from "@/lib/firebase";
+import { currentSchoolId, useCollection } from "@/lib/useCollection";
 import { parseCsv } from "@/features/fees/csv";
-import type { Cycle, Paper } from "./types";
+import { candidateChanges, candidatesFor, classIdOf, cycleErrors, isActiveStudent, slotClashes, type CycleSlot, type StudentRow } from "./logic";
+import type { Candidate, Cycle, Paper } from "./types";
 
-type Slot = { key: string; id?: string; subject: string; code: string; grade: string; date: string; start: string; duration: number; venue: string; invigilator: string; invigilatorId?: string };
+type Slot = CycleSlot;
+
+/** Upserts exm_candidates (cand_{studentId}, contract 3) for the active students of the cycle's grades, 400 per batch. */
+async function syncCandidates(existing: Candidate[], students: StudentRow[], grades: string[]) {
+  const changes = candidateChanges(existing, candidatesFor(students, grades));
+  const sid = currentSchoolId();
+  if (!changes.length || !sid) return 0;
+  const have = new Set(existing.map((c) => c.id));
+  for (let i = 0; i < changes.length; i += 400) {
+    const b = writeBatch(db);
+    const st = { updatedAt: new Date().toISOString(), updatedBy: auth.currentUser?.uid ?? "" };
+    changes.slice(i, i + 400).forEach((c, k) => b.set(doc(db, "schools", sid, "exm_candidates", c.id), { ...c, ...st, ...(have.has(c.id) ? {} : { _o: Date.now() - i - k }) }, { merge: true }));
+    await b.commit();
+  }
+  return changes.length;
+}
 const PARTS = ["Periodic", "Portfolio", "Enrichment", "Multiple"];
 const ALL_GRADES = ["8", "9", "10", "11", "12"];
 const blank = {
@@ -48,45 +66,28 @@ function CycleFormInner({ cycleId, initF, initSlots, initStatus }: { cycleId?: s
   const fileRef = useRef<HTMLInputElement>(null);
   const csvRef = useRef<HTMLInputElement>(null);
   const createdId = useRef<string | undefined>(undefined); // a retry after a failed paper write must not create a second cycle
-  const students = useCollection<{ id: string; grade: string; section: string; status?: string }>("students").rows;
+  const students = useCollection<StudentRow & { grade: string; section: string }>("students").rows;
+  const classRows = useCollection<{ id: string; grade: string; section: string }>("classes").rows;
+  const cands = useCollection<Candidate>("exm_candidates");
   const school = useCollection<{ id: string; affiliation?: string; board?: string }>("school").rows[0];
   const dirty = JSON.stringify(f) !== JSON.stringify(initF) || JSON.stringify(slots) !== JSON.stringify(initSlots);
   // real roster figures (were hard-coded demo numbers)
-  const enrolled = (g: string) => students.filter((s) => s.grade === g && (s.status ?? "Active") === "Active");
+  const enrolled = (g: string) => students.filter((s) => s.grade === g && isActiveStudent(s));
   const sectionsOf = (g: string) => [...new Set(enrolled(g).map((s) => s.section))].sort();
   const set = <K extends keyof typeof blank>(k: K, v: (typeof blank)[K]) => setF((x) => ({ ...x, [k]: v }));
 
   const candidates = f.grades.reduce((a, g) => a + enrolled(g).length, 0);
   const sectionCount = f.grades.reduce((a, g) => a + sectionsOf(g).length, 0);
-  const weightOk = f.theoryMax + f.internalMax === 100;
-  const partsSum = f.internalParts.reduce((a, b) => a + b, 0);
-  const who = (s: Slot) => s.invigilatorId || s.invigilator.trim();
-  const clashes = slots.filter((s, i) => slots.some((o, j) => j !== i && o.date && o.date === s.date && o.start === s.start
-    && (o.grade === s.grade || (o.venue && o.venue === s.venue) || (who(o) && who(o) === who(s))))).length;
+  const weightOk = f.theoryMax > 0 && f.internalMax >= 0 && f.theoryMax + f.internalMax === 100;
+  // same date, overlapping time, and the same grade, venue or invigilator
+  const clashes = slotClashes(slots).length;
+  /** the classes sitting a grade's papers (contract 3: exm_papers.classIds): the grade's classes, else its students' sections */
+  const classIdsOf = (g: string) => [...new Set([...classRows.filter((c) => String(c.grade) === g).map((c) => c.id), ...(classRows.some((c) => String(c.grade) === g) ? [] : sectionsOf(g).map((sec) => classIdOf(g, sec)))])].sort();
   const days = f.start && f.end ? Math.max(0, Math.round((+new Date(f.end) - +new Date(f.start)) / 864e5) + 1) : 0;
   const postDays = f.end && f.declaration ? Math.round((+new Date(f.declaration) - +new Date(f.end)) / 864e5) : 0;
 
   const validate = () => {
-    const e: Record<string, string> = {};
-    if (!f.title.trim()) e.title = "Title is required";
-    if (!f.term) e.term = "Required";
-    if (!f.start) e.start = "Required";
-    if (!f.end) e.end = "Required";
-    else if (f.start && f.end < f.start) e.end = "End must be after start";
-    if (!f.declaration) e.declaration = "Required";
-    else if (f.end && f.declaration < f.end) e.declaration = "Must be on/after end date";
-    if (!f.grades.length) e.grades = "Select at least one grade";
-    if (f.theoryMax < 0 || f.internalMax < 0) e.weight = "Marks cannot be negative";
-    else if (!weightOk) e.weight = "Theory + Internal must total 100";
-    if (partsSum !== f.internalMax) e.parts = `Internal components total ${partsSum}, expected ${f.internalMax}`;
-    if (!slots.length) e.slots = "Add at least one subject paper slot";
-    slots.forEach((s) => {
-      if (!s.subject.trim() || !s.code.trim() || !s.date || !s.start || !s.venue.trim() || !s.invigilator.trim()) e.slots = "Complete all paper slot fields";
-      else if (!(s.duration > 0) || s.duration > 6) e.slots = "Paper duration must be between 0.5 and 6 hours";
-      else if (f.start && f.end && (s.date < f.start || s.date > f.end)) e.slots = "Paper dates must fall within the cycle window";
-      if (!f.grades.includes(s.grade)) e.slots = "A paper slot targets a grade that is not selected";
-    });
-    if (clashes) e.slots = "Resolve schedule clashes before saving";
+    const e = cycleErrors(f, slots);
     setErrors(e);
     if (Object.keys(e).length) { toast(Object.values(e)[0], "error"); return false; }
     return true;
@@ -95,6 +96,7 @@ function CycleFormInner({ cycleId, initF, initSlots, initStatus }: { cycleId?: s
   const save = async (status: Cycle["status"]) => {
     if (status !== "Draft" && !validate()) return;
     if (status === "Draft" && !f.title.trim()) { setErrors({ title: "Title is required" }); return toast("Give the cycle a title first", "error"); }
+    if (status === "Draft" && f.start && f.end && f.end < f.start) { setErrors({ end: "End must be after start" }); return toast("End must be after start", "error"); }
     setSaving(true);
     try {
       const body = { ...f, short: f.title.replace(/ Examinations?| 20\d\d-\d\d$/g, "").trim() || f.title, status } as Omit<Cycle, "id">;
@@ -107,10 +109,12 @@ function CycleFormInner({ cycleId, initF, initSlots, initStatus }: { cycleId?: s
       const existing = papers.rows.filter((p) => p.cycleId === id);
       for (const p of existing) if (!slots.some((s) => s.id === p.id)) await papers.remove(p.id);
       for (const s of slots) {
-        const data = { cycleId: id!, grade: s.grade, subject: s.subject, code: s.code, date: s.date, start: s.start, duration: s.duration, theory: f.theoryMax, internal: f.internalMax, internalType: "Internal", venue: s.venue, invigilator: s.invigilator, invigilatorId: s.invigilatorId ?? staff.find((t) => t.name === s.invigilator)?.id ?? "" };
+        const data = { cycleId: id!, grade: s.grade, subject: s.subject.trim(), code: s.code.trim(), date: s.date, start: s.start, duration: s.duration, theory: f.theoryMax, internal: f.internalMax, internalType: "Internal", venue: s.venue.trim(), invigilator: s.invigilator, invigilatorId: s.invigilatorId ?? staff.find((t) => t.name === s.invigilator)?.id ?? "", classIds: classIdsOf(s.grade) };
         if (s.id) await papers.update(s.id, data);
         else { const row = await papers.create({ ...data, status: "Scheduled", marksEntered: false, published: [] } as Omit<Paper, "id">); upd(s.key, { id: row.id }); }
       }
+      // one exm_candidates row per student of the cycle's grades (the teacher app seats them; marks use cand_{studentId})
+      if (status !== "Draft") await syncCandidates(cands.rows, students, f.grades);
       toast(status === "Draft" ? "Draft saved" : cycleId ? "Exam cycle updated" : "Exam cycle scheduled & published");
       router.push("/exams");
     } catch { toast("Could not save exam cycle", "error"); setSaving(false); }

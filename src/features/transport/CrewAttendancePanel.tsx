@@ -7,13 +7,11 @@ import { useCollection } from "@/lib/useCollection";
 import { fmtDate } from "@/lib/format";
 import { todayIso } from "@/features/ops/shared";
 import { ROLE_LABEL, crewAttId, t12, useTransportSettings } from "./shared";
+import { CREW_ATT_STATUS as STATUS, crewDayBody, effectiveCrewStatus as effectiveStatus, isHHmm, isLateIn as isLate, validateCrewDay } from "./logic";
 import type { Crew, CrewAttStatus, CrewAttendance, CrewRole } from "./types";
 
-const STATUS: CrewAttStatus[] = ["Present", "Late", "Absent", "Leave"];
 const tone: Record<CrewAttStatus, Tone> = { Present: "success", Late: "warning", Absent: "danger", Leave: "info" };
-const isLate = (t: string | null | undefined, by: string) => !!t && t > by;
-/** Present with a punch after the policy time shows as Late */
-const effectiveStatus = (r: CrewAttendance, by: string): CrewAttStatus => (r.status === "Present" && isLate(r.in, by) ? "Late" : r.status);
+type DayBody = ReturnType<typeof crewDayBody>;
 
 export function CrewAttendancePanel() {
   const toast = useToast();
@@ -25,6 +23,7 @@ export function CrewAttendancePanel() {
   const [edit, setEdit] = useState<{ rec?: CrewAttendance; crewId: string; date: string } | null>(null);
   const [adding, setAdding] = useState(false);
   const [checkInBy, setCheckInBy] = useState<string | null>(null);
+  const [policyErr, setPolicyErr] = useState("");
 
   const rows = useMemo(() => att.rows.filter((r) => r.date?.startsWith(month) && (!role || r.role === role) && (!crewId || r.crewId === crewId)).sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name)), [att.rows, month, role, crewId]);
   const effective = (r: CrewAttendance) => effectiveStatus(r, policy.checkInBy);
@@ -34,7 +33,7 @@ export function CrewAttendancePanel() {
     return { id: c.id, c, present: n("Present"), late: n("Late"), absent: n("Absent"), leave: n("Leave") };
   }).sort((a, b) => a.c.name.localeCompare(b.c.name)), [crew, att.rows, month, role, crewId, policy.checkInBy]);
 
-  async function saveDay(cid: string, date: string, v: { in: string | null; out: string | null; status: CrewAttStatus; note: string }) {
+  async function saveDay(cid: string, date: string, v: DayBody) {
     const c = crew.find((x) => x.id === cid); if (!c) return;
     const id = crewAttId(date, cid);
     const body = { crewId: cid, name: c.name, role: c.role, busId: c.busId ?? "", date, ...v, source: "admin" as const };
@@ -69,8 +68,10 @@ export function CrewAttendancePanel() {
         </Card>
         <Card className="p-5">
           <div className="mb-3 flex items-center gap-2 text-on-surface-variant"><AlarmClock size={16} /><span className="text-xs font-semibold uppercase tracking-wide">Check-in policy</span></div>
-          <Field label="Crew must check in by" hint="tr_settings/policy.checkInBy — later punches count as Late."><Input type="time" value={checkInBy ?? policy.checkInBy} onChange={(e) => setCheckInBy(e.target.value)} /></Field>
-          <Button size="sm" className="mt-3" disabled={checkInBy === null || checkInBy === policy.checkInBy} onClick={async () => { try { await policy.save(checkInBy!); setCheckInBy(null); toast("Check-in time saved"); } catch { toast("Could not save the policy", "error"); } }}><Save size={14} />Save</Button>
+          <Field label="Crew must check in by" hint="tr_settings/policy.checkInBy — later punches count as Late." error={policyErr}><Input type="time" value={checkInBy ?? policy.checkInBy} onChange={(e) => { setCheckInBy(e.target.value); setPolicyErr(""); }} /></Field>
+          <Button size="sm" className="mt-3" disabled={checkInBy === null || checkInBy === policy.checkInBy} onClick={async () => {
+            if (!isHHmm(checkInBy)) { setPolicyErr("Enter a time as HH:mm"); return; }
+            try { await policy.save(checkInBy); setCheckInBy(null); toast("Check-in time saved"); } catch { toast("Could not save the policy", "error"); } }}><Save size={14} />Save</Button>
         </Card>
       </div>
       <Card className="pt-4">
@@ -91,31 +92,37 @@ export function CrewAttendancePanel() {
 
 function PickDayModal({ crew, onClose, onPick }: { crew: Crew[]; onClose: () => void; onPick: (crewId: string, date: string) => void }) {
   const [cid, setCid] = useState(crew[0]?.id ?? ""); const [date, setDate] = useState(todayIso);
+  const future = !!date && date > todayIso();
   return (
-    <Modal open onClose={onClose} title="Add a day" subtitle="Record a check-in the driver app missed" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!cid || !date} onClick={() => onPick(cid, date)}>Continue</Button></>}>
+    <Modal open onClose={onClose} title="Add a day" subtitle="Record a check-in the driver app missed" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={!cid || !date || future} onClick={() => onPick(cid, date)}>Continue</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Crew member"><Select value={cid} onChange={(e) => setCid(e.target.value)}>{crew.map((c) => <option key={c.id} value={c.id}>{c.name} · {ROLE_LABEL[c.role]}</option>)}</Select></Field>
-        <Field label="Date"><Input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Date" error={future ? "The date cannot be in the future" : undefined}><Input type="date" value={date} max={todayIso()} onChange={(e) => setDate(e.target.value)} /></Field>
       </div>
     </Modal>
   );
 }
 
-function CorrectModal({ rec, name, date, checkInBy, onClose, onSave }: { rec?: CrewAttendance; name: string; date: string; checkInBy: string; onClose: () => void; onSave: (v: { in: string | null; out: string | null; status: CrewAttStatus; note: string }) => Promise<void> }) {
+function CorrectModal({ rec, name, date, checkInBy, onClose, onSave }: { rec?: CrewAttendance; name: string; date: string; checkInBy: string; onClose: () => void; onSave: (v: DayBody) => Promise<void> }) {
   const [inT, setIn] = useState(rec?.in ?? ""); const [outT, setOut] = useState(rec?.out ?? "");
   const [status, setStatus] = useState<CrewAttStatus>(rec?.status ?? "Present"); const [note, setNote] = useState(rec?.note ?? "");
+  const [err, setErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const noTimes = status === "Absent" || status === "Leave";
-  const bad = !!inT && !!outT && outT < inT;
-  const needIn = !noTimes && !inT;
-  const setInTime = (v: string) => { setIn(v); if (v && !noTimes) setStatus(isLate(v, checkInBy) ? "Late" : "Present"); };
+  const setInTime = (v: string) => { setIn(v); setErr({}); if (v && !noTimes) setStatus(isLate(v, checkInBy) ? "Late" : "Present"); };
+  async function submit() {
+    const v = { in: inT, out: outT, status, note };
+    const e = validateCrewDay(v); setErr(e); if (Object.keys(e).length) return;
+    setSaving(true);
+    try { await onSave(crewDayBody(v, checkInBy)); } finally { setSaving(false); }
+  }
   return (
     <Modal open onClose={onClose} title={rec ? "Correct check-in" : "Record a day"} subtitle={`${name} · ${fmtDate(date)}`}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={bad || needIn || saving} onClick={async () => { setSaving(true); try { await onSave({ in: noTimes ? null : inT || null, out: noTimes ? null : outT || null, status, note: note.trim() }); } finally { setSaving(false); } }}>{saving ? "Saving…" : "Save"}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving} onClick={submit}>{saving ? "Saving…" : "Save"}</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Status" className="sm:col-span-2"><Select value={status} onChange={(e) => setStatus(e.target.value as CrewAttStatus)}>{STATUS.map((s) => <option key={s}>{s}</option>)}</Select></Field>
-        <Field label="Check-in" error={needIn ? "Enter the check-in time" : undefined} hint={`Late after ${t12(checkInBy)}`}><Input type="time" value={inT} disabled={noTimes} onChange={(e) => setInTime(e.target.value)} /></Field>
-        <Field label="Check-out" error={bad ? "Check-out is before check-in" : undefined}><Input type="time" value={outT} disabled={noTimes} onChange={(e) => setOut(e.target.value)} /></Field>
+        <Field label="Status" className="sm:col-span-2" error={err.status}><Select value={status} onChange={(e) => { setStatus(e.target.value as CrewAttStatus); setErr({}); }}>{STATUS.map((s) => <option key={s}>{s}</option>)}</Select></Field>
+        <Field label="Check-in" error={err.in} hint={`Late after ${t12(checkInBy)}`}><Input type="time" value={inT} disabled={noTimes} onChange={(e) => setInTime(e.target.value)} /></Field>
+        <Field label="Check-out" error={err.out}><Input type="time" value={outT} disabled={noTimes} onChange={(e) => { setOut(e.target.value); setErr({}); }} /></Field>
         <Field label="Note" className="sm:col-span-2"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Phone battery dead, verified by transport in-charge" /></Field>
       </div>
       <p className="mt-3 text-xs text-outline">Saved as an admin correction (source: admin). The crew member sees it in the driver app.</p>

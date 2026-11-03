@@ -4,34 +4,23 @@ import { Check, Clock, Save, ShieldCheck, Users, X } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader, ProgressBar, Select, Stat, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
-import { GRADES, SECTIONS, classIdOf, todayIso, type StaffRef } from "./shared";
+import { GRADES, SECTIONS, activeStudent, classIdOf, studentClassId, todayIso, type StaffRef } from "./shared";
+import { adminDayId, adminDayRecord, attPct, attendanceSaveError, dayRecords, derive, latestPerDate, latestRecord, type AttRec, type Mark } from "./logic";
 
-type Stu = { id: string; name: string; grn: string; grade: string; section: string; classId?: string };
-type Mark = "P" | "A" | "L" | "E";
+export { derive } from "./logic";
+type Stu = { id: string; name: string; grn: string; grade: string; section: string; classId?: string; roll?: number; status?: string; deleted?: boolean };
 /**
  * ops_attendance (data contract section 4). id `{date}_{classId}_{period}`; `marks` lists only students who are NOT present
- * (a missing key means present). Teachers write one record per period; the admin's day-level record uses period 0.
+ * (a missing key means present). Teachers write one record per period; the admin's day-level record uses period 0 (section 9).
+ * Drafts (submitted:false) and soft-deleted records are ignored (section 13.6).
  */
-type Rec = { id: string; date: string; classId: string; grade: string; section: string; period: number; total: number; marks: Record<string, "A" | "L" | "E">; submitted?: boolean; teacherId?: string; markedBy?: string; updatedAt?: unknown };
+type Rec = AttRec;
 const OPTS: { v: Mark; label: string; icon: React.ReactNode; on: string }[] = [
   { v: "P", label: "Present", icon: <Check size={14} />, on: "bg-success text-white border-success" },
   { v: "A", label: "Absent", icon: <X size={14} />, on: "bg-error text-on-error border-error" },
   { v: "L", label: "Late", icon: <Clock size={14} />, on: "bg-warning text-white border-warning" },
   { v: "E", label: "Excused", icon: <ShieldCheck size={14} />, on: "bg-secondary text-on-secondary border-secondary" },
 ];
-
-/** updatedAt may be an ISO string, epoch ms or a Firestore Timestamp */
-const ts = (v: unknown): number => typeof v === "string" ? Date.parse(v) || 0 : typeof v === "number" ? v : (v as { toMillis?: () => number } | null)?.toMillis?.() ?? 0;
-/** P/A/L/E counts derived from `total` and `marks` */
-export const derive = (r: Pick<Rec, "total" | "marks">) => {
-  const v = Object.values(r.marks ?? {});
-  const A = v.filter((x) => x === "A").length, L = v.filter((x) => x === "L").length, E = v.filter((x) => x === "E").length;
-  const total = Number(r.total) || 0;
-  return { A, L, E, P: Math.max(0, total - A - L - E), total };
-};
-/** present share: present + late count as attended (same rule everywhere on this screen) */
-const attPct = (d: { P: number; L: number; total: number }) => (d.total ? Math.round(((d.P + d.L) / d.total) * 100) : 0);
-const newer = (a: Rec, b: Rec) => ts(a.updatedAt) - ts(b.updatedAt) || a.period - b.period;
 
 export function AttendanceView() {
   const toast = useToast();
@@ -41,11 +30,11 @@ export function AttendanceView() {
   const [date, setDate] = useState(todayIso()); const [grade, setGrade] = useState("10"); const [section, setSection] = useState("B");
   const [pick, setPick] = useState<string | null>(null);
   const classId = classIdOf(grade, section);
-  const adminId = `${date}_${classId}_0`;
-  const roster = useMemo(() => students.filter((s) => (s.classId ?? classIdOf(s.grade, s.section)) === classId).sort((a, b) => (Number((a as { roll?: number }).roll) || 0) - (Number((b as { roll?: number }).roll) || 0) || a.name.localeCompare(b.name)), [students, classId]);
+  const adminId = adminDayId(date, classId);
+  const roster = useMemo(() => students.filter((s) => activeStudent(s) && studentClassId(s) === classId).sort((a, b) => (Number(a.roll) || 0) - (Number(b.roll) || 0) || a.name.localeCompare(b.name)), [students, classId]);
 
-  const recs = useMemo(() => att.rows.filter((r) => r.classId === classId && r.date === date && r.submitted !== false), [att.rows, classId, date]);
-  const latest = useMemo(() => [...recs].sort((a, b) => newer(b, a))[0], [recs]);
+  const recs = useMemo(() => dayRecords(att.rows, classId, date), [att.rows, classId, date]);
+  const latest = useMemo(() => latestRecord(recs), [recs]);
   const shown = recs.find((r) => r.id === pick) ?? latest;
   const saved = recs.find((r) => r.id === adminId);
   const teacherName = (r: Rec) => r.markedBy === "admin" ? "Admin" : staff.find((s) => s.id === r.teacherId)?.name ?? r.teacherId ?? "Teacher";
@@ -53,10 +42,11 @@ export function AttendanceView() {
   const [marks, setMarks] = useState<Record<string, Mark>>({});
   const [dirty, setDirty] = useState(false);
   const sig = `${classId}|${date}|${shown?.id ?? ""}|${JSON.stringify(shown?.marks ?? null)}|${roster.length}`;
-  const [prevSig, setPrevSig] = useState(sig);
+  // "" so the first render also loads the shown record (rows can already be cached when the screen opens)
+  const [prevSig, setPrevSig] = useState("");
   if (sig !== prevSig) {
     setPrevSig(sig); setDirty(false);
-    setMarks(shown ? Object.fromEntries(roster.map((s) => [s.id, (shown.marks?.[s.id] ?? "P") as Mark])) : {});
+    setMarks(shown ? Object.fromEntries(roster.map((s) => { const m = shown.marks?.[s.id]; return [s.id, (m === "A" || m === "L" || m === "E" ? m : "P") as Mark]; })) : {});
   }
 
   const marked = roster.filter((s) => marks[s.id]).length;
@@ -71,24 +61,21 @@ export function AttendanceView() {
 
   const [saving, setSaving] = useState(false);
   async function save() {
-    if (!roster.length) { toast("No students in this class", "error"); return; }
-    if (marked < roster.length) { toast(`Mark all ${roster.length} students before saving (${roster.length - marked} left)`, "error"); return; }
+    const why = attendanceSaveError({ date, today: todayIso(), rosterSize: roster.length, marked });
+    if (why) { toast(why, "error"); return; }
     setSaving(true);
     try {
-      const nonPresent = Object.fromEntries(roster.filter((s) => marks[s.id] && marks[s.id] !== "P").map((s) => [s.id, marks[s.id]]));
-      const body = { date, classId, grade, section, period: 0, total: roster.length, marks: nonPresent, submitted: true, teacherId: "", markedBy: "admin" };
-      if (saved) await att.update(adminId, body as never); else await att.create({ id: adminId, ...body } as never);
+      const body = adminDayRecord({ date, grade, section, rosterIds: roster.map((s) => s.id), marks });
+      // the admin record may exist as a draft / soft-deleted doc: overwrite it so it counts again
+      const exists = att.rows.some((r) => r.id === adminId);
+      if (exists) await att.update(adminId, { ...body, deleted: false } as never); else await att.create({ id: adminId, ...body } as never);
       setPick(null); setDirty(false); toast(`Attendance saved for Grade ${grade}-${section}, ${date}`);
     } catch { toast("Could not save attendance", "error"); } finally { setSaving(false); }
   }
 
   // one line per date for the class: its latest submitted record
-  const history = useMemo(() => {
-    const byDate = new Map<string, Rec>();
-    att.rows.filter((r) => r.classId === classId && r.submitted !== false).forEach((r) => { const c = byDate.get(r.date); if (!c || newer(r, c) > 0) byDate.set(r.date, r); });
-    return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5);
-  }, [att.rows, classId]);
-  const periodRecs = recs.filter((r) => r.period > 0).sort((a, b) => a.period - b.period);
+  const history = useMemo(() => latestPerDate(att.rows, classId, 5), [att.rows, classId]);
+  const periodRecs = recs.filter((r) => Number(r.period) > 0).sort((a, b) => Number(a.period) - Number(b.period));
 
   return (
     <div>
@@ -108,7 +95,7 @@ export function AttendanceView() {
       <div className="grid items-start gap-5 xl:grid-cols-[1fr_300px]">
         <Card>
           <CardHeader title={`Grade ${grade}-${section} roll`}
-            subtitle={shown ? `${shown.period > 0 ? `Period ${shown.period}` : "Day record"} · ${teacherName(shown)}${dirty ? " · edited, not saved" : ""}${shown === latest ? " · latest submitted" : ""}` : `${marked} of ${roster.length} marked · no submitted record yet`}
+            subtitle={shown ? `${Number(shown.period) > 0 ? `Period ${shown.period}` : "Day record"} · ${teacherName(shown)}${dirty ? " · edited, not saved" : ""}${shown === latest ? " · latest submitted" : ""}` : `${marked} of ${roster.length} marked · no submitted record yet`}
             actions={<><Button size="sm" variant="outline" disabled={!roster.length} onClick={() => markAll("P")}>Mark all present</Button><Button size="sm" variant="ghost" disabled={!roster.length} onClick={() => markAll("A")}>All absent</Button></>} />
           {roster.length === 0 ? <EmptyState title="No students in this class" hint="Pick another grade or section, or add students in Students & Guardians." /> : (
             <ul className="divide-y divide-outline-variant/40">
@@ -131,9 +118,9 @@ export function AttendanceView() {
               {recs.length === 0 ? <p className="text-on-surface-variant">Nothing submitted yet.</p> : (
                 <ul className="space-y-1.5 text-sm">{[...periodRecs, ...(saved ? [saved] : [])].map((r) => { const d = derive(r);
                   return <li key={r.id}><button onClick={() => leave() && setPick(r.id)} className={cn("flex w-full cursor-pointer items-center justify-between gap-2 rounded px-2 py-1 text-left hover:bg-surface-container-low", shown?.id === r.id && "bg-info-container")}>
-                    <span className="min-w-0"><span className="font-semibold">{r.period > 0 ? `P${r.period}` : "Day"}</span> <span className="t-caption text-outline">{teacherName(r)}</span></span>
+                    <span className="min-w-0"><span className="font-semibold">{Number(r.period) > 0 ? `P${r.period}` : "Day"}</span> <span className="t-caption text-outline">{teacherName(r)}</span></span>
                     <span className="shrink-0 font-mono text-xs">{d.P}P · {d.A}A · {d.L}L</span></button></li>; })}</ul>)}
-              {recs.length > 1 && latest && <p className="t-caption mt-2 text-outline">Latest: <Badge tone="brand">{latest.period > 0 ? `Period ${latest.period}` : "Admin day record"}</Badge></p>}</div>
+              {recs.length > 1 && latest && <p className="t-caption mt-2 text-outline">Latest: <Badge tone="brand">{Number(latest.period) > 0 ? `Period ${latest.period}` : "Admin day record"}</Badge></p>}</div>
             <div><h4 className="t-label-caps mb-2 text-on-surface-variant">Recent days</h4>
               {history.length === 0 ? <p className="text-on-surface-variant">No saved records yet.</p> : (
                 <ul className="space-y-1.5 text-sm">{history.map((h) => { const d = derive(h); const p = attPct(d);

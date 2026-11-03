@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { CommHeader } from "./CommHeader";
 import { downloadCsv } from "./csv";
-import { generate, type Params, type Stf, type Stu, type Table } from "./reportData";
+import { generate, type AttRec, type BusRec, type Ctx, type InvoiceRec, type MarkRec, type PaperRec, type Params, type PeriodRec, type Stf, type Stu, type SubRec, type Table, type TrAttRec, type TripRec } from "./reportData";
 import type { Exported, LogRec, Notice, Report, Schedule } from "./types";
 
 const CATS = ["CBSE Statutory", "Academics & Exams", "Fees & Accounts", "Operations & Fleet"];
@@ -27,6 +27,16 @@ export function ReportsView({ runId }: { runId?: string }) {
   const students = useCollection<Stu>("students").rows;
   const staff = useCollection<Stf>("staff").rows;
   const notices = useCollection<Notice>("com_notices").rows;
+  // the records the reports are computed from (all real collections; see reportData.ts)
+  const attendance = useCollection<AttRec>("ops_attendance").rows;
+  const papers = useCollection<PaperRec>("exm_papers").rows;
+  const marks = useCollection<MarkRec>("exm_marks").rows;
+  const invoices = useCollection<InvoiceRec>("fee_invoices").rows;
+  const periods = useCollection<PeriodRec>("ops_periods").rows;
+  const subs = useCollection<SubRec>("ops_substitutions").rows;
+  const buses = useCollection<BusRec>("tr_buses").rows;
+  const trips = useCollection<TripRec>("tr_trips").rows;
+  const trAttendance = useCollection<TrAttRec>("tr_attendance").rows;
   const schedules = useCollection<Schedule>("com_schedules");
   const exports = useCollection<Exported & { reportId?: string }>("com_exports");
   const reportsCol = useCollection<Report>("com_reports");
@@ -40,8 +50,8 @@ export function ReportsView({ runId }: { runId?: string }) {
   const [prevRun, setPrevRun] = useState<string | null>(null);
   if (runId && reports.length && prevRun !== runId) { setPrevRun(runId); setRunning(reports.find((r) => r.id === runId) ?? null); }
 
-  const ctx = { students, staff, notices };
-  const list = reports.filter((r) => (cat === "all" || r.category === cat) && (fmt === "all" || r.formats.includes(fmt))
+  const ctx: Ctx = { students, staff, notices, attendance, papers, marks, invoices, periods, subs, buses, trips, trAttendance };
+  const list = reports.filter((r) => (cat === "all" || r.category === cat) && (fmt === "all" || (r.formats ?? []).includes(fmt))
     && (!q || `${r.title} ${r.category} ${r.tag} ${r.desc}`.toLowerCase().includes(q.toLowerCase())));
   const empty: Params = { grade: "", section: "", from: "", to: "" };
 
@@ -81,10 +91,10 @@ export function ReportsView({ runId }: { runId?: string }) {
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap gap-2"><span className="rounded bg-surface-container px-2 py-1 text-xs font-semibold">{r.category}</span>
-                    <span className={cn("rounded px-2 py-1 text-xs font-semibold", r.tag.startsWith("Mandatory") || r.tag.includes("DLT") || r.tag.includes("CBSE") ? "bg-info-container text-secondary" : "bg-surface-container text-on-surface-variant")}>{r.tag}</span></div>
+                    <span className={cn("rounded px-2 py-1 text-xs font-semibold", (r.tag ?? "").startsWith("Mandatory") || (r.tag ?? "").includes("DLT") || (r.tag ?? "").includes("CBSE") ? "bg-info-container text-secondary" : "bg-surface-container text-on-surface-variant")}>{r.tag}</span></div>
                   <p className="mt-3 max-w-xl text-on-surface-variant">{r.desc}</p>
                   <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-outline-variant/40 pt-3 text-xs text-on-surface-variant">
-                    <span className="flex items-center gap-1.5 font-medium"><History size={13} />Last Generated: {r.lastGenerated}</span><span>•</span><span>{r.meta}</span><span>•</span><span>Formats: {r.formats.map((f) => `.${f}`).join(", ")}</span>
+                    <span className="flex items-center gap-1.5 font-medium"><History size={13} />Last Generated: {r.lastGenerated}</span><span>•</span><span>{r.meta}</span><span>•</span><span>Formats: {(r.formats ?? []).map((f) => `.${f}`).join(", ")}</span>
                   </div>
                 </div>
               </div>
@@ -151,7 +161,8 @@ export function ReportsView({ runId }: { runId?: string }) {
 function RunModal({ r, ctx, onClose, onDone, onDownload }: { r: Report; ctx: Parameters<typeof generate>[1]; onClose: () => void; onDone: (t: Table, p: Params) => Promise<void>; onDownload: (p: Params) => void }) {
   const [p, setP] = useState<Params>({ grade: "", section: "", from: "", to: "" });
   const [t, setT] = useState<Table | null>(null);
-  const grades = useMemo(() => [...new Set(ctx.students.map((s) => s.grade))].sort((a, b) => +a - +b), [ctx.students]);
+  const grades = useMemo(() => [...new Set(ctx.students.map((s) => s.grade).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), [ctx.students]);
+  const sections = useMemo(() => [...new Set(ctx.students.filter((s) => !p.grade || s.grade === p.grade).map((s) => s.section).filter(Boolean))].sort(), [ctx.students, p.grade]);
   const set = (k: keyof Params, v: string) => { setP((x) => ({ ...x, [k]: v })); setT(null); };
   const badRange = !!p.from && !!p.to && p.from > p.to;
   return (
@@ -160,7 +171,7 @@ function RunModal({ r, ctx, onClose, onDone, onDownload }: { r: Report; ctx: Par
         <Button disabled={badRange} onClick={() => { const tb = generate(r, ctx, p); setT(tb); void onDone(tb, p); }}>Generate Report</Button></>}>
       <div className="grid gap-3 sm:grid-cols-4">
         <Field label="Grade"><Select value={p.grade} onChange={(e) => set("grade", e.target.value)}><option value="">All grades</option>{grades.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
-        <Field label="Section"><Select value={p.section} onChange={(e) => set("section", e.target.value)}><option value="">All</option>{["A", "B", "C"].map((s) => <option key={s}>{s}</option>)}</Select></Field>
+        <Field label="Section"><Select value={p.section} onChange={(e) => set("section", e.target.value)}><option value="">All</option>{sections.map((s) => <option key={s}>{s}</option>)}</Select></Field>
         <Field label="From"><Input type="date" value={p.from} onChange={(e) => set("from", e.target.value)} /></Field>
         <Field label="To" error={badRange ? "Must be on or after From" : undefined}><Input type="date" value={p.to} onChange={(e) => set("to", e.target.value)} /></Field>
       </div>

@@ -1,24 +1,16 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { Badge, Button, Card, Modal, ProgressBar, Select, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { AddEventPanel } from "./AddEventPanel";
 import { DashHeader } from "./DashHeader";
-import { addDays, CATS, catOf, errMsg, eventsOn, fmtDay, MON, MONTHS, monthGrid, parse, TODAY, toIso, useEvents, type CalEvent, type CatId } from "./data";
+import { addDays, CATS, catOf, errMsg, eventsOn, fmtDay, MON, MONTHS, monthGrid, parse, TODAY, useEvents, type CalEvent, type CatId } from "./data";
+import { ayOf, spanDays, timeRange, workingDaysIn } from "./logic";
 
 type View = "month" | "week" | "agenda";
 const DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
-/** academic year Apr–Mar containing `day` */
-const ayOf = (day: string) => { const d = parse(day); const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1; return { y, start: `${y}-04-01`, t2: `${y}-11-01`, end: `${y + 1}-03-31` }; };
-/** Mon–Sat days in [from, to] that are not covered by a published holiday */
-const workingDaysIn = (from: string, to: string, holidays: CalEvent[]) => {
-  let n = 0; const d = parse(from), end = parse(to);
-  for (; d <= end; d.setDate(d.getDate() + 1)) { const iso = toIso(d); if (d.getDay() !== 0 && !holidays.some((h) => h.start <= iso && iso <= h.end)) n++; }
-  return n;
-};
-const spanDays = (e: CalEvent) => Math.max(1, Math.round((parse(e.end).getTime() - parse(e.start).getTime()) / 864e5) + 1);
 
 export function CalendarView() {
   const { rows, update, remove } = useEvents();
@@ -30,6 +22,7 @@ export function CalendarView() {
   const [hidden, setHidden] = useState<CatId[]>([]);
   const [addDate, setAddDate] = useState<string | undefined>();
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<CalEvent | null>(null);
   const [openEv, setOpenEv] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,7 +38,7 @@ export function CalendarView() {
   const highlights = rows.filter((e) => e.status === "published" && e.start.slice(0, 7) === nextKey && e.category !== "holiday").sort((a, b) => a.start.localeCompare(b.start));
   const shift = (d: number) => { if (view === "week") setWeekStart(addDays(weekStart, d * 7)); else setYm((x) => { const n = x.m + d; return n < 0 ? { y: x.y - 1, m: 11 } : n > 11 ? { y: x.y + 1, m: 0 } : { ...x, m: n }; }); };
   const goToday = () => { const d = parse(TODAY); setYm({ y: d.getFullYear(), m: d.getMonth() }); const wd = (d.getDay() + 6) % 7; setWeekStart(addDays(TODAY, -wd)); };
-  const openAdd = (date?: string) => { setAddDate(date); setAddOpen(true); };
+  const openAdd = (date?: string) => { setEditing(null); setAddDate(date); setAddOpen(true); };
   // instructional days for the current academic year, from the calendar itself
   const ay = ayOf(TODAY);
   const holidays = rows.filter((e) => e.category === "holiday" && e.status === "published");
@@ -110,7 +103,7 @@ export function CalendarView() {
                 <ul>{monthEvents.map((e) => { const d = parse(e.start); return (
                   <li key={e.id}><button onClick={() => setOpenEv(e.id)} className="flex w-full cursor-pointer items-center gap-4 border-t border-outline-variant/40 px-4 py-3 text-left hover:bg-surface-container-low">
                     <span className={cn("grid w-12 place-items-center rounded py-1", catOf(e.category).chip)}><span className="text-[10px] font-bold">{MON[d.getMonth()]}</span><span className="text-lg font-bold leading-5">{String(d.getDate()).padStart(2, "0")}</span></span>
-                    <span className="min-w-0 flex-1"><span className="block font-semibold">{e.title} {e.status === "draft" && <Badge>Draft</Badge>}</span><span className="text-xs text-outline">{e.start === e.end ? fmtDay(e.start) : `${fmtDay(e.start)} – ${fmtDay(e.end)}`} · {e.startTime}–{e.endTime} · {e.venue}</span></span>
+                    <span className="min-w-0 flex-1"><span className="block font-semibold">{e.title} {e.status === "draft" && <Badge>Draft</Badge>}</span><span className="text-xs text-outline">{e.start === e.end ? fmtDay(e.start) : `${fmtDay(e.start)} – ${fmtDay(e.end)}`} · {timeRange(e)} · {e.venue}</span></span>
                     <Badge className={catOf(e.category).chip}>{catOf(e.category).label}</Badge></button></li>); })}</ul>}</Card>)}
 
           <Card className="p-5">
@@ -122,7 +115,7 @@ export function CalendarView() {
               {highlights.map((e) => { const d = parse(e.start); return (
                 <button key={e.id} onClick={() => setOpenEv(e.id)} className="flex cursor-pointer gap-3 rounded-lg border border-outline-variant/60 p-4 text-left hover:bg-surface-container-low">
                   <span className={cn("grid size-14 shrink-0 place-items-center rounded-lg text-center", catOf(e.category).chip)}><span><span className="block text-[10px] font-bold">{MON[d.getMonth()]}</span><span className="text-xl font-bold">{String(d.getDate()).padStart(2, "0")}</span></span></span>
-                  <span><Badge className={catOf(e.category).chip}>{catOf(e.category).label}</Badge><span className="mt-1 block font-semibold">{e.title}</span><span className="block text-xs text-outline">{e.venue} · {e.startTime}–{e.endTime}</span>{e.lead && <span className="block text-xs text-on-surface-variant">Lead: {e.lead}</span>}</span></button>); })}</div>
+                  <span><Badge className={catOf(e.category).chip}>{catOf(e.category).label}</Badge><span className="mt-1 block font-semibold">{e.title}</span><span className="block text-xs text-outline">{e.venue} · {timeRange(e)}</span>{e.lead && <span className="block text-xs text-on-surface-variant">Lead: {e.lead}</span>}</span></button>); })}</div>
           </Card>
         </div>
 
@@ -140,13 +133,14 @@ export function CalendarView() {
         </aside>
       </div>
 
-      <AddEventPanel open={addOpen} onClose={() => setAddOpen(false)} initialDate={addDate} />
+      <AddEventPanel open={addOpen} onClose={() => { setAddOpen(false); setEditing(null); }} initialDate={addDate} event={editing} />
       <Modal open={!!evOpen} onClose={closeEv} title={evOpen?.title ?? ""} subtitle={evOpen ? catOf(evOpen.category).label : undefined}
         footer={evOpen && (confirmDel ? <><span className="mr-auto self-center text-sm text-error">Delete this event permanently?</span><Button variant="outline" onClick={() => setConfirmDel(false)}>Keep</Button>
           <Button variant="danger" disabled={busy} onClick={() => act(() => remove(evOpen.id), "Event deleted", true)}><Trash2 size={14} />Delete</Button></> : <><Button variant="ghost" className="!text-error" onClick={() => setConfirmDel(true)}><Trash2 size={14} />Delete</Button>
+          <Button variant="outline" onClick={() => { setEditing(evOpen); setAddOpen(true); closeEv(); }}><Pencil size={14} />Edit</Button>
           {evOpen.status === "draft" && <Button disabled={busy} onClick={() => act(() => update(evOpen.id, { status: "published" }), "Event published to master calendar")}>Publish</Button>}
           <Button variant="outline" onClick={closeEv}>Close</Button></>)}>
-        {evOpen && <dl className="space-y-3 text-sm">{[["Date", evOpen.start === evOpen.end ? fmtDay(evOpen.start) : `${fmtDay(evOpen.start)} – ${fmtDay(evOpen.end)}`], ["Time", `${evOpen.startTime} – ${evOpen.endTime}`], ["Venue", evOpen.venue], ["Term", evOpen.term], ["Faculty lead", evOpen.lead || "—"], ["Grades", evOpen.grades?.length ? evOpen.grades.join(", ") : "All"], ["Instructional credit", evOpen.instructional ? "Yes" : "No"], ["Status", evOpen.status === "draft" ? "Unapproved draft" : "Published"], ["Notes", evOpen.desc || "—"], ["Circular", evOpen.circular || "—"]].map(([k, v]) => <div key={k} className="flex justify-between gap-4"><dt className="text-outline">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}</dl>}
+        {evOpen && <dl className="space-y-3 text-sm">{[["Date", evOpen.start === evOpen.end ? fmtDay(evOpen.start) : `${fmtDay(evOpen.start)} – ${fmtDay(evOpen.end)}`], ["Time", timeRange(evOpen)], ["Venue", evOpen.venue], ["Term", evOpen.term], ["Faculty lead", evOpen.lead || "—"], ["Grades", evOpen.grades?.length ? evOpen.grades.join(", ") : "All"], ["Instructional credit", evOpen.instructional ? "Yes" : "No"], ["Status", evOpen.status === "draft" ? "Unapproved draft" : "Published"], ["Notes", evOpen.desc || "—"], ["Circular", evOpen.circular || "—"]].map(([k, v]) => <div key={k} className="flex justify-between gap-4"><dt className="text-outline">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}</dl>}
       </Modal>
     </>
   );

@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Plus, Save, Trash2 } from "lucide-react";
 import { Badge, Button, Field, Input, useToast } from "@/components/ui";
-import { DEFAULT_CHECK_IN_BY, DEFAULT_LEAVE_TYPES, useLeavePolicy, type LeaveType } from "@/features/people/checkins";
+import { DEFAULT_CHECK_IN_BY, DEFAULT_LEAVE_TYPES, useLeavePolicy, validateLeavePolicy, type LeaveType } from "@/features/people/checkins";
 
 type Draft = { types: (LeaveType & { key: string })[]; checkInBy: string };
 let seq = 0;
@@ -26,13 +26,8 @@ export function LeavePolicyEditor({ onSaved }: { onSaved?: (detail: string) => v
   const dirty = !policy.exists || JSON.stringify(clean) !== saved;
 
   const save = async () => {
-    const ids = clean.types.map((t) => t.id);
-    if (!clean.types.length) return setErr("Add at least one leave type");
-    if (clean.types.some((t) => !t.id || !t.name || !t.type)) return setErr("Every leave type needs a code, a label and a leave type");
-    if (new Set(ids).size !== ids.length) return setErr("Leave codes must be unique");
-    if (new Set(clean.types.map((t) => t.type.toLowerCase())).size !== ids.length) return setErr("Each leave type can appear only once");
-    if (clean.types.some((t) => !Number.isInteger(t.total) || t.total < 0 || t.total > 365)) return setErr("Yearly totals must be whole numbers between 0 and 365");
-    if (!/^\d{2}:\d{2}$/.test(clean.checkInBy)) return setErr("Enter the check-in time");
+    const problem = validateLeavePolicy(clean);
+    if (problem) return setErr(problem);
     setErr(""); setSaving(true);
     try {
       await policy.save(clean);
@@ -59,7 +54,7 @@ export function LeavePolicyEditor({ onSaved }: { onSaved?: (detail: string) => v
         <Field label="Check in by (late after)" className="ml-auto w-44"><Input type="time" value={v.checkInBy} onChange={(e) => setV({ ...v, checkInBy: e.target.value })} /></Field>
         <Button onClick={save} disabled={saving || !dirty}><Save size={16} />{saving ? "Saving…" : "Save leave policy"}</Button>
       </div>
-      {err && <p className="mt-2 text-xs text-error">{err}</p>}
+      {err && <p role="alert" className="mt-2 text-xs text-error">{err}</p>}
       <p className="mt-2 text-xs text-outline">{policy.exists ? <>Teachers&apos; quotas in the app use these totals; used days come from approved leave requests of the same type.</> : <><Badge tone="warning">Not saved yet</Badge> The app is using the built-in defaults shown here.</>}</p>
     </div>
   );

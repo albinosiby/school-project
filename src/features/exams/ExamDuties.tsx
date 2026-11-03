@@ -6,6 +6,7 @@ import { AlertTriangle, Plus, Trash2, UserPlus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Select, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { fmtDate } from "@/lib/format";
+import { classIdOf, fromMin, paperEnd, rosterOf, staffClashes, toMin, type Slot, type StudentRow } from "./logic";
 import type { Candidate, Cycle, Paper } from "./types";
 
 export type DutyRole = "Chief Invigilator" | "Invigilator" | "Reliever";
@@ -16,23 +17,19 @@ export type Duty = {
 type StaffRow = { id: string; name: string; department: string; status?: string };
 const ROLES: DutyRole[] = ["Chief Invigilator", "Invigilator", "Reliever"];
 
-const toMin = (t: string) => { const [h, m] = (t || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
-const fromMin = (n: number) => { const x = ((n % 1440) + 1440) % 1440; return `${String(Math.floor(x / 60)).padStart(2, "0")}:${String(x % 60).padStart(2, "0")}`; };
-const paperEnd = (p: Paper) => fromMin(toMin(p.start) + Math.round((p.duration || 0) * 60));
 const t12 = (t?: string) => { if (!t || !t.includes(":")) return "--:--"; const [h, m] = t.split(":").map(Number); return `${String(h % 12 || 12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 /** draft papers may have no date yet */
 const dateLabel = (d?: string) => (d ? fmtDate(d) : "Date TBD");
 const dutyId = (paperId: string) => `dut_${paperId}_${Date.now().toString(36)}`;
-const classOf = (c: Candidate) => `cls_${c.grade}${c.section}`;
-
-/** One staff member's time on a paper (duty row or chief of the paper). */
-type Slot = { key: string; staffId: string; paperId: string; date: string; start: string; end: string; label: string };
+const classOf = (c: Candidate) => classIdOf(c.grade, c.section);
 
 export function ExamDuties({ cycles, papers, defaultCycleId }: { cycles: Cycle[]; papers: Paper[]; defaultCycleId: string }) {
   const toast = useToast();
   const duties = useCollection<Duty>("exm_duties");
   const paperCol = useCollection<Paper>("exm_papers");
-  const cands = useCollection<Candidate>("exm_candidates").rows;
+  const candRows = useCollection<Candidate>("exm_candidates").rows;
+  const students = useCollection<StudentRow>("students").rows;
+  const cands = useMemo(() => rosterOf(candRows, students), [candRows, students]);
   const staff = useCollection<StaffRow>("staff").rows.filter((s) => s.department !== "Administration").sort((a, b) => a.name.localeCompare(b.name));
   const [cycleId, setCycleId] = useState("");
   const [grade, setGrade] = useState("all");
@@ -55,8 +52,7 @@ export function ExamDuties({ cycles, papers, defaultCycleId }: { cycles: Cycle[]
     return out;
   }, [papers, duties.rows]);
   /** Other assignments of this staff member on the same date with overlapping time (other papers only). */
-  const clashes = (staffId: string, p: Pick<Paper, "id" | "date" | "start"> & { end: string }, exceptKey?: string) =>
-    slots.filter((s) => s.staffId === staffId && s.key !== exceptKey && s.paperId !== p.id && !!p.date && s.date === p.date && toMin(s.start) < toMin(p.end) && toMin(p.start) < toMin(s.end));
+  const clashes = (staffId: string, p: Pick<Paper, "id" | "date" | "start"> & { end: string }, exceptKey?: string) => staffClashes(slots, staffId, p, exceptKey);
 
   const cyclePapers = papers.filter((p) => p.cycleId === curId);
   const grades = [...new Set(cyclePapers.map((p) => p.grade))].sort((a, b) => +a - +b);

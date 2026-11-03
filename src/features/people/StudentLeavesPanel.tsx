@@ -5,19 +5,24 @@ import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { auth } from "@/lib/firebase";
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
+import { leaveDays, leaveStatus } from "./studentLogic";
 
 /** student_leaves (data contract 13.3): raised by parents, decided by the class teacher in the teacher app. */
 type Leave = { id: string; studentId: string; classId: string; from: string; to?: string; reason?: string; status: "Pending" | "Approved" | "Rejected" | string;
-  decisionNote?: string; decidedBy?: string; decidedAt?: string; parentUid?: string; name?: string };
+  decisionNote?: string; decidedBy?: string; decidedAt?: string; parentUid?: string; name?: string; days?: number; deleted?: boolean };
 type Stu = { id: string; name: string; grn: string; grade: string; section: string; classId?: string; guardian?: string };
 type Cls = { id: string; grade: string; section: string; classTeacherId?: string };
 type Stf = { id: string; name: string; status?: string; authUid?: string };
 const tone = { Pending: "warning", Approved: "success", Rejected: "danger" } as const;
-const days = (from: string, to?: string) => { if (!from) return 0; const d = (Date.parse(`${to || from}T12:00:00`) - Date.parse(`${from}T12:00:00`)) / 864e5; return isNaN(d) ? 0 : Math.round(d) + 1; };
+/** day count from the dates; the parent app's stored `days` when the dates cannot be read */
+const days = (l: Leave) => leaveDays(l.from, l.to) || Number(l.days) || 0;
 
 export function StudentLeavesPanel({ students }: { students: Stu[] }) {
   const toast = useToast();
-  const { rows, ready, update } = useCollection<Leave>("student_leaves");
+  const leaves = useCollection<Leave>("student_leaves");
+  const { ready, update } = leaves;
+  // tolerant read: soft-deleted requests are hidden, status in the contract spelling (teacher app ignores deleted too)
+  const rows = useMemo(() => leaves.rows.filter((l) => l.deleted !== true).map((l) => ({ ...l, status: leaveStatus(l.status), classId: l.classId ?? "" })), [leaves.rows]);
   const classes = useCollection<Cls>("classes").rows;
   const staff = useCollection<Stf>("staff").rows;
   const [tab, setTab] = useState("Pending");
@@ -46,7 +51,7 @@ export function StudentLeavesPanel({ students }: { students: Stu[] }) {
     { key: "class", header: "Class", sortValue: (l) => label(l.classId), render: (l) => { const t = teacherOf(l.classId);
       return <div><span className="rounded bg-surface-container px-2 py-1 text-xs font-medium">{label(l.classId)}</span>
         {t && <div className="t-caption mt-1 text-outline">{t.name}{t.status === "On leave" && <Badge tone="warning" className="ml-1">On leave</Badge>}</div>}</div>; } },
-    { key: "dates", header: "Dates", sortValue: (l) => l.from ?? "", render: (l) => <div>{l.from ? fmtDate(l.from) : "—"}{l.to && l.to !== l.from && <> – {fmtDate(l.to)}</>}<div className="t-caption text-outline">{days(l.from, l.to)} day{days(l.from, l.to) === 1 ? "" : "s"}</div></div> },
+    { key: "dates", header: "Dates", sortValue: (l) => l.from ?? "", render: (l) => <div>{l.from ? fmtDate(l.from) : "—"}{l.to && l.to !== l.from && <> – {fmtDate(l.to)}</>}<div className="t-caption text-outline">{days(l)} day{days(l) === 1 ? "" : "s"}</div></div> },
     { key: "reason", header: "Reason", render: (l) => <span className="block max-w-[260px] text-sm text-on-surface-variant">{l.reason || "—"}</span> },
     { key: "status", header: "Status", sortValue: (l) => l.status, render: (l) => <div><Badge tone={tone[l.status as keyof typeof tone] ?? "neutral"}>{l.status}</Badge>
       {l.decidedBy && <div className="t-caption mt-0.5 text-outline">by {decider(l.decidedBy)}{l.decidedAt ? ` · ${fmtDate(l.decidedAt)}` : ""}</div>}

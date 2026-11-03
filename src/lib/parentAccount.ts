@@ -9,7 +9,8 @@ import { useAuth } from "./authContext";
 import { accountError, createAccount, sendInvite } from "./staffAccount";
 
 export type SchoolUser = { id: string; schoolId: string; role: "admin" | "teacher" | "parent"; email?: string; name?: string; staffId?: string; studentIds?: string[]; createdAt?: string };
-export type Consent = { id: string; uid?: string; studentIds?: string[]; version?: string | number; acceptedAt?: unknown; items?: { dataProcessing?: boolean; photos?: boolean; notifications?: boolean } };
+export type Consent = { id: string; uid?: string; studentIds?: string[]; version?: string | number; acceptedAt?: unknown; withdrawn?: boolean;
+  items?: { dataProcessing?: boolean; photos?: boolean; notifications?: boolean } };
 
 export const normEmail = (e: string) => e.trim().toLowerCase();
 export const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
@@ -40,10 +41,19 @@ export function useSchoolUsers() {
   return s.sid === sid ? { users: s.users, ready: s.ready } : { users: EMPTY_USERS.users, ready: false };
 }
 
-/** "Given" | "Pending" | "None" (no parent login linked) for a student, from its guardianUids and the consents collection. */
+/** A consent that counts: recorded and not withdrawn (13.6: `withdrawn: true` or a deleted doc = withdrawn). */
+export const consentGiven = (c: Consent | undefined) => !!c && c.withdrawn !== true;
+
+/** consents rows keyed by the parent uid (`uid`, else the doc id, which is the uid by contract 13.3). */
+export const consentMap = (rows: Consent[]) => new Map(rows.map((c) => [c.uid || c.id, c]));
+
+/**
+ * "Given" | "Pending" | "None" (no parent login linked) for a student, from its guardianUids and the consents collection.
+ * Given = at least one linked parent login has a consent that is not withdrawn.
+ */
 export type ConsentState = "Given" | "Pending" | "None";
 export const consentState = (guardianUids: string[] | undefined, consents: Map<string, Consent>): ConsentState =>
-  !guardianUids?.length ? "None" : guardianUids.some((u) => consents.has(u)) ? "Given" : "Pending";
+  !guardianUids?.length ? "None" : guardianUids.some((u) => consentGiven(consents.get(u))) ? "Given" : "Pending";
 
 class LinkError extends Error {}
 export const parentError = (e: unknown) => e instanceof LinkError ? e.message

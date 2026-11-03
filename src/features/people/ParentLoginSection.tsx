@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link2, Mail, Unlink } from "lucide-react";
 import { Badge, Button, Input, Modal, useToast } from "@/components/ui";
 import { currentSchoolId } from "@/lib/useCollection";
-import { linkParent, normEmail, parentError, resendParentInvite, unlinkParent, validEmail, type Consent, type SchoolUser } from "@/lib/parentAccount";
+import { consentGiven, linkParent, normEmail, parentError, resendParentInvite, unlinkParent, validEmail, type Consent, type SchoolUser } from "@/lib/parentAccount";
 
 type Stu = { id: string; name: string; guardian: string; email?: string; guardianEmail?: string; guardianUids?: string[] };
 
@@ -34,7 +34,8 @@ export function ParentLoginSection({ s, students, users, consents }: { s: Stu; s
       if (!r.created) toast(`Linked the existing parent login ${e}`);
       else if (r.invited) toast(`Parent login created. Password email sent to ${e}`);
       else toast("Parent login created, but the password email could not be sent. Use Resend invite.", "error");
-    } catch (x) { toast(parentError(x), "error"); } finally { setBusy(null); }
+      setErr("");
+    } catch (x) { setErr(parentError(x)); } finally { setBusy(null); }
   }
   async function resend(u: SchoolUser) {
     if (!u.email) return;
@@ -70,13 +71,14 @@ export function ParentLoginSection({ s, students, users, consents }: { s: Stu; s
                 </div>
               </div>
               <div className="mt-2 border-t border-outline-variant/40 pt-2">
-                {c ? (
+                {consentGiven(c) && c ? (
                   <dl className="grid grid-cols-[110px_1fr] gap-y-1">
                     <dt className="text-outline">Consent</dt><dd><Badge tone="success">Given</Badge> <span className="t-caption text-outline">v{String(c.version ?? "—")} · {fmtAt(c.acceptedAt)}</span></dd>
                     <dt className="text-outline">Photos</dt><dd>{yesNo(c.items?.photos)}</dd>
                     <dt className="text-outline">Notifications</dt><dd>{yesNo(c.items?.notifications)}</dd>
                   </dl>
-                ) : <div><span className="text-outline">Consent </span><Badge tone="warning">Pending</Badge><span className="t-caption ml-1 text-outline">recorded at the parent&apos;s first sign-in</span></div>}
+                ) : c ? <div><span className="text-outline">Consent </span><Badge tone="danger">Withdrawn</Badge><span className="t-caption ml-1 text-outline">{fmtAt(c.acceptedAt) !== "—" ? `given ${fmtAt(c.acceptedAt)}, then withdrawn` : "withdrawn by the parent"}</span></div>
+                  : <div><span className="text-outline">Consent </span><Badge tone="warning">Pending</Badge><span className="t-caption ml-1 text-outline">recorded at the parent&apos;s first sign-in</span></div>}
                 {siblings.length > 0 && <p className="t-caption mt-1 text-outline">Also linked to {siblings.join(", ")}</p>}
               </div>
             </li>);
@@ -85,7 +87,7 @@ export function ParentLoginSection({ s, students, users, consents }: { s: Stu; s
         <Input type="email" aria-label="Guardian email" placeholder="guardian@example.com" value={email} onChange={(e) => { setEmail(e.target.value); setErr(""); }} />
         <Button className="shrink-0" disabled={busy === "create"} onClick={create}><Link2 size={14} />{busy === "create" ? "Working…" : "Create & invite"}</Button>
       </div>
-      {err ? <p className="mt-1 text-xs text-error">{err}</p>
+      {err ? <p className="mt-1 text-xs text-error" role="alert">{err}</p>
         : <p className="t-caption mt-1 text-outline">An existing parent login with this email (e.g. a sibling&apos;s) is linked; otherwise a login is created and a password email is sent.</p>}
       <Modal open={!!unlink} onClose={() => setUnlink(null)} title="Unlink parent login?" subtitle={unlink?.label}
         footer={<><Button variant="ghost" onClick={() => setUnlink(null)}>Cancel</Button><Button variant="danger" disabled={!!unlink && busy === unlink.uid} onClick={confirmUnlink}>{unlink && busy === unlink.uid ? "Unlinking…" : "Unlink"}</Button></>}>

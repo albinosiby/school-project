@@ -7,10 +7,10 @@ import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, 
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import type { StaffLeave } from "./leaves";
-import { attId, isLate, localToday, t12, useLeavePolicy, useRegularizations, type PunchStatus, type Regularization, type RegStatus, type StaffAttendance } from "./checkins";
+import { attId, dayStatus, isLate, localToday, t12, useLeavePolicy, useRegularizations, validateCorrection, type DayStatus, type PunchStatus, type Regularization, type RegStatus, type StaffAttendance } from "./checkins";
+import { approvedLeaveOn } from "./leaves";
 
 type S = { id: string; name: string; department: string; empId?: string };
-type DayStatus = PunchStatus | "Not checked in" | "On leave";
 type Row = { id: string; staff: S; rec?: StaffAttendance; status: DayStatus };
 
 const statusTone: Record<DayStatus, Tone> = { Present: "success", Late: "warning", Leave: "info", "On leave": "info", Irregular: "danger", "Not checked in": "neutral" };
@@ -28,15 +28,11 @@ export function CheckinsPanel({ staff }: { staff: S[] }) {
   const [regTab, setRegTab] = useState("Pending");
 
   const teaching = useMemo(() => staff.filter((s) => s.department !== "Administration").sort((a, b) => a.name.localeCompare(b.name)), [staff]);
-  const onLeave = (staffId: string, d: string) => leaves.some((l) => l.staffId === staffId && l.status === "Approved" && l.from <= d && (l.to || l.from) >= d);
 
   const rows: Row[] = useMemo(() => teaching.map((s) => {
     const rec = att.rows.find((a) => a.id === attId(date, s.id)) ?? att.rows.find((a) => a.staffId === s.id && a.date === date);
-    let status: DayStatus;
-    if (rec && (rec.in || rec.out || rec.status === "Leave")) status = rec.status === "Present" && isLate(rec.in, policy.checkInBy) ? "Late" : rec.status;
-    else status = onLeave(s.id, date) ? "On leave" : "Not checked in";
-    return { id: s.id, staff: s, rec, status };
-  }), [teaching, att.rows, date, policy.checkInBy, leaves]); // eslint-disable-line react-hooks/exhaustive-deps
+    return { id: s.id, staff: s, rec, status: dayStatus(rec, !!approvedLeaveOn(leaves, s.id, date), policy.checkInBy) };
+  }), [teaching, att.rows, date, policy.checkInBy, leaves]);
 
   const count = (...st: DayStatus[]) => rows.filter((r) => st.includes(r.status)).length;
 
@@ -119,19 +115,20 @@ function CorrectModal({ row, date, checkInBy, onClose, onSave }: { row: Row; dat
   const [status, setStatus] = useState<PunchStatus>(r?.status ?? (row.status === "On leave" ? "Leave" : "Present"));
   const [note, setNote] = useState(r?.note ?? "");
   const [saving, setSaving] = useState(false);
-  const bad = !!inT && !!outT && outT < inT;
-  const needIn = (status === "Present" || status === "Late") && !inT;
+  const [err, setErr] = useState<Record<string, string>>({});
   const setInTime = (v: string) => { setIn(v); if (v && (status === "Present" || status === "Late")) setStatus(isLate(v, checkInBy) ? "Late" : "Present"); };
   return (
     <Modal open onClose={onClose} title="Correct check-in" subtitle={`${row.staff.name} · ${fmtDate(date)}`}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={bad || needIn || saving} onClick={async () => {
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving} onClick={async () => {
+        const { errors, value } = validateCorrection({ in: inT, out: outT, status, note }, checkInBy);
+        setErr(errors); if (!value) return;
         setSaving(true);
-        try { await onSave({ in: status === "Leave" ? null : inT || null, out: status === "Leave" ? null : outT || null, status, note: note.trim() }); } finally { setSaving(false); }
+        try { await onSave(value); } finally { setSaving(false); }
       }}>{saving ? "Saving…" : "Save correction"}</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Status" className="sm:col-span-2"><Select value={status} onChange={(e) => setStatus(e.target.value as PunchStatus)}>{(["Present", "Late", "Leave", "Irregular"] as const).map((s) => <option key={s}>{s}</option>)}</Select></Field>
-        <Field label="Check-in" error={needIn ? "Enter the check-in time" : undefined} hint={`Late after ${t12(checkInBy)}`}><Input type="time" value={inT} disabled={status === "Leave"} onChange={(e) => setInTime(e.target.value)} /></Field>
-        <Field label="Check-out" error={bad ? "Check-out is before check-in" : undefined}><Input type="time" value={outT} disabled={status === "Leave"} onChange={(e) => setOut(e.target.value)} /></Field>
+        <Field label="Status" className="sm:col-span-2" error={err.status}><Select value={status} onChange={(e) => setStatus(e.target.value as PunchStatus)}>{(["Present", "Late", "Leave", "Irregular"] as const).map((s) => <option key={s}>{s}</option>)}</Select></Field>
+        <Field label="Check-in" error={err.in} hint={`Late after ${t12(checkInBy)}`}><Input type="time" value={inT} disabled={status === "Leave"} onChange={(e) => setInTime(e.target.value)} /></Field>
+        <Field label="Check-out" error={err.out}><Input type="time" value={outT} disabled={status === "Leave"} onChange={(e) => setOut(e.target.value)} /></Field>
         <Field label="Note" className="sm:col-span-2"><Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Biometric terminal down, verified by office" /></Field>
       </div>
       <p className="mt-3 text-xs text-outline">Saved as an admin correction (source: admin). The teacher sees it in the app.</p>
