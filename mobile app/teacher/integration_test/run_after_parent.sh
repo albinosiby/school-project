@@ -7,9 +7,9 @@ APP="$(cd "$(dirname "$0")/.." && pwd)"; WEB="$APP/../../website"
 ADB="${ADB:-adb}"
 # stop every app of the suite first: an app killed while holding Firestore listeners makes the emulator refuse
 # writes (CANCELLED) for a few seconds
-for p in com.tatos.school.driver_app tech.tatos.parent_app com.greenfield.teacher_app; do "$ADB" -s "$DEV" shell am force-stop "$p" || true; done
+for p in tatos.tech.school.driver_app tech.tatos.parent_app tatos.tech.teacher_app; do "$ADB" -s "$DEV" shell am force-stop "$p" || true; done
 sleep 8
-"$ADB" -s "$DEV" shell pm clear com.greenfield.teacher_app >/dev/null 2>&1 || true
+"$ADB" -s "$DEV" shell pm clear tatos.tech.teacher_app >/dev/null 2>&1 || true
 for p in 8080 9099 9199; do "$ADB" -s "$DEV" reverse tcp:$p tcp:$p >/dev/null; done
 "$ADB" -s "$DEV" shell input keyevent KEYCODE_WAKEUP
 PW=$(node -e "console.log(require('$WEB/tools/e2e/.accounts.json').teacher.password)")

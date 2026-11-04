@@ -66,8 +66,7 @@ Collections under `schools/{sid}` (contract section 14): `tr_crew`, `tr_buses`, 
 written in a transaction so the driver and the attendant can mark at the same time. The rules allow a crew member only
 their own bus's records (`website/firestore.rules`, tested in `website/tools/rules_test`).
 
-`lib/firebase_options.dart` reuses the parent app's Android values until an Android app for
-`com.tatos.school.driver_app` is registered in the Firebase project and its `google-services.json` added.
+`lib/firebase_options.dart` holds the "Driver App (Android)" values (`tatos.tech.school.driver_app`, registered 4 Nov 2026).
 
 ## Tests
 

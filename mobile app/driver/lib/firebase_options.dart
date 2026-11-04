@@ -1,7 +1,6 @@
 // Hand-written from the Firebase app configs. Project: school-admin-tatos-2610.
-// web: "school-admin-web" app. android: reuses the parent app values until "Driver App (Android)" is registered
-// (com.tatos.school.driver_app) and its google-services.json added.
-// ios: PLACEHOLDERS until the iOS app is registered and its GoogleService-Info.plist is added.
+// web: "school-admin-web" app. android: "Driver App (Android)" (tatos.tech.school.driver_app).
+// ios: "Driver App (iOS)" (tatos.tech.school.driverApp).
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 
@@ -28,19 +27,19 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCheKR9AdiJhLrKcwc0wTU8dvrTuCGqawk',
-    appId: '1:845227645501:android:6a7be14f6073d9a9c0a854',
+    appId: '1:845227645501:android:edce2b29d3e9917ec0a854',
     messagingSenderId: '845227645501',
     projectId: 'school-admin-tatos-2610',
     storageBucket: 'school-admin-tatos-2610.firebasestorage.app',
   );
 
-  // TODO(flutterfire): replace the REPLACE_ME values with the iOS app's config.
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'REPLACE_ME_IOS_API_KEY',
-    appId: '1:845227645501:ios:REPLACE_ME',
+    apiKey: 'AIzaSyBq7CjG5ZDfeLqroLyZNg3KNPYERXXlzlQ',
+    appId: '1:845227645501:ios:724c5662425b87b4c0a854',
     messagingSenderId: '845227645501',
     projectId: 'school-admin-tatos-2610',
     storageBucket: 'school-admin-tatos-2610.firebasestorage.app',
-    iosBundleId: 'tech.tatos.parentApp',
+    iosClientId: '845227645501-4e71f0kc05s0tl6mkoatnk3ue8s0d84m.apps.googleusercontent.com',
+    iosBundleId: 'tatos.tech.school.driverApp',
   );
 }

@@ -82,8 +82,8 @@ waits for the Cloud Functions side effects (projections and in-app notification 
 
 - **Real push notifications** were not tested: the emulators cannot send FCM. In-app notification rows and the
   functions that send pushes were verified. A live push test needs your go-ahead on the real project.
-- **Driver Android app** is not registered in Firebase (`com.tatos.school.driver_app`). Auto mode blocked
-  `firebase apps:create`. Until it is, the driver build reuses the parent app's Android config.
+- **Android package names** (4 Nov): teacher `tatos.tech.teacher_app`, driver `tatos.tech.school.driver_app`, both registered in
+  Firebase. The old `com.greenfield.teacher_app` and `com.tatos.school.driver_app` registrations were removed.
 - **Deployed 4 Nov 2026** to `school-admin-tatos-2610`: Firestore rules, indexes and the `notify` functions codebase
   (45 functions, 10 new, 0 failed; the admin web's hosting server was not touched). Live students already on a bus
   get their parent bus view after a one-off `node tools/transport_backfill/backfill.mjs --dry` then without `--dry`

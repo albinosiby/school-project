@@ -116,5 +116,6 @@ Deploying the parent backend needs: `firebase deploy --only firestore` (rules + 
 
 ### Running the Firebase CLI here (31 Oct 2026)
 `firebase` is not installed globally; `npx firebase-tools` keeps a copy under `~/.npm/_npx/*/node_modules/.bin/firebase`.
-Add that folder to `PATH` before `tools/e2e/start_emulators.sh` or `tools/emulator_exec.sh`. The driver app's Android
-registration (`com.tatos.school.driver_app`) is still to be created with `firebase apps:create ANDROID … --project school-admin-tatos-2610`.
+Add that folder to `PATH` before `tools/e2e/start_emulators.sh` or `tools/emulator_exec.sh`.
+Android apps registered (4 Nov 2026): parent `tech.tatos.parent_app`, teacher `tatos.tech.teacher_app`, driver
+`tatos.tech.school.driver_app`. The older `com.greenfield.teacher_app` and `com.tatos.school.driver_app` entries were removed.

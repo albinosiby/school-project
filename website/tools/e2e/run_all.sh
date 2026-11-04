@@ -10,7 +10,7 @@ declare -a RESULTS=()
 # apps left open on a connected phone keep Firestore listeners that upset the emulator: stop them first (best effort)
 if command -v adb >/dev/null; then
   for d in $(adb devices | awk 'NR>1 && $2=="device" {print $1}'); do
-    for p in com.tatos.school.driver_app tech.tatos.parent_app com.greenfield.teacher_app; do adb -s "$d" shell am force-stop "$p" >/dev/null 2>&1; done
+    for p in tatos.tech.school.driver_app tech.tatos.parent_app tatos.tech.teacher_app; do adb -s "$d" shell am force-stop "$p" >/dev/null 2>&1; done
   done
   sleep 8
 fi

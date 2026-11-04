@@ -7,12 +7,25 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:845227645501:android:a48908999b36b4d2c0a854",
+        "mobilesdk_app_id": "1:845227645501:android:5d5931311f2f6229c0a854",
         "android_client_info": {
-          "package_name": "com.greenfield.teacher_app"
+          "package_name": "tatos.tech.teacher_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "845227645501-tknbkeg0j2ihf9d8o0k567b03p75b8tp.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "tatos.tech.teacher_app",
+            "certificate_hash": "ba5711122d20e52dcb3940ad86d482b7c1ae932d"
+          }
+        },
+        {
+          "client_id": "845227645501-f4fn13hv8td5g1h22nhnqaegbo7r8af0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCheKR9AdiJhLrKcwc0wTU8dvrTuCGqawk"

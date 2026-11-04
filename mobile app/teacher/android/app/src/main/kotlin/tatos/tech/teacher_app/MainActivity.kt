@@ -1,4 +1,4 @@
-package com.greenfield.teacher_app
+package tatos.tech.teacher_app
 
 import io.flutter.embedding.android.FlutterActivity
 

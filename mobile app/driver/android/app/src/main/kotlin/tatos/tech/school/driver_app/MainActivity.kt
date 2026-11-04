@@ -1,4 +1,4 @@
-package com.tatos.school.driver_app
+package tatos.tech.school.driver_app
 
 import android.content.pm.ApplicationInfo
 import android.view.WindowManager
