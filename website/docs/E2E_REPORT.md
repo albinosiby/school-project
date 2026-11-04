@@ -84,7 +84,10 @@ waits for the Cloud Functions side effects (projections and in-app notification 
   functions that send pushes were verified. A live push test needs your go-ahead on the real project.
 - **Driver Android app** is not registered in Firebase (`com.tatos.school.driver_app`). Auto mode blocked
   `firebase apps:create`. Until it is, the driver build reuses the parent app's Android config.
-- **Deploying** the new rules, indexes and functions to `school-admin-tatos-2610` was not done (deliberately).
+- **Deployed 4 Nov 2026** to `school-admin-tatos-2610`: Firestore rules, indexes and the `notify` functions codebase
+  (45 functions, 10 new, 0 failed; the admin web's hosting server was not touched). Live students already on a bus
+  get their parent bus view after a one-off `node tools/transport_backfill/backfill.mjs --dry` then without `--dry`
+  (it only touches each bus doc; the deployed trigger does the rest). It was not run: reading live data was blocked.
 - **Fonts:** parent and teacher apps download Inter at first launch; a phone with no data shows the fallback font
   until it can download. The driver app bundles its font. Bundling Inter is a small follow-up.
 - **No screens yet** (contract has the data, no app screen):

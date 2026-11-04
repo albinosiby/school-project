@@ -169,7 +169,8 @@ module.exports = ({ db, notifyParents, guardiansOf, istToday, notifyAdmin, safe 
   // the bus's number, stops or crew changed
   const onTransportProjectionBus = onDocumentWritten("schools/{sid}/tr_buses/{busId}", safe("onTransportProjectionBus", async (e) => {
     const b = e.data?.before?.data(), a = e.data?.after?.data();
-    const keys = ["number", "regNo", "routeName", "model", "stops", "driverId", "attendantId"];
+    // backfilledAt: tools/transport_backfill touches it to build the projection for riders assigned before the deploy
+    const keys = ["number", "regNo", "routeName", "model", "stops", "driverId", "attendantId", "backfilledAt"];
     if (b && a && keys.every((k) => same(b[k], a[k]))) return;
     await rebuildTransport(e.params.sid, await studentsOfBus(e.params.sid, e.params.busId));
   }));
