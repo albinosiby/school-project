@@ -7,7 +7,7 @@ import { ADMIN_UID, SCHOOL_ID } from "./fakeDb";
 export const authAccounts = new Map<string, string>();
 export const sentInvites: string[] = [];
 let uidSeq = 0;
-export function resetAuth() { authAccounts.clear(); sentInvites.length = 0; uploads.length = 0; uidSeq = 0; }
+export function resetAuth() { authAccounts.clear(); sentInvites.length = 0; uploads.length = 0; callableCalls.length = 0; uidSeq = 0; }
 
 const err = (code: string) => Object.assign(new Error(code), { code });
 export const authModule = {
@@ -31,6 +31,16 @@ export const appModule = {
   getApps: () => [],
   getApp: () => ({ name: "[DEFAULT]" }),
   initializeApp: (_o: unknown, name = "[DEFAULT]") => ({ name }),
+  deleteApp: async () => {},
+};
+
+// ---- firebase/functions -------------------------------------------------------------------------------------
+/** calls made to callable functions: [name, data] */
+export const callableCalls: [string, unknown][] = [];
+export const functionsModule = {
+  getFunctions: () => ({}),
+  connectFunctionsEmulator: () => {},
+  httpsCallable: (_f: unknown, name: string) => async (data: unknown) => { callableCalls.push([name, data]); return { data: { ok: true, logins: 1, files: 0 } }; },
 };
 
 // ---- firebase/storage ---------------------------------------------------------------------------------------
@@ -53,12 +63,15 @@ export const libFirebaseModule = {
   auth: { currentUser: { uid: ADMIN_UID, email: "admin@school.test" } },
   db: { __fake: true },
   storage: {},
+  functions: {},
+  firestoreFor: () => ({ __fake: true }),
 };
 
 // ---- @/lib/authContext --------------------------------------------------------------------------------------
 export const authState = {
   user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" },
   isLoading: false,
+  actAs: vi.fn<(sid: string | null) => void>(),
   blockedMessage: "",
   login: vi.fn<(email: string, password: string) => Promise<void>>(async () => {}),
   signup: vi.fn<(email: string, password: string, org: string) => Promise<void>>(async () => {}),
@@ -67,12 +80,12 @@ export const authState = {
 };
 export function resetAuthState() {
   authState.user = { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" };
-  authState.isLoading = false; authState.blockedMessage = "";
+  authState.isLoading = false; authState.blockedMessage = ""; authState.actAs.mockReset();
   authState.login.mockReset().mockResolvedValue(undefined); authState.signup.mockReset().mockResolvedValue(undefined);
   authState.resetPassword.mockReset().mockResolvedValue(undefined); authState.logout.mockReset().mockResolvedValue(undefined);
 }
 export const authContextModule = {
   useAuth: () => authState,
-  homeFor: (u: { role: string } | null) => (u?.role === "owner" ? "/owner" : "/dashboard"),
+  homeFor: (u: { role: string; schoolId?: string } | null) => (u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard"),
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 };

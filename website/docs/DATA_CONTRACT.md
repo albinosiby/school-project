@@ -439,3 +439,38 @@ Parents never read `tr_*` (they hold every pupil of a bus). A function keeps one
   does the same while its Notices page is open; both run in a transaction-safe way (status checked first). The Published
   write then runs the usual teacher / parent notice functions. Needs the `com_notices.status` collection-group index
   (`firestore.indexes.json` fieldOverrides).
+
+## 16. Platform owner console (super admin, 2026-11-04)
+The product owner (Tatos) manages every school from a separate site: the owner console at `/owner`, served by its own
+Firebase Hosting site (`edvio-owner.web.app`, target `owner`) from the same Next.js app as the admin web. `web/src/lib/sites.ts`
+decides by host name (locally `http://owner.localhost:<port>`). The admin site redirects `/owner/**` to the owner site; the
+owner site has no landing page or self sign-up and turns school admins away.
+- **Owners**: `platform_admins/{uid}` = `{email, grantedAt, grantedBy}`, written only with admin credentials
+  (`tools/owner/grant-owner.mjs`, which also creates the login and sets its password). Clients cannot write it. On sign-in
+  the web checks this doc first: an owner has `role: "owner"` and no school.
+- **What an owner may do (rules)**: read and write everything under every `schools/{sid}/**` (also while suspended), read
+  every `users` doc and create / update / delete them, keep `platform_schools`, and read / update / delete `leads`.
+  Storage: an owner counts as the admin of every school.
+- **`platform_schools/{schoolId}`** = `{name, status: "active"|"suspended", plan, note, reason, adminEmail, adminName, city,
+  board, phone, leadId, createdAt, createdBy, updatedAt, updatedBy}` (keys fixed by the rules; `updatedBy` = the owner's
+  uid). A suspended school is locked for all of its members (admin, staff, parents, crew); the admin web signs a
+  signed-in admin out with a message. Members read their own school's doc. Schools that signed up by themselves have no
+  doc until the owner saves their plan; the console lists them from their admin `users` docs. The rules test `exists()`
+  before `get()` on this doc: most schools have none, and `get()` of a missing doc fails the whole rule.
+- **Add school**: the console creates the admin's Auth login with the email and password the owner chose on a secondary
+  Firebase app, bootstraps the school as that admin (`bootstrapSchool`, the same starter data as a sign-up, school id =
+  the admin's uid), then writes `platform_schools/{uid}`. From a demo request it also sets the lead to `converted` with
+  `schoolId`. More admin logins for a school: `users/{newUid} = {schoolId, role: "admin", email, name}` written by the owner.
+- **Inside a school**: "Open school console" stores the school id in `sessionStorage["edvio.owner.actAs"]`; the auth
+  context then gives the owner that `schoolId`, so the whole admin console (and the setup wizard) works on that school
+  with a banner on top. Entering the owner console again clears it.
+- **Callable functions** (`functions/owner.js`; the caller must have a `platform_admins` doc):
+  `ownerSetPassword {uid, password}` (8–128 characters; any school login, never an owner) and
+  `ownerDeleteSchool {schoolId, confirm: schoolId}` (deletes every Auth login with that `schoolId` except owners, their
+  `users` docs, `schools/{sid}` recursively, `platform_schools/{sid}`, Storage files under `schools/{sid}/`, and clears
+  `schoolId` on leads that pointed at it).
+- **Demo requests** `leads/{id}`: the landing page creates them as before. The owner moves `status` through
+  `new → contacted → demo → converted | closed` and keeps `notes` (≤ 2000); only `status`, `notes`, `schoolId`,
+  `updatedAt` and `updatedBy` may change.
+- **Admins change their own password** in My Profile (re-authenticate with the current password, then update). My
+  Profile stays reachable during the setup wizard.

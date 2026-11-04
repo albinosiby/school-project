@@ -3,11 +3,13 @@ import { Topbar } from "@/components/shell/Topbar";
 import { ToastProvider } from "@/components/ui";
 import { OnboardingGate } from "@/features/onboarding/OnboardingGate";
 import { AuthGuard } from "@/components/AuthGuard";
+import { OwnerBanner } from "@/features/owner/OwnerBanner";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
       <ToastProvider>
+        <OwnerBanner />
         <OnboardingGate>
           <div className="flex min-h-screen">
             <Sidebar />

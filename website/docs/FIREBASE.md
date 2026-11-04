@@ -37,8 +37,9 @@ SHA-1 in project settings, and iOS needs the `REVERSED_CLIENT_ID` URL scheme (bo
 
 Redeploy after any change:
 ```bash
-firebase deploy --only hosting --project school-admin-tatos-2610   # build + upload (takes ~10 min, mostly Cloud Build)
-firebase deploy --only firestore --project school-admin-tatos-2610 # rules only
+firebase deploy --only hosting:admin --project school-admin-tatos-2610   # admin site: build + upload (~10 min, mostly Cloud Build)
+firebase deploy --only hosting:owner --project school-admin-tatos-2610   # owner console site (see below)
+firebase deploy --only firestore --project school-admin-tatos-2610       # rules only
 ```
 Before a hosting deploy:
 - Stop `npm run dev` and delete `web/.next/dev` and `web/.next/cache`. Otherwise the dev build (over 1 GB) is packed into the
@@ -47,6 +48,28 @@ Before a hosting deploy:
   the Firebase CLI's shared API quota is used up. Bill the calls to this project instead:
   `GOOGLE_CLOUD_QUOTA_PROJECT=school-admin-tatos-2610 firebase deploy --only hosting --project school-admin-tatos-2610`
 `web/.npmrc` (`legacy-peer-deps`) is needed so the Firebase CLI's Next.js helper installs next to firebase@13.
+
+## Owner console (super admin): its own hosting site
+https://edvio-owner.web.app is the platform owner's console (DATA_CONTRACT section 16): a dashboard, every school with its
+students, staff and logins, adding a school with its admin login and password, setting any login's password, opening a
+school's console, suspend / reactivate / delete, and the demo requests from the landing page. It is the same Next.js app
+as the admin web, deployed to a second hosting site (`firebase.json` hosting targets `admin` and `owner`, mapped in
+`.firebaserc`).
+
+Give a login owner rights (creates the login when needed; the password is read from the environment):
+```bash
+OWNER_PASSWORD='<password>' node tools/owner/grant-owner.mjs you@company.com
+node tools/owner/grant-owner.mjs you@company.com --revoke   # take the rights away again
+```
+Deploy order: rules and functions first, because the console needs both.
+```bash
+firebase deploy --only firestore:rules,storage --project school-admin-tatos-2610
+firebase deploy --only functions:notify:ownerSetPassword,functions:notify:ownerDeleteSchool --project school-admin-tatos-2610
+firebase deploy --only hosting:owner --project school-admin-tatos-2610
+```
+Locally, run `NEXT_PUBLIC_EMULATOR=true npx next dev -p 3007`. Then http://owner.localhost:3007 is the owner site and
+http://localhost:3007 the admin site. On the emulators, give a login owner rights with
+`FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 OWNER_PASSWORD='…' node tools/owner/grant-owner.mjs owner@edvio.test`.
 
 ## (Old) free-plan limits — no longer apply now that billing is on
 - Cloud Functions, Firebase App Hosting (Next.js server hosting) need Blaze. The app is currently run locally

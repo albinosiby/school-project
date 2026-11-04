@@ -8,6 +8,7 @@ vi.mock("firebase/firestore", () => import("./fakeFirestore"));
 vi.mock("firebase/auth", async () => (await import("./fakeAuth")).authModule);
 vi.mock("firebase/app", async () => (await import("./fakeAuth")).appModule);
 vi.mock("firebase/storage", async () => (await import("./fakeAuth")).storageModule);
+vi.mock("firebase/functions", async () => (await import("./fakeAuth")).functionsModule);
 vi.mock("@/lib/firebase", async () => (await import("./fakeAuth")).libFirebaseModule);
 vi.mock("@/lib/authContext", async () => (await import("./fakeAuth")).authContextModule);
 vi.mock("@/lib/useCollection", () => import("./fakeCollection"));

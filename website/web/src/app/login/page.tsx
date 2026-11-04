@@ -6,10 +6,12 @@ import { Logo } from "@/components/Logo";
 import { Button, Card, Field, Input } from "@/components/ui";
 import { homeFor, useAuth } from "@/lib/authContext";
 import { CopyrightYear } from "@/components/CopyrightYear";
+import { useOwnerSite } from "@/lib/sites";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, user, resetPassword, blockedMessage } = useAuth();
+  const ownerSite = useOwnerSite();
   const [info, setInfo] = useState("");
   useEffect(() => { if (user) router.replace(homeFor(user)); }, [user, router]);
   const forgot = async () => {
@@ -49,7 +51,7 @@ export default function LoginPage() {
             <Logo size={80} />
           </div>
           <h1 className="t-display text-on-surface">Welcome Back</h1>
-          <p className="t-body-md text-on-surface-variant mt-2">School Administration Platform</p>
+          <p className="t-body-md text-on-surface-variant mt-2">{ownerSite ? "Edvio Platform · Owner console" : "School Administration Platform"}</p>
         </div>
 
         {/* Login Card */}
@@ -112,7 +114,8 @@ export default function LoginPage() {
               <ArrowRight size={18} className="ml-2" />
             </Button>
 
-            {/* Divider */}
+            {/* Divider (the owner site has no self sign-up) */}
+            {!ownerSite && <>
             <div className="relative py-4">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-outline-variant"></div>
@@ -132,6 +135,7 @@ export default function LoginPage() {
             >
               Create Account
             </Button>
+            </>}
           </form>
 
         </Card>

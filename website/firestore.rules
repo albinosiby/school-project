@@ -5,9 +5,10 @@ rules_version = '2';
 // write. Bus crew (section 14, roles driver / attendant) read their own bus, its students and trips, and write their bus's
 // trips / attendance, their own check-in days and leave requests.
 // Everything under schools/{schoolId}/** is reachable only by users whose users doc points at that school, and only while
-// the school is not suspended (platform_schools/{schoolId}.status, contract section 15).
-// Product owners (platform_admins/{uid}, written only with admin credentials) read every school's summary data and manage
-// platform_schools; they never write school data.
+// the school is not suspended (platform_schools/{schoolId}.status, contract section 16).
+// Product owners (platform_admins/{uid}, written only with admin credentials) run the owner console (contract 16): they
+// read and write every school's data (to support and configure a school), manage the school logins in users, keep
+// platform_schools and work the demo requests in leads. Suspension never locks an owner out.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -16,17 +17,16 @@ service cloud.firestore {
     function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
     function hasUser() { return signedIn() && exists(userPath(request.auth.uid)); }
     function me() { return get(userPath(request.auth.uid)).data; }
-    // contract 15: a suspended school is locked for all of its members (admin, staff, parents, crew)
+    // contract 16: a suspended school is locked for all of its members (admin, staff, parents, crew)
+    // get() of a missing doc is an error in rules, not null: most schools have no platform_schools doc, so test exists() first
     function schoolActive(sid) {
-      let p = get(/databases/$(database)/documents/platform_schools/$(sid));
-      return p == null || p.data.get('status', 'active') != 'suspended';
+      let p = /databases/$(database)/documents/platform_schools/$(sid);
+      return !exists(p) || get(p).data.get('status', 'active') != 'suspended';
     }
     function memberOf(sid) { return hasUser() && me().schoolId == sid; }
     function inSchool(sid) { return memberOf(sid) && schoolActive(sid); }
-    // product owner (contract 15): platform_admins/{uid} exists
+    // product owner (contract 16): platform_admins/{uid} exists
     function isOwner() { return signedIn() && exists(/databases/$(database)/documents/platform_admins/$(request.auth.uid)); }
-    // what the owner console reads inside a school: its profile, setup state and the collections it counts
-    function ownerReadable(col) { return col in ['school', 'onboarding', 'set_config', 'me', 'students', 'staff', 'classes']; }
     function isAdmin(sid) { return inSchool(sid) && me().role == 'admin'; }
     function isTeacher(sid) { return inSchool(sid) && me().role == 'teacher' && me().get('staffId', '') != ''; }
     function myStaffId() { return me().staffId; }
@@ -158,11 +158,12 @@ service cloud.firestore {
       allow read: if signedIn() && (request.auth.uid == uid || isAdmin(resource.data.schoolId) || isOwner());
       // Admin sign-up (and first login of a pre-existing school): a user may create ONLY their own admin doc for the
       // school whose id is their own uid. That grants nothing beyond their own namespace schools/{uid}.
+      // The owner console creates the admin logins of the schools it adds (contract 16).
       allow create: if signedIn() && (
         (request.auth.uid == uid && request.resource.data.schoolId == uid && request.resource.data.role == 'admin')
-        || isAdmin(request.resource.data.schoolId));
-      allow update: if isAdmin(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId;
-      allow delete: if isAdmin(resource.data.schoolId);
+        || isAdmin(request.resource.data.schoolId) || isOwner());
+      allow update: if (isAdmin(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId) || isOwner();
+      allow delete: if isAdmin(resource.data.schoolId) || isOwner();
 
       // push notification device tokens (one doc per token); the Cloud Functions read them with admin access
       match /fcm_tokens/{token} {
@@ -174,10 +175,8 @@ service cloud.firestore {
 
       // ---------- generic docs: schools/{sid}/{collection}/{docId} ----------
       match /{col}/{docId} {
-        // admin: everything in the school
-        allow read, write: if isAdmin(sid);
-        // product owner: read-only summary data of every school (contract 15)
-        allow read: if isOwner() && ownerReadable(col);
+        // admin: everything in the school; product owner: everything in every school (contract 16)
+        allow read, write: if isAdmin(sid) || isOwner();
 
         // parent: only their own children's data (contract 13.2)
         allow read: if isParentIn(sid) && (
@@ -321,10 +320,10 @@ service cloud.firestore {
 
       // ---------- live class join taps: live_classes/{id}/joins/{authUid} ----------
       match /live_classes/{lid}/joins/{joinUid} {
-        allow read: if isAdmin(sid) || isTeacher(sid);
+        allow read: if isAdmin(sid) || isOwner() || isTeacher(sid);
         // any member of the school records their own tap (parents join from the parent app)
         allow create, update: if inSchool(sid) && request.auth.uid == joinUid;
-        allow delete: if isAdmin(sid);
+        allow delete: if isAdmin(sid) || isOwner();
       }
 
       // ---------- notice acknowledgements: com_notices/{id}/acks/{authUid} (contract 13.3) ----------
@@ -338,11 +337,11 @@ service cloud.firestore {
 
       // ---------- other nested subcollections: admin only ----------
       match /{col}/{docId}/{sub=**} {
-        allow read, write: if isAdmin(sid);
+        allow read, write: if isAdmin(sid) || isOwner();
       }
     }
 
-    // ---------- platform (contract 15): product owners and the status of each school ----------
+    // ---------- platform (contract 16): product owners and the status of each school ----------
     // platform_admins/{uid}: marks a product owner. Written only with admin credentials (tools/owner/grant-owner.mjs).
     match /platform_admins/{uid} {
       allow read: if signedIn() && request.auth.uid == uid;
@@ -352,7 +351,8 @@ service cloud.firestore {
     // (also while suspended, so the apps can say why they are locked out).
     function platformSchoolOk() {
       let d = request.resource.data;
-      return d.keys().hasOnly(['status', 'plan', 'note', 'reason', 'name', 'adminEmail', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+      return d.keys().hasOnly(['status', 'plan', 'note', 'reason', 'name', 'adminEmail', 'adminName', 'city', 'board', 'phone', 'leadId',
+                               'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
         && d.get('status', '') in ['active', 'suspended']
         && d.get('plan', '') is string && d.get('plan', '').size() <= 40
         && d.get('note', '') is string && d.get('note', '').size() <= 2000
@@ -362,12 +362,13 @@ service cloud.firestore {
     match /platform_schools/{sid} {
       allow read: if isOwner() || memberOf(sid);
       allow create, update: if isOwner() && platformSchoolOk();
+      // a school is removed only together with all of its data, by the ownerDeleteSchool function
       allow delete: if false;
     }
 
     // ---------- demo requests from the public landing page (/landing): leads/{autoId} ----------
-    // Anyone may leave one request (no sign-in on a marketing page); nobody reads them from a client. Tatos reads them in
-    // the Firebase console / admin SDK. Fields and lengths are fixed so the collection cannot be used as free storage.
+    // Anyone may leave one request (no sign-in on a marketing page). Only product owners read and work them, in the owner
+    // console (contract 16). Fields and lengths are fixed so the collection cannot be used as free storage.
     function leadStr(k, max) { let v = request.resource.data.get(k, null); return v is string && v.size() <= max; }
     match /leads/{leadId} {
       allow create: if request.resource.data.keys().hasOnly(['name', 'school', 'email', 'phone', 'message', 'source', 'status', 'createdAt'])
@@ -377,7 +378,14 @@ service cloud.firestore {
         && leadStr('phone', 32) && leadStr('message', 2000)
         && request.resource.data.source == 'landing' && request.resource.data.status == 'new'
         && request.resource.data.createdAt == request.time;
-      allow read, update, delete: if false;
+      allow read, delete: if isOwner();
+      // the owner moves a request through the pipeline and keeps notes; what the visitor sent stays untouched
+      allow update: if isOwner()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'notes', 'schoolId', 'updatedAt', 'updatedBy'])
+        && request.resource.data.status in ['new', 'contacted', 'demo', 'converted', 'closed']
+        && request.resource.data.get('notes', '') is string && request.resource.data.get('notes', '').size() <= 2000
+        && request.resource.data.get('schoolId', '') is string
+        && request.resource.data.get('updatedBy', '') == request.auth.uid;
     }
 
     // everything else is closed

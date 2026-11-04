@@ -20,14 +20,22 @@ describe("Login page validation", () => {
     expect(authState.login).not.toHaveBeenCalled();
   });
 
-  it("signs in and goes to the dashboard", async () => {
+  it("signs in with the typed email and password", async () => {
     authState.user = null;
     const { user } = renderUI(<LoginPage />);
     await user.type(field("Email Address"), "principal@school.edu");
     await user.type(field("Password"), "secret12");
     await user.click(submit());
     expect(authState.login).toHaveBeenCalledWith("principal@school.edu", "secret12");
-    expect(router.push).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("sends a signed-in admin to the dashboard and a product owner to the owner console", () => {
+    const { unmount } = renderUI(<LoginPage />);
+    expect(router.replace).toHaveBeenCalledWith("/dashboard");
+    unmount();
+    authState.user = { id: "own1", email: "owner@edvio.test", organizationName: "Edvio", schoolId: "", role: "owner" };
+    renderUI(<LoginPage />);
+    expect(router.replace).toHaveBeenLastCalledWith("/owner");
   });
 
   it("shows the message login() rejects with (wrong password)", async () => {

@@ -10,7 +10,8 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const path = usePathname();
   const { rows, ready } = useCollection<S>("onboarding");
-  const incomplete = ready && !rows.find((r) => r.id === "state")?.complete;
+  // My Profile stays reachable during setup: a new admin changes the first password the owner gave them (contract 16)
+  const incomplete = ready && !rows.find((r) => r.id === "state")?.complete && path !== "/profile";
   useEffect(() => { if (incomplete) router.replace("/onboarding/setup"); }, [incomplete, router, path]);
   if (!ready || incomplete) return <div className="grid min-h-screen place-items-center text-outline">Loading…</div>;
   return <>{children}</>;

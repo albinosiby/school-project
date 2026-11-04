@@ -4,7 +4,9 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function me() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
-    function isAdmin(sid) { return request.auth != null && me().schoolId == sid && me().role == 'admin'; }
+    // a product owner (contract 16) works on every school like its admin
+    function isOwner() { return request.auth != null && firestore.exists(/databases/(default)/documents/platform_admins/$(request.auth.uid)); }
+    function isAdmin(sid) { return request.auth != null && (isOwner() || (me().schoolId == sid && me().role == 'admin')); }
     function certificate(sid, id) { return firestore.get(/databases/(default)/documents/schools/$(sid)/certificates/$(id)).data; }
 
     match /schools/{sid}/certificates/{id}/{file} {

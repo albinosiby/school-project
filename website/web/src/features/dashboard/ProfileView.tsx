@@ -4,6 +4,7 @@ import { Building2, Camera, Check, FileText, GraduationCap, Pencil, ShieldCheck,
 import { Avatar, Badge, Button, Card, EmptyState, Field, Input, Modal, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { errMsg, useHydrated } from "./data";
+import { ChangePasswordCard } from "./ChangePasswordCard";
 
 type Me = { id: string; name: string; title: string; role: string; email: string; phone: string; altEmail?: string; extension?: string; office?: string; degree?: string; specialization?: string; bio?: string };
 type Prefs = { id: string; emergencySub: boolean; auditTrail: boolean; weeklyDigest: boolean; term: string; timezone: string; signature: string; mfaDevice: string };
@@ -117,6 +118,7 @@ export function ProfileView() {
         </div>
 
         <aside className="space-y-6">
+          <ChangePasswordCard />
           <Card className="p-5">
             {head(<ShieldCheck size={18} />, "Governance & MFA", "Access clearance & tokens")}
             <div className="rounded-lg border border-outline-variant/60 bg-surface-container-low p-4"><div className="flex items-center justify-between"><span className="text-[11px] font-bold tracking-wide text-outline">ASSIGNED CLEARANCE</span><Badge tone="brand">Tier 0 Root</Badge></div>

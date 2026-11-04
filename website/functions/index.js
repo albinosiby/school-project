@@ -409,3 +409,8 @@ Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_T
 // Transport (DATA_CONTRACT section 14): bus attendance alerts to parents, crew leave requests in the admin bell. See transport.js.
 // ---------------------------------------------------------------------------
 Object.assign(exports, require("./transport")({ db, notifyAdmin, ...shared }));
+
+// ---------------------------------------------------------------------------
+// Owner console (DATA_CONTRACT section 16): callable actions for product owners. See owner.js.
+// ---------------------------------------------------------------------------
+Object.assign(exports, require("./owner"));
