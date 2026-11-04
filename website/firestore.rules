@@ -327,6 +327,21 @@ service cloud.firestore {
       }
     }
 
+    // ---------- demo requests from the public landing page (/landing): leads/{autoId} ----------
+    // Anyone may leave one request (no sign-in on a marketing page); nobody reads them from a client. Tatos reads them in
+    // the Firebase console / admin SDK. Fields and lengths are fixed so the collection cannot be used as free storage.
+    function leadStr(k, max) { let v = request.resource.data.get(k, null); return v is string && v.size() <= max; }
+    match /leads/{leadId} {
+      allow create: if request.resource.data.keys().hasOnly(['name', 'school', 'email', 'phone', 'message', 'source', 'status', 'createdAt'])
+        && leadStr('name', 120) && request.resource.data.name.size() >= 2
+        && leadStr('school', 160) && request.resource.data.school.size() >= 2
+        && leadStr('email', 254) && request.resource.data.email.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$')
+        && leadStr('phone', 32) && leadStr('message', 2000)
+        && request.resource.data.source == 'landing' && request.resource.data.status == 'new'
+        && request.resource.data.createdAt == request.time;
+      allow read, update, delete: if false;
+    }
+
     // everything else is closed
     match /{document=**} { allow read, write: if false; }
   }

@@ -45,6 +45,15 @@
         "/Users/albinosiby/Tatos Dev/school project/mobile app/driver/build/web"
       ],
       "port": 8093
+    },
+    {
+      "name": "landing-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd '/Users/albinosiby/Tatos Dev/school project/website/web' && NEXT_PUBLIC_EMULATOR=true NEXT_PUBLIC_EMULATOR_FIRESTORE_PORT=8081 npx next dev -p 3006"
+      ],
+      "port": 3006
     }
   ]
 }

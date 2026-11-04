@@ -1,7 +1,7 @@
 // Firestore rules tests for docs/DATA_CONTRACT.md sections 7, 12, 13 (parent app) and 14 (transport crew). Run with `npm test` (needs the Firestore emulator, i.e. Java + firebase-tools).
 import { readFileSync } from "node:fs";
 import { assertFails, assertSucceeds, initializeTestEnvironment } from "@firebase/rules-unit-testing";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, setLogLevel, updateDoc, where, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, setLogLevel, updateDoc, where, writeBatch } from "firebase/firestore";
 
 setLogLevel("silent"); // denied writes are expected; keep the output to ok / FAIL lines
 
@@ -567,6 +567,20 @@ await check("teacher cannot read par_transport", assertFails(getDoc(doc(as("t1")
 await check("driver cannot read par_transport", assertFails(getDoc(doc(as("d1"), "schools/S1/par_transport/stu_101"))));
 await check("parent still cannot read tr_attendance", assertFails(getDocs(collection(as("p1"), "schools/S1/tr_attendance"))));
 await check("parent still cannot read tr_crew", assertFails(getDoc(doc(as("p1"), "schools/S1/tr_crew/crw_002"))));
+
+console.log("leads (landing page demo requests)");
+const lead = { name: "Priya Nair", school: "Sunrise Public School", email: "priya@sunrise.edu", phone: "+91 98765 43210", message: "Demo for 1200 students", source: "landing", status: "new", createdAt: serverTimestamp() };
+await check("anonymous visitor creates a lead", assertSucceeds(setDoc(doc(anon, "leads/l1"), lead)));
+await check("signed-in user creates a lead too", assertSucceeds(setDoc(doc(as("p1"), "leads/l2"), lead)));
+await check("lead with an extra field is refused", assertFails(setDoc(doc(anon, "leads/l3"), { ...lead, role: "admin" })));
+await check("lead with a bad email is refused", assertFails(setDoc(doc(anon, "leads/l4"), { ...lead, email: "not-an-email" })));
+await check("lead with a client timestamp is refused", assertFails(setDoc(doc(anon, "leads/l5"), { ...lead, createdAt: "2026-11-04" })));
+await check("lead with a long message is refused", assertFails(setDoc(doc(anon, "leads/l6"), { ...lead, message: "x".repeat(2001) })));
+await check("lead with another source is refused", assertFails(setDoc(doc(anon, "leads/l7"), { ...lead, source: "import" })));
+await check("nobody reads leads from a client", assertFails(getDoc(doc(anon, "leads/l1"))));
+await check("admin cannot read leads either", assertFails(getDocs(collection(as("a1"), "leads"))));
+await check("lead cannot be updated", assertFails(updateDoc(doc(anon, "leads/l1"), { status: "done" })));
+await check("lead cannot be deleted", assertFails(deleteDoc(doc(anon, "leads/l1"))));
 
 await env.cleanup();
 console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);
