@@ -7,6 +7,13 @@ set -uo pipefail
 WEB="$(cd "$(dirname "$0")/../.." && pwd)"; APPS="$WEB/../mobile app"
 export FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
 declare -a RESULTS=()
+# apps left open on a connected phone keep Firestore listeners that upset the emulator: stop them first (best effort)
+if command -v adb >/dev/null; then
+  for d in $(adb devices | awk 'NR>1 && $2=="device" {print $1}'); do
+    for p in com.tatos.school.driver_app tech.tatos.parent_app com.greenfield.teacher_app; do adb -s "$d" shell am force-stop "$p" >/dev/null 2>&1; done
+  done
+  sleep 8
+fi
 step() { local name="$1"; shift; echo; echo "=== $name"; if "$@"; then RESULTS+=("PASS  $name"); else RESULTS+=("FAIL  $name"); fi; }
 
 step "Firestore rules"            bash -c "cd '$WEB/tools/rules_test' && node test.mjs"

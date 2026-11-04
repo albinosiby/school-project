@@ -15,6 +15,15 @@ const projectId = process.env.GCLOUD_PROJECT || "demo-school-e2e";
 if (!projectId.startsWith("demo-")) throw new Error("emulator only (demo-* project id)");
 initializeApp({ projectId });
 const SID_FOR_WIPE = "e2e_school";
+// an app killed on a phone while holding listeners makes the emulator answer CANCELLED for a while: wait until it accepts writes
+{
+  const { getFirestore: gf } = require("firebase-admin/firestore");
+  const probe = gf().collection("_e2e").doc("ready");
+  for (let i = 1; ; i++) {
+    try { await probe.set({ at: Date.now() }); await probe.delete(); break; }
+    catch (e) { if (i >= 40 || e?.code !== 1) throw e; await new Promise((r) => setTimeout(r, 3000)); }
+  }
+}
 // start from an empty emulator Firestore so repeated runs (tools/e2e/sync_test.mjs) are deterministic; E2E_KEEP=1 skips it
 if (!process.env.E2E_KEEP) {
   let cleared = false;
