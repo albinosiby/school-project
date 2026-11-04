@@ -9,6 +9,8 @@ import { connectStorageEmulator, getStorage } from "firebase/storage";
  */
 export const useEmulator = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_EMULATOR === "true";
 const emulatorHost = process.env.NEXT_PUBLIC_EMULATOR_HOST || "localhost";
+/** Firestore emulator port (firebase.json: 8080); NEXT_PUBLIC_EMULATOR_FIRESTORE_PORT when it runs elsewhere. */
+const firestorePort = Number(process.env.NEXT_PUBLIC_EMULATOR_FIRESTORE_PORT) || 8080;
 
 export const firebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -31,7 +33,7 @@ export const auth = withEmulator(getAuth(app));
 export const db = (() => {
   try {
     const f = initializeFirestore(app, { ignoreUndefinedProperties: true });
-    if (useEmulator) connectFirestoreEmulator(f, emulatorHost, 8080);
+    if (useEmulator) connectFirestoreEmulator(f, emulatorHost, firestorePort);
     return f;
   } catch { return getFirestore(app); }
 })();

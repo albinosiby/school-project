@@ -31,6 +31,7 @@ if (!("createObjectURL" in URL)) Object.assign(URL, { createObjectURL: () => "bl
 else { URL.createObjectURL = () => "blob:test"; URL.revokeObjectURL = () => {}; }
 if (!window.matchMedia) window.matchMedia = ((q: string) => ({ matches: false, media: q, onchange: null, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {}, dispatchEvent: () => false })) as typeof window.matchMedia;
 if (!("ResizeObserver" in window)) (window as unknown as { ResizeObserver: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} };
+if (!("IntersectionObserver" in window)) (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = class { root = null; rootMargin = ""; thresholds = []; observe() {} unobserve() {} disconnect() {} takeRecords() { return []; } }; // motion/react whileInView
 Element.prototype.scrollIntoView ??= function () {};
 HTMLAnchorElement.prototype.click = function () {}; // CSV downloads: no jsdom navigation
 window.print = () => {};
