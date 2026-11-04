@@ -50,7 +50,8 @@ npm run build
 
 School dashboard and superadmin support `npm start` after building. Landing exports static files to `landing/out`.
 Landing serves `/` and compatibility `/landing`; superadmin serves `/owner/**` and its own `/login` without self-registration.
-School dashboard keeps the existing school routes and redirects legacy `/landing` and `/owner/**` links to the independent apps.
+School dashboard's public `/` opens the landing site. `/login` and `/signup` open their respective forms directly;
+authenticated school users enter the console at `/dashboard`. Legacy `/landing` and `/owner/**` links redirect to the independent apps.
 
 ## Checks and builds
 

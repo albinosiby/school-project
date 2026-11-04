@@ -14,7 +14,8 @@
     "./Logo": "./src/components/Logo.tsx",
     "./CopyrightYear": "./src/components/CopyrightYear.tsx",
     "./seed": "./src/server/seed/index.ts",
-    "./styles": "./src/styles/base.css"
+    "./styles": "./src/styles/base.css",
+    "./LoginScreen": "./src/components/auth/LoginScreen.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit --incremental false",

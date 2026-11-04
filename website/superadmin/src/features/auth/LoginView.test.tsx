@@ -1,11 +1,31 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { authState, renderUI, router, screen, userEvent, within } from "@/test/render";
 import { LoginView } from "./LoginView";
 
-beforeEach(() => { authState.user = null; });
+beforeEach(() => { authState.user = null; localStorage.removeItem("edvio.login.theme"); });
 const signIn = () => screen.getByRole("button", { name: "Sign in" });
 
 describe("superadmin login", () => {
+  it("starts in light mode and remembers the selected theme after remounting", async () => {
+    const { unmount } = renderUI(<LoginView />);
+    await userEvent.click(screen.getByRole("button", { name: "Switch to dark mode" }));
+    expect(localStorage.getItem("edvio.login.theme")).toBe("dark");
+    unmount();
+    renderUI(<LoginView />);
+    await userEvent.click(screen.getByRole("button", { name: "Switch to light mode" }));
+    expect(localStorage.getItem("edvio.login.theme")).toBe("light");
+  });
+
+  it("allows theme switching when the browser prevents saving preferences", async () => {
+    const save = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage blocked"); });
+    renderUI(<LoginView />);
+    try {
+      await userEvent.click(screen.getByRole("button", { name: "Switch to dark mode" }));
+      expect(screen.getByRole("button", { name: "Switch to light mode" })).toBeInTheDocument();
+    } finally { save.mockRestore(); }
+    await userEvent.click(screen.getByRole("button", { name: "Switch to light mode" }));
+  });
+
   it("validates required credentials and focuses the field that needs attention", async () => {
     renderUI(<LoginView />);
     await userEvent.click(signIn());

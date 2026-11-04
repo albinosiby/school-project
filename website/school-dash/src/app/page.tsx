@@ -1,2 +1,5 @@
 import { redirect } from "next/navigation";
-export default function Home() { redirect("/dashboard"); }
+import { siteUrls } from "@edvio/shared/sites";
+
+/** Public entry point. Login, sign-up, and the school console keep their explicit routes. */
+export default function Home() { redirect(siteUrls().landing); }

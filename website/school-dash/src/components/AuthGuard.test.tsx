@@ -44,8 +44,8 @@ describe("OnboardingGate", () => {
 });
 
 describe("root page", () => {
-  it("redirects to the dashboard", () => {
+  it("opens the public landing site instead of entering the protected dashboard", () => {
     Home();
-    expect(redirect).toHaveBeenCalledWith("/dashboard");
+    expect(redirect).toHaveBeenCalledWith("http://localhost:3001");
   });
 });

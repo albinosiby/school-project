@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import LoginPage from "./page";
 import { authState, field, renderUI, router, screen } from "@/test/render";
 
-const submit = () => screen.getByRole("button", { name: /Sign In/ });
+const submit = () => screen.getByRole("button", { name: /^Sign in$/i });
 
 describe("Login page validation", () => {
   it("asks for the email first, then a valid email, then the password, without calling login", async () => {
@@ -10,11 +10,11 @@ describe("Login page validation", () => {
     const { user } = renderUI(<LoginPage />);
     await user.click(submit());
     expect(screen.getByRole("alert")).toHaveTextContent("Enter your email address.");
-    await user.type(field("Email Address"), "principal@school");
+    await user.type(field("Email address"), "principal@school");
     await user.click(submit());
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid email address.");
-    await user.clear(field("Email Address"));
-    await user.type(field("Email Address"), "principal@school.edu");
+    await user.clear(field("Email address"));
+    await user.type(field("Email address"), "principal@school.edu");
     await user.click(submit());
     expect(screen.getByRole("alert")).toHaveTextContent("Enter your password.");
     expect(authState.login).not.toHaveBeenCalled();
@@ -23,10 +23,18 @@ describe("Login page validation", () => {
   it("signs in with the typed email and password", async () => {
     authState.user = null;
     const { user } = renderUI(<LoginPage />);
-    await user.type(field("Email Address"), "principal@school.edu");
+    await user.type(field("Email address"), "principal@school.edu");
     await user.type(field("Password"), "secret12");
     await user.click(submit());
     expect(authState.login).toHaveBeenCalledWith("principal@school.edu", "secret12");
+  });
+
+  it("keeps school registration available from the redesigned login", async () => {
+    authState.user = null;
+    const { user } = renderUI(<LoginPage />);
+    await user.click(screen.getByRole("button", { name: "Create Account" }));
+    expect(router.push).toHaveBeenCalledWith("/signup");
+    expect(authState.login).not.toHaveBeenCalled();
   });
 
   it("sends a signed-in admin to the dashboard and a product owner to the owner console", () => {
@@ -42,7 +50,7 @@ describe("Login page validation", () => {
     authState.user = null;
     authState.login.mockRejectedValueOnce(new Error("Incorrect email or password."));
     const { user } = renderUI(<LoginPage />);
-    await user.type(field("Email Address"), "principal@school.edu");
+    await user.type(field("Email address"), "principal@school.edu");
     await user.type(field("Password"), "wrong");
     await user.click(submit());
     expect(await screen.findByRole("alert")).toHaveTextContent("Incorrect email or password.");
@@ -62,7 +70,7 @@ describe("Login page validation", () => {
     await user.click(screen.getByRole("button", { name: "Forgot password?" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter your email above first.");
     expect(authState.resetPassword).not.toHaveBeenCalled();
-    await user.type(field("Email Address"), "principal@school.edu");
+    await user.type(field("Email address"), "principal@school.edu");
     await user.click(screen.getByRole("button", { name: "Forgot password?" }));
     expect(authState.resetPassword).toHaveBeenCalledWith("principal@school.edu");
     expect(await screen.findByRole("status")).toHaveTextContent("Password reset email sent. Check your inbox.");
