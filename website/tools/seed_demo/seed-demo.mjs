@@ -1,16 +1,16 @@
 // Creates (or refreshes) the client-demo school: a real Firebase Auth user whose Firestore
-// data is the full demo seed (web/src/server/seed). Usage:
-//   cd web && npx tsc src/server/seed/index.ts --outDir /tmp/seedjs --module commonjs --target es2020 --skipLibCheck --resolveJsonModule --esModuleInterop
+// data is the full demo seed (shared/src/server/seed). Usage:
+//   cd school-dash && npx tsc ../shared/src/server/seed/index.ts --outDir /tmp/seedjs --module commonjs --target es2020 --skipLibCheck --resolveJsonModule --esModuleInterop
 //   (regenerate the shared fixture first with: node tools/demo_fixture/build.mjs)
 //   DEMO_EMAIL=... DEMO_PASSWORD=... node ../tools/seed_demo/seed-demo.mjs
 import { createRequire } from "node:module";
-const require = createRequire(new URL("../../web/package.json", import.meta.url));
+const require = createRequire(new URL("../../school-dash/package.json", import.meta.url));
 const { initializeApp } = require("firebase/app");
 const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } = require("firebase/auth");
 const { initializeFirestore, doc, writeBatch, getDocs, collection, setDoc } = require("firebase/firestore");
 const { seed } = require("/tmp/seedjs/index.js");
 
-const env = Object.fromEntries(require("node:fs").readFileSync(new URL("../../web/.env.local", import.meta.url), "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)));
+const env = Object.fromEntries(require("node:fs").readFileSync(new URL("../../school-dash/.env.local", import.meta.url), "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)));
 const app = initializeApp({ apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY, authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, appId: env.NEXT_PUBLIC_FIREBASE_APP_ID });
 const auth = getAuth(app);
 const db = initializeFirestore(app, { ignoreUndefinedProperties: true });

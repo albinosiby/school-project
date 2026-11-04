@@ -1,0 +1,27 @@
+{
+  "name": "edvio-website",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "school-dash",
+    "landing",
+    "superadmin",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @edvio/school-dash",
+    "dev:school-dash": "npm run dev --workspace @edvio/school-dash",
+    "dev:landing": "npm run dev --workspace @edvio/landing",
+    "dev:superadmin": "npm run dev --workspace @edvio/superadmin",
+    "build": "npm run build --workspaces --if-present",
+    "build:school-dash": "npm run build --workspace @edvio/school-dash",
+    "build:landing": "npm run build --workspace @edvio/landing",
+    "build:superadmin": "npm run build --workspace @edvio/superadmin",
+    "test": "npm test --workspaces --if-present",
+    "test:all": "npm test",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck:all": "npm run typecheck",
+    "lint": "npm run lint --workspaces --if-present",
+    "lint:all": "npm run lint"
+  }
+}

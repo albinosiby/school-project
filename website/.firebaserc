@@ -10,6 +10,9 @@
         ],
         "owner": [
           "edvio-owner"
+        ],
+        "landing": [
+          "edvio-landing"
         ]
       }
     }

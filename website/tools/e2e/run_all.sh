@@ -20,7 +20,7 @@ step "Firestore rules"            bash -c "cd '$WEB/tools/rules_test' && node te
 step "seed (fresh emulator school)" bash -c "cd '$WEB' && node tools/e2e/seed.mjs && sleep 15"
 step "cross-app sync suite"       bash -c "cd '$WEB' && node tools/e2e/sync_test.mjs"
 step "scheduled notices"          bash -c "cd '$WEB' && node tools/e2e/scheduled_test.mjs"
-step "admin web unit tests"       bash -c "cd '$WEB/web' && npm test --silent && npx tsc --noEmit && npm run lint --silent"
+step "admin web unit tests"       bash -c "cd '$WEB' && npm run test:all --silent && npm run typecheck:all --silent && npm run lint:all --silent"
 for app in driver parent teacher; do
   step "$app app analyze + tests" bash -c "cd '$APPS/$app' && flutter analyze && flutter test --concurrency=1"
 done

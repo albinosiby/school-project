@@ -17,7 +17,7 @@ Console: https://console.firebase.google.com/u/1/project/school-admin-tatos-2610
 
 ## Run
 ```bash
-cd web
+cd school-dash
 cp ../.env.example .env.local   # fill from: firebase apps:sdkconfig WEB 1:845227645501:web:b479eae603082a45c0a854
 npm install && npm run dev
 ```
@@ -42,18 +42,17 @@ firebase deploy --only hosting:owner --project school-admin-tatos-2610   # owner
 firebase deploy --only firestore --project school-admin-tatos-2610       # rules only
 ```
 Before a hosting deploy:
-- Stop `npm run dev` and delete `web/.next/dev` and `web/.next/cache`. Otherwise the dev build (over 1 GB) is packed into the
+- Stop `npm run dev` and delete `school-dash/.next/dev` and `school-dash/.next/cache`. Otherwise the dev build (over 1 GB) is packed into the
   server function and the deploy fails with "An Internal error has occurred".
 - If the deploy fails with that same message and `firebase deploy --debug` shows `cloudbilling.googleapis.com … 429 Quota exceeded`,
   the Firebase CLI's shared API quota is used up. Bill the calls to this project instead:
   `GOOGLE_CLOUD_QUOTA_PROJECT=school-admin-tatos-2610 firebase deploy --only hosting --project school-admin-tatos-2610`
-`web/.npmrc` (`legacy-peer-deps`) is needed so the Firebase CLI's Next.js helper installs next to firebase@13.
+`school-dash/.npmrc` (`legacy-peer-deps`) is needed so the Firebase CLI's Next.js helper installs next to firebase@13.
 
 ## Owner console (super admin): its own hosting site
 https://edvio-owner.web.app is the platform owner's console (DATA_CONTRACT section 16): a dashboard, every school with its
 students, staff and logins, adding a school with its admin login and password, setting any login's password, opening a
-school's console, suspend / reactivate / delete, and the demo requests from the landing page. It is the same Next.js app
-as the admin web, deployed to a second hosting site (`firebase.json` hosting targets `admin` and `owner`, mapped in
+school's console, suspend / reactivate / delete, and the demo requests from the landing page. It is an independent Next.js app in `superadmin`, deployed to its own hosting site (`firebase.json` hosting targets `admin` and `owner`, mapped in
 `.firebaserc`).
 
 Give a login owner rights (creates the login when needed; the password is read from the environment):
@@ -67,8 +66,8 @@ firebase deploy --only firestore:rules,storage --project school-admin-tatos-2610
 firebase deploy --only functions:notify:ownerSetPassword,functions:notify:ownerDeleteSchool --project school-admin-tatos-2610
 firebase deploy --only hosting:owner --project school-admin-tatos-2610
 ```
-Locally, run `NEXT_PUBLIC_EMULATOR=true npx next dev -p 3007`. Then http://owner.localhost:3007 is the owner site and
-http://localhost:3007 the admin site. On the emulators, give a login owner rights with
+Locally, run `NEXT_PUBLIC_EMULATOR=true npm run dev:superadmin` and `NEXT_PUBLIC_EMULATOR=true npm run dev`
+from `website/`. The owner app uses http://localhost:3002 and admin uses http://localhost:3000. On the emulators, give a login owner rights with
 `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 OWNER_PASSWORD='…' node tools/owner/grant-owner.mjs owner@edvio.test`.
 
 ## (Old) free-plan limits — no longer apply now that billing is on
@@ -86,8 +85,8 @@ Email `demo@greenfield.edu` (password given separately). It holds the full demo 
 admissions pipeline, fees, exams, communication, settings) with setup already complete.
 Reset it to pristine demo data any time:
 ```bash
-cd web && node ../tools/demo_fixture/build.mjs   # regenerates the shared demo fixture (also writes the teacher app's demo_fixture.g.dart)
-npx tsc src/server/seed/index.ts --outDir /tmp/seedjs --module commonjs --target es2020 --skipLibCheck --resolveJsonModule --esModuleInterop
+cd school-dash && node ../tools/demo_fixture/build.mjs   # regenerates the shared demo fixture (also writes the teacher app's demo_fixture.g.dart)
+npx tsc ../shared/src/server/seed/index.ts --outDir /tmp/seedjs --module commonjs --target es2020 --skipLibCheck --resolveJsonModule --esModuleInterop
 DEMO_EMAIL=demo@greenfield.edu DEMO_PASSWORD='<password>' node ../tools/seed_demo/seed-demo.mjs
 ```
 
@@ -142,3 +141,8 @@ Deploying the parent backend needs: `firebase deploy --only firestore` (rules + 
 Add that folder to `PATH` before `tools/e2e/start_emulators.sh` or `tools/emulator_exec.sh`.
 Android apps registered (4 Nov 2026): parent `tech.tatos.parent_app`, teacher `tatos.tech.teacher_app`, driver
 `tatos.tech.school.driver_app`. The older `com.greenfield.teacher_app` and `com.tatos.school.driver_app` entries were removed.
+
+## Separate frontend apps
+
+Public landing is in `landing`, superadmin in `superadmin`, and common source in `shared`.
+See `README.md` for independent run/build/deploy commands and cross-app URL settings.

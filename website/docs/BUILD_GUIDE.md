@@ -1,7 +1,7 @@
 # School Admin Web — build guide (read fully before coding)
 
-Next.js 16 App Router + TypeScript + Tailwind v4 in `web`. A dev server is ALREADY running on
-http://localhost:3000 (hot reload) — do not start another. Typecheck with `cd web && npx tsc --noEmit`.
+Next.js 16 App Router + TypeScript + Tailwind v4 in `school-dash`. A dev server is ALREADY running on
+http://localhost:3000 (hot reload) — do not start another. Typecheck with `cd school-dash && npx tsc --noEmit`.
 
 ## Design source
 - Screenshots: `design/png/<frameId>_<name>.png` (1440px wide desktop frames). Look at yours with the Read tool.
@@ -34,8 +34,8 @@ http://localhost:3000 (hot reload) — do not start another. Typecheck with `cd 
   Prefix collection names with your module (e.g. `adm_applications`) to avoid clashes. Seed data should be realistic and consistent with the
   numbers shown in the design (e.g. dashboard says 420 enquiries → seed enough rows or compute from a stats row). Existing shared
   collections: `school`, `me`, `students`, `staff`, `notifications`(owned by dashboard module).
-- Seed changes: the persisted DB (`web/.data/db.json`) only merges in NEW collection names. After editing existing seed rows,
-  delete `web/.data/db.json` (all data resets to seed) and reload the page.
+- Seed changes: the persisted DB (`school-dash/.data/db.json`) only merges in NEW collection names. After editing existing seed rows,
+  delete `school-dash/.data/db.json` (all data resets to seed) and reload the page.
 - Every button/form/filter/tab/toggle in your frames must work: create/edit/delete flows through Modal/SlideOver with validation,
   status transitions, derived counts/totals computed from the data (not hard-coded), search/filter/sort, toasts on success.
   Things that need real external services (WhatsApp send, payment gateway, SMS, file upload, PDF export) are simulated: write a record

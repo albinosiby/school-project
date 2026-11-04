@@ -4,12 +4,12 @@
 // The school mapping users/{uid} = {schoolId, role:"teacher", staffId} is written by an admin
 // (the admin web's Staff screen does it when staff are added); the script waits for it.
 import { createRequire } from "node:module";
-const require = createRequire(new URL("../../web/package.json", import.meta.url));
+const require = createRequire(new URL("../../school-dash/package.json", import.meta.url));
 const { initializeApp } = require("firebase/app");
 const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } = require("firebase/auth");
 const { initializeFirestore, doc, getDoc, getDocs, setDoc, deleteDoc, collection, query, where } = require("firebase/firestore");
 
-const env = Object.fromEntries(require("node:fs").readFileSync(new URL("../../web/.env.local", import.meta.url), "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)));
+const env = Object.fromEntries(require("node:fs").readFileSync(new URL("../../school-dash/.env.local", import.meta.url), "utf8").split("\n").filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)));
 const app = initializeApp({ apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY, authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID, appId: env.NEXT_PUBLIC_FIREBASE_APP_ID });
 const auth = getAuth(app);
 const db = initializeFirestore(app, { ignoreUndefinedProperties: true });

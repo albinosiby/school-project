@@ -8,7 +8,7 @@
   "hosting": [
     {
       "target": "admin",
-      "source": "web",
+      "source": "school-dash",
       "ignore": [
         "firebase.json",
         "**/.*",
@@ -50,7 +50,7 @@
     },
     {
       "target": "owner",
-      "source": "web",
+      "source": "superadmin",
       "ignore": [
         "firebase.json",
         "**/.*",
@@ -79,6 +79,27 @@
             }
           ]
         },
+        {
+          "source": "/_next/static/**",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=31536000, immutable"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "target": "landing",
+      "public": "landing/out",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ],
+      "cleanUrls": true,
+      "headers": [
         {
           "source": "/_next/static/**",
           "headers": [

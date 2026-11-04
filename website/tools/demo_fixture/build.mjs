@@ -1,14 +1,14 @@
 // Deterministic demo fixture generator (contract section 8). Plain node, no deps.
 //   node website/tools/demo_fixture/build.mjs
 // Writes:
-//   website/web/src/server/seed/demo_fixture.json          (admin seed input)
+//   website/shared/src/server/seed/demo_fixture.json          (admin seed input)
 //   mobile app/teacher/lib/di/demo_fixture.g.dart           (teacher app seed input)
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const JSON_OUT = resolve(here, "../../web/src/server/seed/demo_fixture.json");
+const JSON_OUT = resolve(here, "../../shared/src/server/seed/demo_fixture.json");
 const DART_OUT = resolve(here, "../../../mobile app/teacher/lib/di/demo_fixture.g.dart");
 
 /* ---------------- school ---------------- */

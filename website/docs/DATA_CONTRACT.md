@@ -82,7 +82,7 @@ Everything else in the teacher app (`tt_*` extras, `tk_*` tasks/duties/syllabus,
 
 ## 8. Demo fixture
 
-`website/tools/demo_fixture/` generates one JSON fixture (classes, staff additions, students, assignments, periods, substitutions, papers/candidates). The admin seed (`website/web/src/server/seed`) and the teacher seed (`mobile app/teacher/lib/**/_seed.dart`) both consume it, so ids and names are identical in both apps.
+`website/tools/demo_fixture/` generates one JSON fixture (classes, staff additions, students, assignments, periods, substitutions, papers/candidates). The admin seed (`website/school-dash/src/server/seed`) and the teacher seed (`mobile app/teacher/lib/**/_seed.dart`) both consume it, so ids and names are identical in both apps.
 
 - Rostered classes: 8-A (38), 8-B (36), 8-C (40), 9-A (38), 10-A (48), 10-B (42).
 - Demo teacher login: **Mrs. Anita Sharma, `stf_025`, `anita.sharma@greenfield.edu`**, Mathematics & Science, class teacher of `cls_10B`, teaches 10-B, 10-A (Mathematics), 9-A (Science), 8-C (Physics). Her timetable is the existing teacher-app week.
@@ -442,8 +442,9 @@ Parents never read `tr_*` (they hold every pupil of a bus). A function keeps one
 
 ## 16. Platform owner console (super admin, 2026-11-04)
 The product owner (Tatos) manages every school from a separate site: the owner console at `/owner`, served by its own
-Firebase Hosting site (`edvio-owner.web.app`, target `owner`) from the same Next.js app as the admin web. `web/src/lib/sites.ts`
-decides by host name (locally `http://owner.localhost:<port>`). The admin site redirects `/owner/**` to the owner site; the
+Firebase Hosting site (`edvio-owner.web.app`, target `owner`) from the independent Next.js app in `superadmin`.
+The public landing app is in `landing` (target `landing`), and school admin remains in `school-dash/src`.
+Local ports are admin 3000, landing 3001, superadmin 3002; common source is in `shared`. The admin site redirects `/owner/**` to the owner site; the
 owner site has no landing page or self sign-up and turns school admins away.
 - **Owners**: `platform_admins/{uid}` = `{email, grantedAt, grantedBy}`, written only with admin credentials
   (`tools/owner/grant-owner.mjs`, which also creates the login and sets its password). Clients cannot write it. On sign-in
@@ -461,9 +462,11 @@ owner site has no landing page or self sign-up and turns school admins away.
   Firebase app, bootstraps the school as that admin (`bootstrapSchool`, the same starter data as a sign-up, school id =
   the admin's uid), then writes `platform_schools/{uid}`. From a demo request it also sets the lead to `converted` with
   `schoolId`. More admin logins for a school: `users/{newUid} = {schoolId, role: "admin", email, name}` written by the owner.
-- **Inside a school**: "Open school console" stores the school id in `sessionStorage["edvio.owner.actAs"]`; the auth
-  context then gives the owner that `schoolId`, so the whole admin console (and the setup wizard) works on that school
-  with a banner on top. Entering the owner console again clears it.
+- **Inside a school**: "Open school console" links to the admin app with `?school=<schoolId>`. The admin app independently
+  authenticates the account and verifies owner membership before storing the selection in
+  `sessionStorage["edvio.owner.actAs"]`. Its console and setup wizard then work on that school with a banner linking
+  back to superadmin. Sessions are scoped to each browser origin; an owner may need to sign in once on each app.
+  No credentials are transferred in URLs.
 - **Callable functions** (`functions/owner.js`; the caller must have a `platform_admins` doc):
   `ownerSetPassword {uid, password}` (8–128 characters; any school login, never an owner) and
   `ownerDeleteSchool {schoolId, confirm: schoolId}` (deletes every Auth login with that `schoolId` except owners, their
