@@ -15,7 +15,7 @@ class AdaptiveScaffold extends StatelessWidget {
     super.key,
     required this.navigationShell,
     required this.destinations,
-    this.title = 'Parent Portal',
+    this.title = 'Edvio Parent',
   });
   final StatefulNavigationShell navigationShell;
   final List<AppNavItem> destinations;

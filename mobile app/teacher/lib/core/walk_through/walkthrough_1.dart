@@ -118,7 +118,7 @@ class _Welcome extends StatelessWidget {
   Widget build(BuildContext context) => ListView(padding: EdgeInsets.symmetric(horizontal: 20.w), children: [
         _YearChip(teacher?.year ?? ''),
         SizedBox(height: 12.h),
-        Text('Welcome to EduAdmin', style: T.title.copyWith(fontSize: 24.sp)),
+        Text('Welcome to Edvio', style: T.title.copyWith(fontSize: 24.sp)),
         SizedBox(height: 8.h),
         Text('Your modern educator workspace for seamless classroom management and student success.', style: T.body),
         SizedBox(height: 18.h),

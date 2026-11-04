@@ -1,6 +1,6 @@
 {
-    "name": "parent_app",
-    "short_name": "parent_app",
+    "name": "Edvio Parent",
+    "short_name": "Edvio Parent",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

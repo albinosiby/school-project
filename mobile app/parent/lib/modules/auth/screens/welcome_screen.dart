@@ -19,7 +19,7 @@ class WelcomeScreen extends StatelessWidget {
         child: Pill('OFFICIAL PARENT PORTAL', icon: Icons.shield_rounded),
       ),
       SizedBox(height: 12.h),
-      Text('Welcome to EduAdmin', style: T.title.copyWith(fontSize: 26.sp)),
+      Text('Welcome to Edvio', style: T.title.copyWith(fontSize: 26.sp)),
       SizedBox(height: 8.h),
       Text(
         "Stay connected with your child's academic journey, attendance records, fee settlements, and live bus transit in real-time.",

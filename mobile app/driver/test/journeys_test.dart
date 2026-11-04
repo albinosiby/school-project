@@ -11,7 +11,7 @@ void main() {
     testWidgets('signed-out user lands on welcome, wrong password is refused, demo driver signs in', (tester) async {
       await setUpTestApp();
       await pumpApp(tester);
-      expect(find.text('Shift Sync'), findsWidgets);
+      expect(find.text('Edvio Driver'), findsWidgets);
       await tester.tap(find.text('Get Started'));
       await settle(tester);
       expect(find.text('Driver / Bus Staff Sign In'), findsOneWidget);

@@ -15,7 +15,7 @@ String academicYearLabel([DateTime? now]) {
   return 'AY $start–${((start + 1) % 100).toString().padLeft(2, '0')}';
 }
 
-/// Top of every tab screen (Figma "1. Home" header): EduAdmin PARENT brand, academic year + school,
+/// Top of every tab screen (Figma "1. Home" header): Edvio PARENT brand, academic year + school,
 /// bell (-> notifications) and guardian avatar (-> profile), then the child switcher.
 /// [title] names the tab for screen readers; [subtitle] is shown under the brand when given.
 class ParentTabHeader extends StatelessWidget {
@@ -67,7 +67,7 @@ class ParentTabHeader extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.baseline,
                           textBaseline: TextBaseline.alphabetic,
                           children: [
-                            Text('EduAdmin', style: T.h2),
+                            Text('Edvio', style: T.h2),
                             SizedBox(width: 6.w),
                             Text(
                               'PARENT',

@@ -82,7 +82,7 @@ class _IssueViewState extends State<_IssueView> {
           Expanded(flex: 2, child: AppButton('Sign & Issue', icon: Icons.verified_outlined, onPressed: () => _preview(picked))),
         ]),
         SizedBox(height: 4.h),
-        Text('Auto-syncs with Student Documents & Parent Portal upon signing.', style: T.small.copyWith(fontSize: 11.sp), textAlign: TextAlign.center, maxLines: 2),
+        Text('Auto-syncs with Student Documents & the Edvio Parent app upon signing.', style: T.small.copyWith(fontSize: 11.sp), textAlign: TextAlign.center, maxLines: 2),
       ]),
       body: ListView(padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, 24.h), children: [
         LessonHeading('1. Select Recipient', icon: Icons.how_to_reg_outlined),

@@ -62,7 +62,7 @@ GoRouter createRouter(AuthBloc auth, {String initialLocation = RoutePaths.home})
       GoRoute(path: 'forgot', builder: (_, _) => const ForgotPasswordScreen()),
     ]),
     StatefulShellRoute.indexedStack(
-      builder: (context, state, shell) => AdaptiveScaffold(navigationShell: shell, destinations: _tabs, title: 'Shift Sync'),
+      builder: (context, state, shell) => AdaptiveScaffold(navigationShell: shell, destinations: _tabs, title: 'Edvio Driver'),
       branches: [
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.home, builder: (_, _) => const HomeScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.trips, builder: (_, _) => const TripsScreen())]),

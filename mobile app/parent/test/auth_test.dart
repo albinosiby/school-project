@@ -282,7 +282,7 @@ void main() {
     ) async {
       await setUpTestApp();
       await pumpApp(t, location: RoutePaths.welcome);
-      expect(find.text('Welcome to EduAdmin'), findsOneWidget);
+      expect(find.text('Welcome to Edvio'), findsOneWidget);
 
       await t.tap(find.byKey(const Key('welcome-sign-in')));
       await t.pumpAndSettle();
@@ -330,7 +330,7 @@ void main() {
       expect(find.text('Admission Verification'), findsOneWidget);
       await t.tap(find.byTooltip('Back'));
       await t.pumpAndSettle();
-      expect(find.text('Welcome to EduAdmin'), findsOneWidget);
+      expect(find.text('Welcome to Edvio'), findsOneWidget);
 
       await t.tap(find.byKey(const ValueKey('social-google')));
       await t.pumpAndSettle();

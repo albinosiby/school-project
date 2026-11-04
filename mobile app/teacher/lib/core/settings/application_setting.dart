@@ -232,7 +232,7 @@ class _PushPermissionRowState extends State<_PushPermissionRow> with WidgetsBind
     } else {
       await AppDialogs.showInfoDialog(context,
           title: 'Notifications are blocked',
-          message: 'Turn them on in your phone: Settings > Apps > EduAdmin Teacher > Notifications > Allow notifications. Then come back here.');
+          message: 'Turn them on in your phone: Settings > Apps > Edvio Teacher > Notifications > Allow notifications. Then come back here.');
     }
   }
 
@@ -250,7 +250,7 @@ class _PushPermissionRowState extends State<_PushPermissionRow> with WidgetsBind
             } else {
               AppDialogs.showInfoDialog(context,
                   title: 'Turn off notifications',
-                  message: 'Use the switches below to choose what you get, or turn them all off in your phone: Settings > Apps > EduAdmin Teacher > Notifications.');
+                  message: 'Use the switches below to choose what you get, or turn them all off in your phone: Settings > Apps > Edvio Teacher > Notifications.');
             }
           },
         ),

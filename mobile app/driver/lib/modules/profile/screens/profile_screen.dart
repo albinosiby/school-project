@@ -95,7 +95,7 @@ class ProfileScreen extends StatelessWidget {
                   },
                 ),
                 SizedBox(height: 12.h),
-                Text('Shift Sync · ${AppConfig.isFirebase ? 'school server' : 'demo data'} · ${ctx.schoolName}', style: T.small, textAlign: TextAlign.center),
+                Text('Edvio Driver · ${AppConfig.isFirebase ? 'school server' : 'demo data'} · ${ctx.schoolName}', style: T.small, textAlign: TextAlign.center),
               ],
             );
           },

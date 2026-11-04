@@ -1,7 +1,7 @@
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'Shift Sync';
+  static const String appName = 'Edvio Driver';
 
   // Storage keys (local backend session)
   static const String sessionKey = 'driver_session_crew';

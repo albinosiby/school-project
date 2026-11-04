@@ -137,7 +137,7 @@ void main() {
   group('screens', () {
     testWidgets('home shows the now card, marks a task done and syncs', (t) async {
       await _pump(t, RoutePaths.home);
-      expect(find.text('Teacher Portal'), findsOneWidget);
+      expect(find.text('Edvio Teacher'), findsOneWidget);
       final hasLive = find.textContaining('NOW HAPPENING').evaluate().isNotEmpty;
       if (!hasLive) expect(find.textContaining(RegExp('Break until|No class in progress')), findsOneWidget);
       expect(find.text("Today's Schedule"), findsOneWidget);
@@ -272,7 +272,7 @@ void main() {
       await t.tap(find.text('Log Out').last);
       await t.pumpAndSettle();
       expect(getIt<LocalStorageService>().isOnboardingComplete, isFalse);
-      expect(find.text('Welcome to EduAdmin'), findsOneWidget);
+      expect(find.text('Welcome to Edvio'), findsOneWidget);
     });
 
     testWidgets('faculty id renders', (t) async {
@@ -285,7 +285,7 @@ void main() {
     testWidgets('onboarding completes and stores the flag', (t) async {
       await getIt<LocalStorageService>().remove('onboarding_complete');
       await _pump(t, RoutePaths.onboarding);
-      expect(find.text('Welcome to EduAdmin'), findsOneWidget);
+      expect(find.text('Welcome to Edvio'), findsOneWidget);
       await t.tap(find.text('Get Started'));
       await t.pumpAndSettle();
       expect(find.text('Confirm Your Profile'), findsOneWidget);
@@ -293,7 +293,7 @@ void main() {
       await t.tap(find.text('Confirm & Continue'));
       await t.pumpAndSettle();
       expect(getIt<LocalStorageService>().isOnboardingComplete, isTrue);
-      expect(find.text('Teacher Portal'), findsOneWidget);
+      expect(find.text('Edvio Teacher'), findsOneWidget);
     });
   });
 }

@@ -3,7 +3,7 @@
     <!-- Android 13+: the app asks for this at login (push notifications) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
-        android:label="EduAdmin Teacher"
+        android:label="Edvio Teacher"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

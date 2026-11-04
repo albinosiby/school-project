@@ -158,7 +158,7 @@ class SettingsScreen extends StatelessWidget {
               SizedBox(height: 12.h),
               Center(
                 child: Text(
-                  'EduAdmin Parent Core v4.8.2 - Build 2026.11',
+                  'Edvio Parent Core v4.8.2 - Build 2026.11',
                   style: T.small.copyWith(color: C.muted),
                 ),
               ),

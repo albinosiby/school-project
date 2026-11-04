@@ -15,7 +15,7 @@ class AdaptiveScaffold extends StatelessWidget {
     super.key,
     required this.navigationShell,
     required this.destinations,
-    this.title = 'Shift Sync',
+    this.title = 'Edvio Driver',
   });
   final StatefulNavigationShell navigationShell;
   final List<AppNavItem> destinations;

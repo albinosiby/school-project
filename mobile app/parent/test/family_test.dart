@@ -151,7 +151,7 @@ void main() {
     ) async {
       await setUpTestApp(signedIn: true);
       final router = await _pumpHeader(t);
-      expect(find.text('EduAdmin'), findsOneWidget);
+      expect(find.text('Edvio'), findsOneWidget);
       expect(find.text('showing Aarav Sharma'), findsOneWidget);
 
       await t.tap(find.byKey(ValueKey('child-chip-${DemoData.ananya.id}')));

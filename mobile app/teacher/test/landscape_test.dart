@@ -65,7 +65,7 @@ void main() {
     expect(find.byType(NavigationRail), findsOneWidget);
     await t.tap(find.byIcon(Icons.home_outlined).first);
     await t.pumpAndSettle();
-    expect(find.text('Teacher Portal'), findsOneWidget);
+    expect(find.text('Edvio Teacher'), findsOneWidget);
   });
 
   testWidgets('side navigation stays in the semantics tree (rail and desktop drawer)', (t) async {

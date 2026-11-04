@@ -1,4 +1,4 @@
-# Shift Sync: driver and bus staff app
+# Edvio Driver: driver and bus staff app
 
 Flutter app for the school's transport crew. One app, two roles: the **driver** and the **bus staff** (attendant) who
 rides with the driver. Both see the same bus, trips and roster; the transport office manages everything from the admin

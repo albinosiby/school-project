@@ -47,7 +47,7 @@ It already follows the user's blueprint (`/Users/albinosiby/Tatos Dev/flutter_fi
 Home `/home` (HomeScreen) · Academics `/academics?section=…` (AcademicsScreen, modules/academics) · Fees `/fees` (FeesScreen, now a
 TAB, not pushed) · Messages `/messages` (MessagesScreen, modules/messages) · More `/more` (MoreScreen).
 Tab screens use the parent tab header (`modules/family/screens/widgets/parent_tab_header.dart`, with the child switcher) — the Home
-frame's header (EduAdmin PARENT, AY pill, school, bell with dot → /notifications, avatar → /more/profile) is the reference for all tabs.
+frame's header (Edvio PARENT, AY pill, school, bell with dot → /notifications, avatar → /more/profile) is the reference for all tabs.
 
 ## Ownership (only edit what you own; append-only for shared barrel/tokens/routes.dart)
 - A auth: modules/auth, modules/family, core/walk_through, config/routes/modules/auth_routes.dart, di/modules/auth_di.dart,

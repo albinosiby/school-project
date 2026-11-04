@@ -21,7 +21,7 @@ class CrewTabHeader extends StatelessWidget {
       final ctx = state.data;
       final bus = ctx?.bus;
       return AppTabHeader(
-        title: title ?? (ctx?.schoolName.isNotEmpty == true ? ctx!.schoolName : 'Shift Sync'),
+        title: title ?? (ctx?.schoolName.isNotEmpty == true ? ctx!.schoolName : 'Edvio Driver'),
         subtitle: subtitle ?? (bus == null ? ctx?.me.role.title ?? 'Transport crew' : '${bus.label} · ${bus.routeName}'),
         icon: Icons.directions_bus_rounded,
         userName: ctx?.me.name ?? '',

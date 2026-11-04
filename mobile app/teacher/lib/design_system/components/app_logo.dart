@@ -7,5 +7,5 @@ class AppLogo extends StatelessWidget {
   const AppLogo({super.key, this.size = 48});
   final double size;
   @override
-  Widget build(BuildContext context) => Image.asset(AssetPaths.logo, width: size.r, height: size.r, fit: BoxFit.contain, semanticLabel: 'EduAdmin logo');
+  Widget build(BuildContext context) => Image.asset(AssetPaths.logo, width: size.r, height: size.r, fit: BoxFit.contain, semanticLabel: 'Edvio logo');
 }

@@ -221,7 +221,7 @@ class _OtpScreenState extends State<OtpScreen> {
           ),
           SizedBox(height: 6.h),
           Text(
-            'EduAdmin Core v4.2 • Secured Institutional Guardian Gateway',
+            'Edvio Core v4.2 • Secured Institutional Guardian Gateway',
             textAlign: TextAlign.center,
             style: T.small.copyWith(color: C.muted, fontSize: 11.sp),
           ),

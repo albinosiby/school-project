@@ -99,7 +99,7 @@ class GoogleWorkspaceService {
       'summary': title, 'description': '$description\n\nJoin: $meetUri', 'location': meetUri,
       'start': {'dateTime': fmt(start), 'timeZone': 'Asia/Kolkata'}, 'end': {'dateTime': fmt(end), 'timeZone': 'Asia/Kolkata'},
       'reminders': {'useDefault': false, 'overrides': [{'method': 'popup', 'minutes': 10}]},
-      'source': {'title': 'EduAdmin Teacher', 'url': meetUri},
+      'source': {'title': 'Edvio Teacher', 'url': meetUri},
     };
     const base = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
     final j = await _send((o) => eventId == null ? _dio.post(base, data: body, options: o) : _dio.patch('$base/$eventId', data: body, options: o));

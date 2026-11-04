@@ -47,7 +47,7 @@ class WelcomeScreen extends StatelessWidget {
                         ),
                         SizedBox(height: 32.h),
                         Text(
-                          'Shift Sync',
+                          'Edvio Driver',
                           style: T.title.copyWith(fontSize: 30.sp),
                           textAlign: TextAlign.center,
                         ),

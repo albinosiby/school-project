@@ -63,7 +63,7 @@ GoRouter createRouter(
   routes: [
     ...authRoutes,
     StatefulShellRoute.indexedStack(
-      builder: (context, state, shell) => AdaptiveScaffold(navigationShell: shell, destinations: _tabs, title: 'Parent Portal'),
+      builder: (context, state, shell) => AdaptiveScaffold(navigationShell: shell, destinations: _tabs, title: 'Edvio Parent'),
       branches: [
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.home, builder: (_, _) => const HomeScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.academics, builder: (_, s) => AcademicsScreen(section: s.uri.queryParameters['section']))]),

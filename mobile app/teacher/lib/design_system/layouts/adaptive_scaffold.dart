@@ -33,7 +33,7 @@ class AppNavScope extends InheritedWidget {
 
 /// Floating dock (mobile), NavigationRail (tablet) or NavigationDrawer (desktop).
 class AdaptiveScaffold extends StatelessWidget {
-  const AdaptiveScaffold({super.key, required this.navigationShell, required this.destinations, this.title = 'Teacher Portal'});
+  const AdaptiveScaffold({super.key, required this.navigationShell, required this.destinations, this.title = 'Edvio Teacher'});
   final StatefulNavigationShell navigationShell;
   final List<AppNavItem> destinations;
   final String title;

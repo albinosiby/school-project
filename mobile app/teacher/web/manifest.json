@@ -1,11 +1,11 @@
 {
-    "name": "EduAdmin Teacher Portal",
-    "short_name": "Teacher Portal",
+    "name": "Edvio Teacher",
+    "short_name": "Edvio Teacher",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",
     "theme_color": "#0A3D91",
-    "description": "EduAdmin Teacher Portal: attendance, timetable, homework and marks.",
+    "description": "Edvio Teacher: attendance, timetable, homework and marks.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

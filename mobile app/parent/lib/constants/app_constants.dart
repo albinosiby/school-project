@@ -1,7 +1,7 @@
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'Parent Portal';
+  static const String appName = 'Edvio Parent';
   static const String schoolName = 'Greenfield International School';
 
   // Storage keys

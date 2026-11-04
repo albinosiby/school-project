@@ -1,7 +1,7 @@
 class AppConstants {
   AppConstants._();
 
-  static const String appName = 'Teacher Portal';
+  static const String appName = 'Edvio Teacher';
 
   // Timeouts
   static const Duration connectionTimeout = Duration(seconds: 30);
