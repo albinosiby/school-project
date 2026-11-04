@@ -1,1 +1,17 @@
-{"projects":{"default":"school-admin-tatos-2610"}}
+{
+  "projects": {
+    "default": "school-admin-tatos-2610"
+  },
+  "targets": {
+    "school-admin-tatos-2610": {
+      "hosting": {
+        "admin": [
+          "school-admin-tatos-2610"
+        ],
+        "owner": [
+          "edvio-owner"
+        ]
+      }
+    }
+  }
+}

@@ -582,7 +582,7 @@ await check("admin cannot read leads either", assertFails(getDocs(collection(as(
 await check("lead cannot be updated", assertFails(updateDoc(doc(anon, "leads/l1"), { status: "done" })));
 await check("lead cannot be deleted", assertFails(deleteDoc(doc(anon, "leads/l1"))));
 
-console.log("product owner and suspended schools (contract 15)");
+console.log("product owner and suspended schools (contract 16)");
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
   await setDoc(doc(db, "platform_admins/own1"), { email: "owner@edvio.test" });
@@ -601,13 +601,21 @@ await check("owner lists the admin logins of all schools", assertSucceeds(getDoc
 await check("admin cannot list all admin logins", assertFails(getDocs(query(collection(as("a1"), "users"), where("role", "==", "admin")))));
 await check("owner reads a school profile", assertSucceeds(getDoc(doc(as("own1"), "schools/S1/school/school"))));
 await check("owner counts a school's students", assertSucceeds(getDocs(collection(as("own1"), "schools/S1/students"))));
-await check("owner cannot read fee invoices", assertFails(getDocs(collection(as("own1"), "schools/S1/fee_invoices"))));
-await check("owner cannot write school data", assertFails(setDoc(doc(as("own1"), "schools/S1/students/x"), { name: "x" })));
+await check("owner reads any school collection (fee invoices)", assertSucceeds(getDocs(collection(as("own1"), "schools/S1/fee_invoices"))));
+await check("owner configures a school (writes school data)", assertSucceeds(setDoc(doc(as("own1"), "schools/S1/students/x"), { name: "x" })));
+await check("owner writes nested school docs", assertSucceeds(setDoc(doc(as("own1"), "schools/S1/com_notices/n1/acks/a1"), { at: 1 })));
+await check("owner reads a suspended school", assertSucceeds(getDoc(doc(as("own1"), "schools/S3/students/stu_301"))));
+await check("owner creates the admin login doc of a new school", assertSucceeds(setDoc(doc(as("own1"), "users/newadmin"), { schoolId: "S9", role: "admin", email: "n@x.test" })));
+await check("owner moves a login to admin of another school", assertSucceeds(updateDoc(doc(as("own1"), "users/newadmin"), { schoolId: "S8" })));
+await check("owner removes a login doc", assertSucceeds(deleteDoc(doc(as("own1"), "users/newadmin"))));
+await check("admin cannot create an admin login of another school", assertFails(setDoc(doc(as("a1"), "users/x9"), { schoolId: "S2", role: "admin" })));
+await check("admin still cannot write another school", assertFails(setDoc(doc(as("a1"), "schools/S2/students/x"), { name: "x" })));
 await check("owner sets a school's plan", assertSucceeds(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active"))));
 await check("owner write must carry their own uid", assertFails(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active", { updatedBy: "a1" }))));
 await check("unknown status is refused", assertFails(setDoc(doc(as("own1"), "platform_schools/S1"), ps("deleted"))));
 await check("extra field is refused", assertFails(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active", { role: "x" }))));
-await check("owner cannot delete a school status", assertFails(deleteDoc(doc(as("own1"), "platform_schools/S1"))));
+await check("owner cannot delete a school status (the delete function does)", assertFails(deleteDoc(doc(as("own1"), "platform_schools/S1"))));
+await check("owner records the admin and city of a school", assertSucceeds(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active", { name: "G", adminEmail: "a@x.test", adminName: "A", city: "Kochi", board: "CBSE", phone: "", leadId: "" }))));
 await check("admin reads own school status", assertSucceeds(getDoc(doc(as("a1"), "platform_schools/S1"))));
 await check("admin cannot read another school's status", assertFails(getDoc(doc(as("a1"), "platform_schools/S3"))));
 await check("admin cannot reactivate own school", assertFails(setDoc(doc(as("a1"), "platform_schools/S1"), ps("active", { updatedBy: "a1" }))));
@@ -620,6 +628,21 @@ await check("suspended school: admin reads why", assertSucceeds(getDoc(doc(as("a
 await check("owner reactivates a school", assertSucceeds(updateDoc(doc(as("own1"), "platform_schools/S3"), { status: "active", reason: "", updatedBy: "own1" })));
 await check("reactivated school: admin reads data again", assertSucceeds(getDoc(doc(as("a3"), "schools/S3/students/stu_301"))));
 await check("reactivated school: parent reads own child again", assertSucceeds(getDoc(doc(as("p3"), "schools/S3/students/stu_301"))));
+
+console.log("owner works the demo requests (contract 16)");
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), "leads/l9"), { name: "N", school: "S", email: "n@x.test", phone: "", message: "", source: "landing", status: "new", createdAt: new Date() });
+});
+const leadPatch = (extra = {}) => ({ status: "contacted", notes: "called", updatedAt: "2026-11-04T10:00:00Z", updatedBy: "own1", ...extra });
+await check("owner lists demo requests", assertSucceeds(getDocs(collection(as("own1"), "leads"))));
+await check("admin still cannot list demo requests", assertFails(getDocs(collection(as("a1"), "leads"))));
+await check("owner moves a request to contacted with a note", assertSucceeds(updateDoc(doc(as("own1"), "leads/l9"), leadPatch())));
+await check("owner links the school made from a request", assertSucceeds(updateDoc(doc(as("own1"), "leads/l9"), leadPatch({ status: "converted", schoolId: "S1" }))));
+await check("owner cannot invent a status", assertFails(updateDoc(doc(as("own1"), "leads/l9"), leadPatch({ status: "won" }))));
+await check("owner cannot rewrite what the visitor sent", assertFails(updateDoc(doc(as("own1"), "leads/l9"), leadPatch({ email: "x@y.test" }))));
+await check("owner update must carry their own uid", assertFails(updateDoc(doc(as("own1"), "leads/l9"), leadPatch({ updatedBy: "a1" }))));
+await check("admin cannot update a demo request", assertFails(updateDoc(doc(as("a1"), "leads/l9"), { status: "closed" })));
+await check("owner deletes a spam request", assertSucceeds(deleteDoc(doc(as("own1"), "leads/l9"))));
 
 await env.cleanup();
 console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);

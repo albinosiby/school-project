@@ -1,3 +1,4 @@
 import { ToastProvider } from "@/components/ui";
 import { AuthGuard } from "@/components/AuthGuard";
-export default function Layout({ children }: { children: React.ReactNode }) { return <AuthGuard><ToastProvider>{children}</ToastProvider></AuthGuard>; }
+import { OwnerBanner } from "@/features/owner/OwnerBanner";
+export default function Layout({ children }: { children: React.ReactNode }) { return <AuthGuard><ToastProvider><OwnerBanner />{children}</ToastProvider></AuthGuard>; }

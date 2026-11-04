@@ -5,7 +5,7 @@ import { ToastProvider } from "@/components/ui";
 
 export * from "./fakeDb";
 export { setUrl, router } from "./fakeNext";
-export { authAccounts, authState, sentInvites, uploads } from "./fakeAuth";
+export { authAccounts, authState, callableCalls, sentInvites, uploads } from "./fakeAuth";
 export { screen, within, userEvent };
 
 /** Renders `ui` inside ToastProvider (toasts are plain text in the DOM). Returns a user-event instance too. */

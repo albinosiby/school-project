@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   createUserWithEmailAndPassword, onAuthStateChanged, sendPasswordResetEmail,
   signInWithEmailAndPassword, signOut, updateProfile, type User as FbUser,
@@ -10,17 +10,25 @@ import { bootstrapSchool } from "./bootstrap";
 import { setCollectionScope } from "./useCollection";
 
 /**
- * users/{uid} (data contract section 1) maps a school admin to their school. A product owner (contract 15,
- * platform_admins/{uid}) has no school: schoolId is "" and the app sends them to the owner console.
+ * users/{uid} (data contract section 1) maps a school admin to their school. A product owner (contract 16,
+ * platform_admins/{uid}) has no school of their own: schoolId is "" in the owner console, and the id of the school they
+ * opened while they work inside one (`actAs`), so the whole admin console runs on that school.
  */
 export interface User { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" }
 
-/** Where a signed-in user starts: the owner console for product owners, the school dashboard for admins. */
-export const homeFor = (u: Pick<User, "role"> | null) => (u?.role === "owner" ? "/owner" : "/dashboard");
+/** Where a signed-in user starts: the owner console for product owners (unless inside a school), the dashboard for admins. */
+export const homeFor = (u: Pick<User, "role"> & { schoolId?: string } | null) => (u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard");
+
+/** sessionStorage key of the school an owner is working inside (survives a reload, not a new tab). */
+const ACT_AS_KEY = "edvio.owner.actAs";
+const readActAs = () => { try { return sessionStorage.getItem(ACT_AS_KEY) ?? ""; } catch { return ""; } };
+const writeActAs = (sid: string) => { try { if (sid) sessionStorage.setItem(ACT_AS_KEY, sid); else sessionStorage.removeItem(ACT_AS_KEY); } catch { /* storage blocked */ } };
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  /** owner only: open a school's admin console (school id) or go back to the owner console (null) */
+  actAs: (schoolId: string | null) => void;
   /** set when a signed-in account was refused (e.g. teacher account); shown on the login page */
   blockedMessage: string;
   login: (email: string, password: string) => Promise<void>;
@@ -103,21 +111,28 @@ export function friendly(e: unknown): Error {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [account, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [blockedMessage, setBlocked] = useState("");
+  // read once on the client; the user is resolved later in an effect, so the first render never depends on it
+  const [actingSchool, setActing] = useState(() => (typeof window === "undefined" ? "" : readActAs()));
+  const isOwner = account?.role === "owner";
+  // an owner inside a school is that school's admin for every screen (rules: isOwner() writes every school, contract 16)
+  const user = useMemo(() => (account && isOwner && actingSchool ? { ...account, schoolId: actingSchool } : account), [account, isOwner, actingSchool]);
+  useEffect(() => { if (isOwner) setCollectionScope(actingSchool || null); }, [isOwner, actingSchool]);
+  const actAs = useCallback((sid: string | null) => { writeActAs(sid ?? ""); setActing(sid ?? ""); }, []);
 
   useEffect(() => onAuthStateChanged(auth, (u) => {
-    if (!u) { profiles.clear(); setCollectionScope(null); setUser(null); setIsLoading(false); return; }
+    if (!u) { profiles.clear(); setCollectionScope(null); setUser(null); setIsLoading(false); writeActAs(""); setActing(""); return; }
     if (signingUp) return;
     setIsLoading(true);
-    profileFor(u).then((p) => { setBlocked(""); setCollectionScope(p.schoolId); setUser(p); })
+    profileFor(u).then((p) => { setBlocked(""); if (p.role === "admin") setCollectionScope(p.schoolId); setUser(p); })
       .catch((e) => { setCollectionScope(null); setUser(null); setBlocked(e instanceof Blocked ? e.message : "Could not load your account. Check your connection and try again."); signOut(auth); })
       .finally(() => setIsLoading(false));
   }), []);
 
   // an owner can suspend the school while its admin is signed in: sign them out with the reason (contract 15)
-  const watchSchool = user?.role === "admin" ? user.schoolId : "";
+  const watchSchool = account?.role === "admin" ? account.schoolId : "";
   useEffect(() => {
     if (!watchSchool) return;
     return onSnapshot(doc(db, "platform_schools", watchSchool), (d) => {
@@ -147,9 +162,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try { await sendPasswordResetEmail(auth, email.trim()); } catch (e) { throw friendly(e); }
   };
 
-  const logout = async () => { await signOut(auth); };
+  const logout = async () => { writeActAs(""); setActing(""); await signOut(auth); };
 
-  return <AuthContext.Provider value={{ user, isLoading, blockedMessage, login, signup, resetPassword, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, isLoading, actAs, blockedMessage, login, signup, resetPassword, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -53,7 +53,10 @@ export function StepPage({ no }: { no: number }) {
             <span className="font-semibold">School setup</span>
           </div>
           <div className="hidden w-64 sm:block"><ProgressBar value={(ob.completed.length / 8) * 100} /></div>
-          <span className="text-sm text-on-surface-variant">Step {no} of 8</span>
+          <span className="flex items-center gap-4 text-sm text-on-surface-variant">
+            <Link href="/profile" className="text-secondary hover:underline">My profile &amp; password</Link>
+            <span>Step {no} of 8</span>
+          </span>
         </div>
       </header>
 

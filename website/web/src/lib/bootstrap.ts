@@ -1,7 +1,7 @@
 // Creates the starting data for a freshly signed-up school: default configuration
 // rows only (roles, grading bands, templates…). Everything transactional starts empty
 // and is filled by the 8-step setup wizard and day-to-day use.
-import { doc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { doc, getDoc, setDoc, writeBatch, type Firestore } from "firebase/firestore";
 import { db } from "./firebase";
 
 // local wall-clock time without a zone, like the rest of the feed (createdAt is shown as local time)
@@ -41,11 +41,18 @@ export function starterRow(c: (typeof KEEP)[number], r: Row, i: number, org: str
   return v;
 }
 
-/** `uid` is the school id (new schools use the admin's uid). Also writes users/{uid} = {schoolId, role: "admin"} (contract section 1). */
-export async function bootstrapSchool(uid: string, org: string, email: string) {
+/** What the owner console knows about a school it adds (contract 16); sign-up passes nothing. */
+export interface SchoolDetails { adminName?: string; city?: string; board?: string; phone?: string }
+
+/**
+ * `uid` is the school id (new schools use the admin's uid). Also writes users/{uid} = {schoolId, role: "admin"} (contract
+ * section 1). `fs` is the Firestore of the app signed in as that admin: the default app at sign-up, the owner console's
+ * secondary app when it adds a school.
+ */
+export async function bootstrapSchool(uid: string, org: string, email: string, details: SchoolDetails = {}, fs: Firestore = db) {
   // users/{uid}: the rules and both apps find the school through this doc (contract section 1)
-  await setDoc(doc(db, "users", uid), { schoolId: uid, role: "admin", email, name: org, createdAt: new Date().toISOString() }, { merge: true });
-  const marker = doc(db, "schools", uid, "onboarding", "state");
+  await setDoc(doc(fs, "users", uid), { schoolId: uid, role: "admin", email, name: details.adminName || org, createdAt: new Date().toISOString() }, { merge: true });
+  const marker = doc(fs, "schools", uid, "onboarding", "state");
   if ((await getDoc(marker)).exists()) return; // already bootstrapped
   const { seed } = await import("@/server/seed");
   const ay = academicYearOf();
@@ -53,17 +60,17 @@ export async function bootstrapSchool(uid: string, org: string, email: string) {
   const put = (c: string, id: string, v: Record<string, unknown>) => writes.push([`${c}/${id}`, { ...v, id }]);
 
   for (const c of KEEP) ((seed[c] ?? []) as Row[]).forEach((r, i) => writes.push([`${c}/${r.id}`, starterRow(c, r, i, org, email, ay)]));
-  put("school", "school", { name: org, short: org, board: "CBSE", affiliation: "", city: "", academicYear: ay, term: "Term 1" });
-  put("me", "me", { name: email.split("@")[0], title: "Administrator", role: "Super Admin", email, phone: "" });
+  put("school", "school", { name: org, short: org, board: details.board || "CBSE", affiliation: "", city: details.city || "", academicYear: ay, term: "Term 1" });
+  put("me", "me", { name: details.adminName || email.split("@")[0], title: "Administrator", role: "Super Admin", email, phone: details.phone || "" });
   put("notifications", "welcome", { category: "ops", title: "Welcome", body: "Your school console is ready. Start by adding students and staff.", createdAt: nowLocal(), read: false, href: "/dashboard", _o: Date.now() });
 
   for (let i = 0; i < writes.length; i += 400) {
-    const batch = writeBatch(db);
-    writes.slice(i, i + 400).forEach(([path, data]) => { const [c, id] = path.split("/"); batch.set(doc(db, "schools", uid, c!, id!), data); });
+    const batch = writeBatch(fs);
+    writes.slice(i, i + 400).forEach(([path, data]) => { const [c, id] = path.split("/"); batch.set(doc(fs, "schools", uid, c!, id!), data); });
     await batch.commit();
   }
   // written last: its presence marks the school as fully bootstrapped
-  const done = writeBatch(db);
+  const done = writeBatch(fs);
   done.set(marker, { id: "state", complete: false, completed: [] });
   await done.commit();
 }

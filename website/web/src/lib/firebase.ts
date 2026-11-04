@@ -1,7 +1,8 @@
-import { getApp, getApps, initializeApp } from "firebase/app";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
 import { connectFirestoreEmulator, initializeFirestore, getFirestore } from "firebase/firestore";
 import { connectStorageEmulator, getStorage } from "firebase/storage";
+import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
 
 /**
  * Development only: `NEXT_PUBLIC_EMULATOR=true npm run dev` talks to the local Firebase emulators (website/tools/e2e) on a
@@ -44,3 +45,19 @@ export const storage = (() => {
   if (useEmulator) { try { connectStorageEmulator(s, emulatorHost, 9199); } catch { /* already connected */ } }
   return s;
 })();
+
+/** Callable Cloud Functions (owner console actions, contract 16), in the functions codebase's region (asia-south1). */
+export const functions = (() => {
+  const f = getFunctions(app, "asia-south1");
+  if (useEmulator) { try { connectFunctionsEmulator(f, emulatorHost, 5001); } catch { /* already connected */ } }
+  return f;
+})();
+
+/** Firestore of another app instance (the owner console's secondary app), pointed at the emulator in emulator mode. */
+export function firestoreFor(other: FirebaseApp) {
+  try {
+    const f = initializeFirestore(other, { ignoreUndefinedProperties: true });
+    if (useEmulator) connectFirestoreEmulator(f, emulatorHost, firestorePort);
+    return f;
+  } catch { return getFirestore(other); }
+}

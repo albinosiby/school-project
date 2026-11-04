@@ -54,6 +54,15 @@
         "cd '/Users/albinosiby/Tatos Dev/school project/website/web' && NEXT_PUBLIC_EMULATOR=true NEXT_PUBLIC_EMULATOR_FIRESTORE_PORT=8081 npx next dev -p 3006"
       ],
       "port": 3006
+    },
+    {
+      "name": "owner-console-e2e",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "cd '/Users/albinosiby/Tatos Dev/school project/.claude/worktrees/super-admin/website/web' && NEXT_PUBLIC_EMULATOR=true npx next dev -p 3007"
+      ],
+      "port": 3007
     }
   ]
 }
