@@ -20,7 +20,7 @@ export function Understand() {
         <Reveal className="max-w-2xl">
           <p className="l-eyebrow text-brand">Understand</p>
           <h2 className="l-h2 mt-3 text-balance">Four apps, one record of the school day</h2>
-          <p className="l-lead mt-4 text-muted-foreground">Each role gets its own app with only what that role needs. Underneath they read and write the same Firestore, so nothing is typed twice and nothing is out of date.</p>
+          <p className="l-lead mt-4 text-muted-foreground">Each role gets its own app with only what that role needs. Underneath they read and write the same record, so nothing is typed twice and nothing is out of date.</p>
         </Reveal>
         <Stagger className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {APPS.map((a) => { const I = ICON[a.key]; return (

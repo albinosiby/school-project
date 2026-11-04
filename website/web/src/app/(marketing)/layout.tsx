@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Edvio · School management for the office, teachers, parents and the bus",
-  description: "Admin web, teacher app, parent app and driver app on one Firebase backend. Attendance, homework, fees with receipts, leave, meetings, certificates, notices and bus boarding alerts. Powered by Tatos Technologies.",
+  description: "Admin web, teacher app, parent app and driver app working as one. Attendance, homework, fees with receipts, leave, meetings, certificates, notices and bus boarding alerts. Powered by Tatos Technologies.",
 };
 
 /**

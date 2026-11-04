@@ -12,7 +12,7 @@ export function Trust() {
         <Reveal className="max-w-2xl">
           <p className="l-eyebrow text-brand">Trust</p>
           <h2 className="l-h2 mt-3 text-balance">Built for one school&apos;s data to stay that school&apos;s</h2>
-          <p className="l-lead mt-4 text-muted-foreground">Multi-tenant by design, role-scoped by rule, and checked end to end on the Firebase emulators before every release.</p>
+          <p className="l-lead mt-4 text-muted-foreground">Each school kept apart, every role limited to its own data, and checked end to end before every release.</p>
         </Reveal>
 
         <Stagger className="mt-12 grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -23,15 +23,15 @@ export function Trust() {
             </StaggerItem>
           ))}
         </Stagger>
-        <Reveal className="mt-3 text-xs text-muted-foreground" as="p">Counts from the end-to-end verification report of 3–4 November 2026: rules suite, cross-app sync suite with five signed-in roles, and unit tests of the admin web and the three apps.</Reveal>
+        <Reveal className="mt-3 text-xs text-muted-foreground" as="p">Counts from the end-to-end verification report of 3–4 November 2026: access-control suite, cross-app sync suite with five signed-in roles, and unit tests of the admin web and the three apps.</Reveal>
 
         <div className="mt-16 grid gap-10 lg:grid-cols-[1fr_1.2fr] lg:gap-16">
           <Reveal>
             <div className="flex size-11 items-center justify-center rounded-xl bg-brand-soft text-brand dark:bg-secondary"><ShieldCheck className="size-5" /></div>
-            <h3 className="l-h2 mt-5" style={{ fontSize: "clamp(1.5rem, 1.2rem + 1.4vw, 2.125rem)" }}>Security that is written down as rules</h3>
-            <p className="l-body mt-4 text-muted-foreground">Access is enforced in Firestore security rules, not in app code. A login is mapped to one school and one role, and the rules decide every read and write from that mapping.</p>
+            <h3 className="l-h2 mt-5" style={{ fontSize: "clamp(1.5rem, 1.2rem + 1.4vw, 2.125rem)" }}>Security that is enforced, not assumed</h3>
+            <p className="l-body mt-4 text-muted-foreground">Access is enforced on the server, not in app code. A login is mapped to one school and one role, and every read and write is decided from that mapping.</p>
             <ul className="mt-6 space-y-2 text-sm text-muted-foreground">
-              {["Hosted on Google Cloud Firestore, asia-south1 (Mumbai)", "Cloud Functions in the same region send pushes and keep parent views in sync", "Sensitive changes are written to an audit log the office can read", "Signed certificates stored per school in Cloud Storage with the same role rules"].map((t) => <li key={t} className="flex gap-2"><Lock className="mt-0.5 size-4 shrink-0 text-mint" />{t}</li>)}
+              {["Hosted in Mumbai, India, with each school's data kept apart", "Alerts and parent views are kept in sync automatically", "Sensitive changes are written to an audit log the office can read", "Signed certificates are stored per school with the same role-based access"].map((t) => <li key={t} className="flex gap-2"><Lock className="mt-0.5 size-4 shrink-0 text-mint" />{t}</li>)}
             </ul>
           </Reveal>
           <Stagger className="grid gap-4 sm:grid-cols-2">

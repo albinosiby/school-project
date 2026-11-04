@@ -67,7 +67,7 @@ export interface Step {
 export const WALKTHROUGH: Step[] = [
   { n: 1, app: "admin", title: "The office sets the school up", body: "Classes, rosters, staff logins, the timetable and the bus routes live in one place. Teachers and parents get an invite email, never a school code.", screen: "Admin · Setup" },
   { n: 2, app: "teacher", title: "A teacher marks period 1", body: "Only the absentees are tapped. The record carries the period, the class and the teacher, so the office never re-enters it.", screen: "Teacher · Attendance" },
-  { n: 3, app: "parent", title: "The parent gets the alert", body: "A Cloud Function copies that child's day into the parent's view and sends the push. The parent sees the month, not a class list.", screen: "Parent · Alert" },
+  { n: 3, app: "parent", title: "The parent gets the alert", body: "The child's day is copied into the parent's own view and the alert is sent. The parent sees the month, not a class list.", screen: "Parent · Alert" },
   { n: 4, app: "driver", title: "The bus attendant marks boarding", body: "On the afternoon drop, every pupil is marked boarded or absent at the stop; guardians hear about it as it happens.", screen: "Driver · Trip" },
 ];
 
@@ -130,17 +130,17 @@ export const BENEFITS: Benefit[] = [
 
 /** Verified counts from docs/E2E_REPORT.md. Update them when the report changes. */
 export const PROOF = [
-  { value: 4, label: "apps on one backend", suffix: "" },
-  { value: 357, label: "Firestore rules tests", suffix: "" },
+  { value: 4, label: "apps on one shared record", suffix: "" },
+  { value: 357, label: "access-control checks", suffix: "" },
   { value: 103, label: "cross-app sync checks", suffix: "" },
   { value: 1673, label: "automated tests across the four apps", suffix: "" }, // 770 + 311 + 469 + 123
 ];
 
 export const SECURITY = [
-  { title: "One school, one namespace", body: "Every record lives under the school's own id. The rules let a login reach only the school its account points at; several schools share one backend without seeing each other." },
-  { title: "Rules per role", body: "Admin, teacher, parent, driver and attendant each get exactly the collections their role needs. A teacher writes only their own records; a parent reads only their own children." },
-  { title: "Parents never read class lists", body: "Attendance, homework and marks hold every pupil of a class, so Cloud Functions copy each child's slice into a view only that child's guardians can open." },
-  { title: "Verified end to end", body: "The rules suite, the cross-app sync suite with five signed-in roles and a four-app phone chain run against the local Firebase emulators before anything is deployed." },
+  { title: "One school, one space", body: "Every record belongs to the school it was created in. A login reaches only the school its account points at; several schools run side by side without seeing each other." },
+  { title: "Access per role", body: "Admin, teacher, parent, driver and attendant each get exactly the data their role needs. A teacher writes only their own records; a parent reads only their own children." },
+  { title: "Parents never read class lists", body: "Attendance, homework and marks hold every pupil of a class, so each child's slice is copied into a view only that child's guardians can open." },
+  { title: "Verified end to end", body: "An access-control suite, a cross-app sync suite with five signed-in roles and a four-app phone chain run before every release." },
 ];
 
 /* PLACEHOLDER testimonials. These are illustrative quotes, not from real schools or people. Replace them with signed-off
@@ -156,7 +156,7 @@ export const FAQ = [
   { q: "Which devices are supported?", a: "The admin console runs in any modern browser. The teacher, parent and driver apps are Flutter apps for Android and iOS; the driver app is used on Android today." },
   { q: "Is there a payment gateway?", a: "No. Parents pay into the school's own bank account by UPI, NEFT, IMPS, RTGS, cheque or cash deposit and report it in the app. The office verifies the claim against the bank statement and the receipt is issued from that verification." },
   { q: "Is bus tracking GPS-based?", a: "The parent sees the bus's route, their child's stop and times, the trip's status (scheduled, running, completed) and boarding alerts, all from the crew's marks. There is no GPS feed today." },
-  { q: "Where is the data stored?", a: "In Google Cloud Firestore in the asia-south1 (Mumbai) region, one namespace per school, with security rules per role and an audit log of sensitive changes." },
-  { q: "Can we run it for several schools?", a: "Yes. The backend is multi-tenant: each school is its own namespace and a login belongs to exactly one school." },
+  { q: "Where is the data stored?", a: "In a managed cloud database hosted in Mumbai, India, with each school's data kept apart, access limited by role, and an audit log of sensitive changes." },
+  { q: "Can we run it for several schools?", a: "Yes. Each school has its own separate space and a login belongs to exactly one school." },
   { q: "How do we get a demo?", a: "Use the form below or write to us. We set up a demo school with your class structure and walk your office, a teacher and a parent through a school day." },
 ];
