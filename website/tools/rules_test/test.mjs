@@ -582,6 +582,45 @@ await check("admin cannot read leads either", assertFails(getDocs(collection(as(
 await check("lead cannot be updated", assertFails(updateDoc(doc(anon, "leads/l1"), { status: "done" })));
 await check("lead cannot be deleted", assertFails(deleteDoc(doc(anon, "leads/l1"))));
 
+console.log("product owner and suspended schools (contract 15)");
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const db = ctx.firestore();
+  await setDoc(doc(db, "platform_admins/own1"), { email: "owner@edvio.test" });
+  await setDoc(doc(db, "users/a3"), { schoolId: "S3", role: "admin" });
+  await setDoc(doc(db, "users/p3"), { schoolId: "S3", role: "parent", studentIds: ["stu_301"], classIds: [], grns: [] });
+  await setDoc(doc(db, "schools/S1/school/school"), { name: "Greenfield" });
+  await setDoc(doc(db, "schools/S3/students/stu_301"), { name: "S", classId: "c", grn: "g", guardianUids: ["p3"] });
+  await setDoc(doc(db, "platform_schools/S3"), { status: "suspended", plan: "", note: "", reason: "unpaid", updatedBy: "own1" });
+});
+const ps = (status, extra = {}) => ({ status, plan: "Pro", note: "", reason: "", updatedAt: "2026-11-04T10:00:00Z", updatedBy: "own1", ...extra });
+await check("owner reads own platform_admins doc", assertSucceeds(getDoc(doc(as("own1"), "platform_admins/own1"))));
+await check("admin cannot read an owner doc", assertFails(getDoc(doc(as("a1"), "platform_admins/own1"))));
+await check("admin cannot make themselves owner", assertFails(setDoc(doc(as("a1"), "platform_admins/a1"), { email: "x" })));
+await check("owner cannot add another owner from a client", assertFails(setDoc(doc(as("own1"), "platform_admins/a2"), { email: "x" })));
+await check("owner lists the admin logins of all schools", assertSucceeds(getDocs(query(collection(as("own1"), "users"), where("role", "==", "admin")))));
+await check("admin cannot list all admin logins", assertFails(getDocs(query(collection(as("a1"), "users"), where("role", "==", "admin")))));
+await check("owner reads a school profile", assertSucceeds(getDoc(doc(as("own1"), "schools/S1/school/school"))));
+await check("owner counts a school's students", assertSucceeds(getDocs(collection(as("own1"), "schools/S1/students"))));
+await check("owner cannot read fee invoices", assertFails(getDocs(collection(as("own1"), "schools/S1/fee_invoices"))));
+await check("owner cannot write school data", assertFails(setDoc(doc(as("own1"), "schools/S1/students/x"), { name: "x" })));
+await check("owner sets a school's plan", assertSucceeds(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active"))));
+await check("owner write must carry their own uid", assertFails(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active", { updatedBy: "a1" }))));
+await check("unknown status is refused", assertFails(setDoc(doc(as("own1"), "platform_schools/S1"), ps("deleted"))));
+await check("extra field is refused", assertFails(setDoc(doc(as("own1"), "platform_schools/S1"), ps("active", { role: "x" }))));
+await check("owner cannot delete a school status", assertFails(deleteDoc(doc(as("own1"), "platform_schools/S1"))));
+await check("admin reads own school status", assertSucceeds(getDoc(doc(as("a1"), "platform_schools/S1"))));
+await check("admin cannot read another school's status", assertFails(getDoc(doc(as("a1"), "platform_schools/S3"))));
+await check("admin cannot reactivate own school", assertFails(setDoc(doc(as("a1"), "platform_schools/S1"), ps("active", { updatedBy: "a1" }))));
+await check("active school with a status doc still works for its admin", assertSucceeds(getDoc(doc(as("a1"), "schools/S1/students/stu_101"))));
+await check("suspended school: admin is locked out of data", assertFails(getDoc(doc(as("a3"), "schools/S3/students/stu_301"))));
+await check("suspended school: admin cannot write", assertFails(setDoc(doc(as("a3"), "schools/S3/students/x"), { name: "x" })));
+await check("suspended school: parent is locked out", assertFails(getDoc(doc(as("p3"), "schools/S3/students/stu_301"))));
+await check("suspended school: admin still reads own users doc", assertSucceeds(getDoc(doc(as("a3"), "users/a3"))));
+await check("suspended school: admin reads why", assertSucceeds(getDoc(doc(as("a3"), "platform_schools/S3"))));
+await check("owner reactivates a school", assertSucceeds(updateDoc(doc(as("own1"), "platform_schools/S3"), { status: "active", reason: "", updatedBy: "own1" })));
+await check("reactivated school: admin reads data again", assertSucceeds(getDoc(doc(as("a3"), "schools/S3/students/stu_301"))));
+await check("reactivated school: parent reads own child again", assertSucceeds(getDoc(doc(as("p3"), "schools/S3/students/stu_301"))));
+
 await env.cleanup();
 console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);
 process.exit(failed ? 1 : 0);

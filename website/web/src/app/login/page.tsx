@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { Mail, Lock, ArrowRight } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Button, Card, Field, Input } from "@/components/ui";
-import { useAuth } from "@/lib/authContext";
+import { homeFor, useAuth } from "@/lib/authContext";
 import { CopyrightYear } from "@/components/CopyrightYear";
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, user, resetPassword, blockedMessage } = useAuth();
   const [info, setInfo] = useState("");
-  useEffect(() => { if (user) router.replace("/dashboard"); }, [user, router]);
+  useEffect(() => { if (user) router.replace(homeFor(user)); }, [user, router]);
   const forgot = async () => {
     setError(""); setInfo("");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("Enter your email above first.");
@@ -32,7 +32,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      router.push("/dashboard");
+      // the signed-in user effect above sends them home (owner console or school dashboard)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

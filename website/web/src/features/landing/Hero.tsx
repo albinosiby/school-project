@@ -28,7 +28,7 @@ export function Hero() {
           One school day, <span className="text-brand">four apps</span>, a single source of truth.
         </motion.h1>
         <motion.p {...enter(0.16)} className="l-lead mx-auto mt-5 max-w-2xl text-pretty text-muted-foreground">
-          Edvio runs the office, the classroom, the parents and the school bus on one Firebase backend. A teacher marks attendance once; the office, the parent and the audit log all have it.
+          Edvio runs the office, the classroom, the parents and the school bus on one shared record. A teacher marks attendance once; the office, the parent and the audit log all have it.
         </motion.p>
         <motion.div {...enter(0.24)} className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Button size="lg" className="h-12 w-full px-6 text-base sm:w-auto" asChild><a href="#demo">Book a demo <ArrowRight data-icon="inline-end" /></a></Button>

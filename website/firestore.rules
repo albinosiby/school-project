@@ -4,7 +4,10 @@ rules_version = '2';
 // maps a login to its school. Parents (section 13) read only their own children's docs and the par_* projections the functions
 // write. Bus crew (section 14, roles driver / attendant) read their own bus, its students and trips, and write their bus's
 // trips / attendance, their own check-in days and leave requests.
-// Everything under schools/{schoolId}/** is reachable only by users whose users doc points at that school.
+// Everything under schools/{schoolId}/** is reachable only by users whose users doc points at that school, and only while
+// the school is not suspended (platform_schools/{schoolId}.status, contract section 15).
+// Product owners (platform_admins/{uid}, written only with admin credentials) read every school's summary data and manage
+// platform_schools; they never write school data.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -13,7 +16,17 @@ service cloud.firestore {
     function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
     function hasUser() { return signedIn() && exists(userPath(request.auth.uid)); }
     function me() { return get(userPath(request.auth.uid)).data; }
-    function inSchool(sid) { return hasUser() && me().schoolId == sid; }
+    // contract 15: a suspended school is locked for all of its members (admin, staff, parents, crew)
+    function schoolActive(sid) {
+      let p = get(/databases/$(database)/documents/platform_schools/$(sid));
+      return p == null || p.data.get('status', 'active') != 'suspended';
+    }
+    function memberOf(sid) { return hasUser() && me().schoolId == sid; }
+    function inSchool(sid) { return memberOf(sid) && schoolActive(sid); }
+    // product owner (contract 15): platform_admins/{uid} exists
+    function isOwner() { return signedIn() && exists(/databases/$(database)/documents/platform_admins/$(request.auth.uid)); }
+    // what the owner console reads inside a school: its profile, setup state and the collections it counts
+    function ownerReadable(col) { return col in ['school', 'onboarding', 'set_config', 'me', 'students', 'staff', 'classes']; }
     function isAdmin(sid) { return inSchool(sid) && me().role == 'admin'; }
     function isTeacher(sid) { return inSchool(sid) && me().role == 'teacher' && me().get('staffId', '') != ''; }
     function myStaffId() { return me().staffId; }
@@ -142,7 +155,7 @@ service cloud.firestore {
     // ---------- users ----------
     match /users/{uid} {
       // a user reads their own doc; an admin reads the docs of their school (to see staff accounts)
-      allow read: if signedIn() && (request.auth.uid == uid || isAdmin(resource.data.schoolId));
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin(resource.data.schoolId) || isOwner());
       // Admin sign-up (and first login of a pre-existing school): a user may create ONLY their own admin doc for the
       // school whose id is their own uid. That grants nothing beyond their own namespace schools/{uid}.
       allow create: if signedIn() && (
@@ -163,6 +176,8 @@ service cloud.firestore {
       match /{col}/{docId} {
         // admin: everything in the school
         allow read, write: if isAdmin(sid);
+        // product owner: read-only summary data of every school (contract 15)
+        allow read: if isOwner() && ownerReadable(col);
 
         // parent: only their own children's data (contract 13.2)
         allow read: if isParentIn(sid) && (
@@ -325,6 +340,29 @@ service cloud.firestore {
       match /{col}/{docId}/{sub=**} {
         allow read, write: if isAdmin(sid);
       }
+    }
+
+    // ---------- platform (contract 15): product owners and the status of each school ----------
+    // platform_admins/{uid}: marks a product owner. Written only with admin credentials (tools/owner/grant-owner.mjs).
+    match /platform_admins/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+    // platform_schools/{schoolId}: status / plan / note of a school, kept by the owner console. Members of the school read it
+    // (also while suspended, so the apps can say why they are locked out).
+    function platformSchoolOk() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['status', 'plan', 'note', 'reason', 'name', 'adminEmail', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'])
+        && d.get('status', '') in ['active', 'suspended']
+        && d.get('plan', '') is string && d.get('plan', '').size() <= 40
+        && d.get('note', '') is string && d.get('note', '').size() <= 2000
+        && d.get('reason', '') is string && d.get('reason', '').size() <= 500
+        && d.get('updatedBy', '') == request.auth.uid;
+    }
+    match /platform_schools/{sid} {
+      allow read: if isOwner() || memberOf(sid);
+      allow create, update: if isOwner() && platformSchoolOk();
+      allow delete: if false;
     }
 
     // ---------- demo requests from the public landing page (/landing): leads/{autoId} ----------

@@ -1,17 +1,19 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { useAuth } from "@/lib/authContext";
+import { homeFor, useAuth } from "@/lib/authContext";
 
-export function AuthGuard({ children }: { children: React.ReactNode }) {
+/** Lets in the signed-in users of one kind: school admins (default) or product owners (`role="owner"`). */
+export function AuthGuard({ children, role = "admin" }: { children: React.ReactNode; role?: "admin" | "owner" }) {
   const router = useRouter();
   const { user, isLoading } = useAuth();
+  const wrongRole = !!user && user.role !== role;
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      router.replace("/login");
-    }
-  }, [user, isLoading, router]);
+    if (isLoading) return;
+    if (!user) router.replace("/login");
+    else if (user.role !== role) router.replace(homeFor(user));
+  }, [user, isLoading, router, role]);
 
   if (isLoading) {
     return (
@@ -24,7 +26,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) {
+  if (!user || wrongRole) {
     return null;
   }
 

@@ -57,7 +57,7 @@ export const libFirebaseModule = {
 
 // ---- @/lib/authContext --------------------------------------------------------------------------------------
 export const authState = {
-  user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" },
+  user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" },
   isLoading: false,
   blockedMessage: "",
   login: vi.fn<(email: string, password: string) => Promise<void>>(async () => {}),
@@ -73,5 +73,6 @@ export function resetAuthState() {
 }
 export const authContextModule = {
   useAuth: () => authState,
+  homeFor: (u: { role: string } | null) => (u?.role === "owner" ? "/owner" : "/dashboard"),
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 };
