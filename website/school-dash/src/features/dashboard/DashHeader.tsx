@@ -1,11 +1,12 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { CalendarDays, Cloud, FileClock, LayoutGrid, ListChecks, Megaphone, Plus, SlidersHorizontal } from "lucide-react";
+import { CalendarDays, Cloud, FileClock, LayoutGrid, ListChecks, Megaphone, Plus } from "lucide-react";
 import { Badge, Button, Field, Input, Modal, Textarea, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { AddEventPanel } from "./AddEventPanel";
+import { STEPS } from "@/features/onboarding/logic";
 import { addDays, downloadCsv, errMsg, parse, TODAY, upcomingEvents, useApprovals, useEvents, MONTHS, type Notif, type SetupStep, nowLocal } from "./data";
 
 type Me = { id: string; name: string };
@@ -14,8 +15,9 @@ type Audit = { id: string; at: string; actor: string; action: string; detail: st
 
 export function useSetupProgress() {
   const { rows } = useCollection<SetupStep>("setup_steps");
-  const done = rows.filter((s) => s.done).length;
-  return { steps: [...rows].sort((a, b) => a.no - b.no), done, total: rows.length, pct: rows.length ? Math.round((done / rows.length) * 100) : 0 };
+  const steps = rows.filter((s) => STEPS.some(({ no }) => no === s.no)).sort((a, b) => a.no - b.no);
+  const done = steps.filter((s) => s.done).length;
+  return { steps, done, total: steps.length, pct: steps.length ? Math.round((done / steps.length) * 100) : 0 };
 }
 
 export function DashHeader({ active }: { active: "dashboard" | "setup" | "approvals" | "calendar" }) {
@@ -23,7 +25,6 @@ export function DashHeader({ active }: { active: "dashboard" | "setup" | "approv
   const { rows: school } = useCollection<School>("school");
   const { rows: approvals } = useApprovals();
   const { rows: events } = useEvents();
-  const { pct } = useSetupProgress();
   const { create: notify } = useCollection<Notif>("notifications");
   const { rows: audit } = useCollection<Audit>("set_audit");
   const toast = useToast();
@@ -51,7 +52,6 @@ export function DashHeader({ active }: { active: "dashboard" | "setup" | "approv
 
   const chips = [
     { id: "dashboard", href: "/dashboard", icon: LayoutGrid, label: "Live Operations", badge: <Badge className="!bg-inverse-surface !text-inverse-on-surface">LIVE</Badge> },
-    { id: "setup", href: "/setup", icon: SlidersHorizontal, label: "Setup Wizard", badge: <Badge tone="brand" className="font-mono">{pct}% Done</Badge> },
     { id: "approvals", href: "/approvals", icon: ListChecks, label: "Approvals Inbox", badge: <Badge tone={pending ? "danger" : "success"}>{pending} Pending</Badge> },
     { id: "calendar", href: "/calendar", icon: CalendarDays, label: "Academic Calendar", badge: <Badge tone="brand">{upcoming} Upcoming</Badge> },
   ] as const;

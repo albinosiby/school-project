@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import '../../../config/app_config.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../config/routes/routes.dart';
@@ -137,14 +140,18 @@ class _StudentsViewState extends State<_StudentsView> {
           Text('${list.length} ${list.length == 1 ? 'student' : 'students'}', style: T.small),
         ]),
         if (list.isEmpty) const AppEmptyState('No students match', hint: 'Try another search or filter.', icon: Icons.person_search_outlined),
-        for (final s in list) _StudentCard(s, merits: meritsOf(s, logs)),
+        for (final s in list) _StudentCard(s, merits: meritsOf(s, logs),
+          onRoll: cls.classTeacher && AppConfig.isFirebase
+              ? () => showDialog<void>(context: context, builder: (_) => _RollDialog(s))
+              : null),
       ]),
     );
   }
 }
 
 class _StudentCard extends StatelessWidget {
-  const _StudentCard(this.s, {required this.merits});
+  const _StudentCard(this.s, {required this.merits, this.onRoll});
+  final VoidCallback? onRoll;
   final Student s;
   final int merits;
   @override
@@ -177,8 +184,77 @@ class _StudentCard extends StatelessWidget {
             ]),
           ]),
         ),
+        if (onRoll != null)
+          IconButton(tooltip: 'Assign roll number', icon: const Icon(Icons.numbers), onPressed: onRoll),
         Icon(Icons.chevron_right_rounded, color: C.muted, size: 22.r),
       ]),
     );
   }
+}
+
+class _RollDialog extends StatefulWidget {
+  const _RollDialog(this.student);
+  final Student student;
+
+  @override
+  State<_RollDialog> createState() => _RollDialogState();
+}
+
+class _RollDialogState extends State<_RollDialog> {
+  late final _input = TextEditingController(
+    text: widget.student.roll > 0 ? widget.student.roll.toString() : '',
+  );
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  Future<void> _assign({bool automatic = false}) async {
+    if (_saving) return;
+    final roll = int.tryParse(_input.text);
+    if (!automatic && (roll == null || roll < 1 || roll > 999)) {
+      setState(() => _error = 'Enter a whole number from 1 to 999.');
+      return;
+    }
+    setState(() { _saving = true; _error = null; });
+    try {
+      await FirebaseFunctions.instanceFor(region: 'asia-south1').httpsCallable('assignStudentRoll').call(
+        {'studentId': widget.student.id, 'roll': automatic ? null : roll},
+      );
+      if (mounted) {
+        setState(() => _saving = false);
+        Navigator.of(context).pop();
+      }
+    } on FirebaseFunctionsException catch (error) {
+      if (mounted) setState(() => _error = error.message ?? 'Could not assign the roll number.');
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not assign the roll number.');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    canPop: !_saving,
+    child: AlertDialog(
+      title: Text('Roll number for ${widget.student.name}'),
+      content: TextField(
+        controller: _input,
+        enabled: !_saving,
+        keyboardType: TextInputType.number,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(3)],
+        decoration: InputDecoration(labelText: 'Roll number', errorText: _error),
+      ),
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
+        TextButton(onPressed: _saving ? null : () => _assign(automatic: true), child: const Text('Assign automatically')),
+        FilledButton(onPressed: _saving ? null : () => _assign(), child: Text(_saving ? 'Saving…' : 'Save')),
+      ],
+    ),
+  );
 }

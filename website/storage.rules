@@ -1,23 +1,48 @@
 rules_version = '2';
-// Cloud Storage rules (DATA_CONTRACT section 13.7). Only signed certificates are stored for now:
-// schools/{schoolId}/certificates/{certificateId}/{file}, uploaded by the school's admins from the admin web.
+// School logos and signed certificates uploaded from the admin web.
 service firebase.storage {
   match /b/{bucket}/o {
     function me() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
     // a product owner (contract 16) works on every school like its admin
     function isOwner() { return request.auth != null && firestore.exists(/databases/(default)/documents/platform_admins/$(request.auth.uid)); }
     function isAdmin(sid) { return request.auth != null && (isOwner() || (me().schoolId == sid && me().role == 'admin')); }
+    function parentSession(profile) {
+      return !profile.keys().hasAny(['parentCredentialVersion'])
+        || (request.auth.token.firebase.sign_in_provider == 'custom'
+          && request.auth.token.get('parentCredentialVersion', '') == profile.parentCredentialVersion);
+    }
     function certificate(sid, id) { return firestore.get(/databases/(default)/documents/schools/$(sid)/certificates/$(id)).data; }
+
+    match /schools/{sid}/branding/{file} {
+      function isLogo() { return file.matches('logo-[a-f0-9-]{36}'); }
+      allow get, delete: if isLogo() && isAdmin(sid);
+      allow create: if isLogo() && isAdmin(sid)
+        && request.resource.size > 0 && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpeg)');
+    }
 
     match /schools/{sid}/certificates/{id}/{file} {
       // the admin, and the guardians of the certificate's student once it is issued
       allow read: if isAdmin(sid)
-        || (request.auth != null && me().schoolId == sid && me().role == 'parent'
+        || (request.auth != null && me().schoolId == sid && me().role == 'parent' && parentSession(me())
             && certificate(sid, id).status == 'Issued' && certificate(sid, id).studentId in me().get('studentIds', []));
       // a signed PDF or a scan, up to 10 MB
       allow create, update: if isAdmin(sid) && request.resource.size < 10 * 1024 * 1024
         && request.resource.contentType.matches('application/pdf|image/(png|jpeg)');
       allow delete: if isAdmin(sid);
+    }
+    match /schools/{sid}/admission-documents/{studentId}/{type}/{file} {
+      function authorized() {
+        let school = /databases/(default)/documents/platform_schools/$(sid);
+        return request.auth != null && me().schoolId == sid && me().role == 'admin'
+          && (!firestore.exists(school) || firestore.get(school).data.status != 'suspended');
+      }
+      allow get, delete: if authorized();
+      allow create: if authorized() && studentId.matches('[a-zA-Z0-9_-]{1,128}')
+        && file.matches('[a-f0-9-]{36}')
+        && type.matches('photo|birth|transfer|marksheet|parentId|caste|disability|medical')
+        && request.resource.size > 0 && request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/(png|jpeg)') || (type != 'photo' && request.resource.contentType == 'application/pdf'));
     }
     match /{all=**} {
       allow read, write: if false;

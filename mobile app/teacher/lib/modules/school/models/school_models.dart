@@ -38,7 +38,7 @@ class SchoolClass extends Equatable {
   Map<String, dynamic> toJson() => {'id': id, 'grade': grade, 'section': section, 'subject': subject, 'topic': topic, 'room': room, 'wing': wing, 'students': students, 'classTeacher': classTeacher, 'rep': rep, 'attendance': attendance};
 
   @override
-  List<Object?> get props => [id, grade, section, subject, students, attendance];
+  List<Object?> get props => [id, grade, section, subject, students, attendance, classTeacher];
 }
 
 class Student extends Equatable {

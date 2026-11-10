@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CheckCheck, Mail, MailOpen, Trash2 } from "lucide-react";
 import { Badge, Button, Card, EmptyState, SearchBox, Tabs, useToast } from "@/components/ui";
+import { useAuth } from "@/lib/authContext";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { errMsg, relTime, useHydrated, TODAY, type Notif } from "./data";
@@ -12,7 +13,9 @@ const PER = 7;
 
 export function NotificationsView() {
   const router = useRouter();
-  const { rows, update, remove, ready: r0 } = useCollection<Notif>("notifications");
+  const { rows: all, update, remove, ready: r0 } = useCollection<Notif>("notifications");
+  const uid = useAuth().user?.id;
+  const rows = useMemo(() => all.filter((notice) => !notice.recipientUid || notice.recipientUid === uid), [all, uid]);
   const ready = useHydrated() && r0;
   const toast = useToast();
   const [tab, setTab] = useState("all");

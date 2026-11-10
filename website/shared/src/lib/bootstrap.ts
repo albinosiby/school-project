@@ -1,4 +1,4 @@
-// Creates the starting data for a freshly signed-up school: default configuration
+// Creates the starting data for a new school: default configuration
 // rows only (roles, grading bands, templates…). Everything transactional starts empty
 // and is filled by the 8-step setup wizard and day-to-day use.
 import { doc, getDoc, setDoc, writeBatch, type Firestore } from "firebase/firestore";
@@ -41,13 +41,12 @@ export function starterRow(c: (typeof KEEP)[number], r: Row, i: number, org: str
   return v;
 }
 
-/** What the owner console knows about a school it adds (contract 16); sign-up passes nothing. */
+/** What the owner console knows about a school it adds (contract 16). */
 export interface SchoolDetails { adminName?: string; city?: string; board?: string; phone?: string }
 
 /**
  * `uid` is the school id (new schools use the admin's uid). Also writes users/{uid} = {schoolId, role: "admin"} (contract
- * section 1). `fs` is the Firestore of the app signed in as that admin: the default app at sign-up, the owner console's
- * secondary app when it adds a school.
+ * section 1). The owner console provisions a new school with its primary Firestore session.
  */
 export async function bootstrapSchool(uid: string, org: string, email: string, details: SchoolDetails = {}, fs: Firestore = db) {
   // users/{uid}: the rules and both apps find the school through this doc (contract section 1)
@@ -61,7 +60,7 @@ export async function bootstrapSchool(uid: string, org: string, email: string, d
 
   for (const c of KEEP) ((seed[c] ?? []) as Row[]).forEach((r, i) => writes.push([`${c}/${r.id}`, starterRow(c, r, i, org, email, ay)]));
   put("school", "school", { name: org, short: org, board: details.board || "CBSE", affiliation: "", city: details.city || "", academicYear: ay, term: "Term 1" });
-  put("me", "me", { name: details.adminName || email.split("@")[0], title: "Administrator", role: "Super Admin", email, phone: details.phone || "" });
+  put("me", "me", { name: details.adminName || email.split("@")[0], title: "Administrator", role: "School Admin", email, phone: details.phone || "" });
   put("notifications", "welcome", { category: "ops", title: "Welcome", body: "Your school console is ready. Start by adding students and staff.", createdAt: nowLocal(), read: false, href: "/dashboard", _o: Date.now() });
 
   for (let i = 0; i < writes.length; i += 400) {

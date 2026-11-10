@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { BusesPanel } from "./BusesPanel";
-import { dialog, field, fieldError, getRow, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
+import { ADMIN_UID, dialog, field, fieldError, getRow, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
 
 const stops = [
   { id: "stp_01", name: "Lajpat Nagar", pickupTime: "06:45", dropTime: "15:40", landmark: "Metro gate 2" },
@@ -35,88 +35,124 @@ async function openAdd() {
 const save = (d: HTMLElement) => within(d).getByRole("button", { name: /^(Add Bus|Save Changes)$/ });
 
 describe("Add / edit bus validation", () => {
-  it("shows the required-field errors and writes nothing", async () => {
-    const { user, d } = await openAdd();
-    await user.clear(field("Capacity (seats)", d));
+  it("sets each bus's own monthly fee without creating class-wide charges or copying rates to students", async () => {
+    seed({ tr_buses: [{ ...bus14, monthlyFee: 1200 }, { ...bus15, monthlyFee: 1800 }], students: kids });
+    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
+    expect(screen.getByText("₹1,200")).toBeInTheDocument();
+    expect(screen.getByText("₹1,800")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit Bus 14" }));
+    const d = dialog("Edit Bus 14");
+    const input = field("Monthly transport fee (₹)", d);
+    expect(input).toHaveValue(1200);
+    await user.clear(input); await user.type(input, "-1");
     await user.click(save(d));
-    expect(fieldError("Bus number", d)).toBe("Bus number is required");
-    expect(fieldError("Registration no", d)).toBe("Registration number is required");
-    expect(fieldError("Capacity (seats)", d)).toBe("Enter the seat count (a whole number, 1 to 120)");
-    expect(fieldError("Route name", d)).toBe("Route name is required");
+    expect(fieldError("Monthly transport fee (₹)", d)).toContain("Enter an amount from ₹0");
+    expect(writes).toHaveLength(0);
+    await user.clear(input); await user.type(input, "1500.50");
+    await user.click(save(d));
+    expect(getRow("tr_buses", "bus_01")).toMatchObject({ monthlyFee: 1500.5 });
+    expect(getRow("tr_buses", "bus_02")).toMatchObject({ monthlyFee: 1800 });
+    expect(getRow("students", "stu_101")).not.toHaveProperty("monthlyFee");
+    expect(writesTo("fee_structure")).toHaveLength(0);
+    expect(writesTo("fee_invoices")).toHaveLength(0);
+  });
+  it("requires vehicle details and a single route end point", async () => {
+    const { user, d } = await openAdd();
+    await user.click(save(d));
+    expect(fieldError("Bus number / Fleet number", d)).toBe("Bus number is required");
+    expect(fieldError("Registration number", d)).toBe("Registration number is required");
+    expect(fieldError("Student seating capacity", d)).toBe("Enter the seat count (a whole number, 1 to 120)");
+    expect(fieldError("End-point location", d)).toBe("End-point location is required");
+    expect(fieldError("Vehicle type", d)).toBe("Choose a vehicle type");
+    expect(fieldError("Fuel type", d)).toBe("Choose a fuel type");
+    expect(within(d).queryByLabelText("Route name")).not.toBeInTheDocument();
+    expect(within(d).queryByLabelText("Pickup starts")).not.toBeInTheDocument();
+    expect(within(d).queryByRole("button", { name: "Add stop" })).not.toBeInTheDocument();
     expect(writes).toHaveLength(0);
   });
 
-  it("rejects a malformed registration, a fractional capacity and duplicates of another bus", async () => {
+  it("rejects malformed and duplicate registrations and fractional seating", async () => {
     seed({ tr_buses: [bus14] });
     const { user, d } = await openAdd();
-    await user.type(field("Bus number", d), "14");
-    await user.type(field("Registration no", d), "BUS-FOURTEEN");
-    await user.clear(field("Capacity (seats)", d)); await user.type(field("Capacity (seats)", d), "40.5");
-    await user.type(field("Route name", d), "Route 9");
+    await user.type(field("Bus number / Fleet number", d), "14");
+    await user.type(field("Registration number", d), "BUS-FOURTEEN");
+    await user.type(field("Student seating capacity", d), "40.5");
     await user.click(save(d));
-    expect(fieldError("Bus number", d)).toBe("Another bus has this number");
-    expect(fieldError("Registration no", d)).toBe("Enter a registration number like DL-01-AB-4092");
-    expect(fieldError("Capacity (seats)", d)).toBe("Enter the seat count (a whole number, 1 to 120)");
-    await user.clear(field("Registration no", d)); await user.type(field("Registration no", d), "dl 01 ab 4092");
+    expect(fieldError("Bus number / Fleet number", d)).toBe("Another bus has this number");
+    expect(fieldError("Registration number", d)).toBe("Enter a registration number like DL-01-AB-4092");
+    expect(fieldError("Student seating capacity", d)).toBe("Enter the seat count (a whole number, 1 to 120)");
+    await user.clear(field("Registration number", d));
+    await user.type(field("Registration number", d), "dl 01 ab 4092");
     await user.click(save(d));
-    expect(fieldError("Registration no", d)).toBe("Another bus has this registration number");
+    expect(fieldError("Registration number", d)).toBe("Another bus has this registration number");
     expect(writes).toHaveLength(0);
   });
 
-  it("checks stop names and that times run in route order", async () => {
+  it("creates a bus with the next ID, usable student capacity and compliance dates without route setup", async () => {
+    seed({ tr_buses: [bus14] });
     const { user, d } = await openAdd();
-    await user.type(field("Bus number", d), "16");
-    await user.type(field("Registration no", d), "DL-01-AB-7000");
-    await user.type(field("Route name", d), "Route 7");
+    expect(field("Bus ID", d)).toHaveValue("Generated when saved");
+    for (const [label, value] of [
+      ["Bus number / Fleet number", "16"], ["Registration number", "kl 07 ab 7000"], ["Model", "Starbus"],
+      ["Manufacturing year", "2024"], ["Chassis number", "CHASSIS16"], ["Engine number", "ENGINE16"],
+      ["End-point location", "Edappally Junction"], ["Total seating capacity", "35"], ["Student seating capacity", "36"],
+    ]) await user.type(field(label!, d), value!);
+    await user.selectOptions(field("Vehicle type", d), "School Bus");
+    await user.selectOptions(field("Fuel type", d), "Diesel");
+    await user.selectOptions(field("First aid kit", d), "yes");
+    setVal(field("Insurance expiry date", d), "2027-02-02");
+    await user.click(save(d));
+    expect(fieldError("Student seating capacity", d)).toBe("Student seating cannot exceed total seating");
+    expect(writes).toHaveLength(0);
+    await user.clear(field("Student seating capacity", d));
+    await user.type(field("Student seating capacity", d), "32");
+    await user.click(save(d));
+    expect(await screen.findByText("Bus added")).toBeInTheDocument();
+    expect(getRow("tr_buses", "bus_02")).toMatchObject({
+      id: "bus_02", number: "16", regNo: "KL-07-AB-7000", vehicleType: "School Bus", fuelType: "Diesel",
+      manufacturingYear: 2024, chassisNumber: "CHASSIS16", engineNumber: "ENGINE16",
+      totalSeats: 35, capacity: 32, firstAidKit: true, gpsInstalled: false,
+      insuranceExpiryDate: "2027-02-02", endPoint: "Edappally Junction", routeName: "Edappally Junction",
+      stops: [], pickupStart: "", dropStart: "", status: "Active", studentCount: 0, updatedBy: ADMIN_UID,
+    });
+  });
+
+  it("still validates and saves ordered stops separately after adding a bus", async () => {
+    seed({ tr_buses: [{ ...bus14, endPoint: "Edappally", stops: [], pickupStart: "", dropStart: "" }] });
+    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Edit Bus 14" }));
+    const d = dialog("Edit Bus 14");
     await user.click(within(d).getByRole("button", { name: "Add stop" }));
     await user.click(within(d).getByRole("button", { name: "Add stop" }));
     await user.click(save(d));
     expect(within(d).getByRole("alert")).toHaveTextContent("Every stop needs a name");
     const names = within(d).getAllByLabelText("Stop name");
     await user.type(names[0]!, "Saket");
-    await user.type(names[1]!, " saket");
-    await user.click(save(d));
-    expect(within(d).getByRole("alert")).toHaveTextContent('Two stops are named "saket"');
-    await user.clear(names[1]!); await user.type(names[1]!, "Malviya Nagar");
+    await user.type(names[1]!, "Malviya Nagar");
     const pick = within(d).getAllByLabelText("Pickup time");
     setVal(pick[0]!, "07:00"); setVal(pick[1]!, "06:55");
     await user.click(save(d));
-    expect(within(d).getByRole("alert")).toHaveTextContent("Stop 2 (Malviya Nagar): pickup time is earlier than the stop before it");
-    setVal(pick[0]!, "06:30");
+    expect(within(d).getByRole("alert")).toHaveTextContent("pickup time is earlier than the stop before it");
+    setVal(pick[1]!, "07:05");
     await user.click(save(d));
-    expect(within(d).getByRole("alert")).toHaveTextContent("Stop 1 (Saket): pickup time is before the pickup start (06:45)");
-    setVal(pick[0]!, "06:50"); setVal(pick[1]!, "07:05");
-    const drop = within(d).getAllByLabelText("Drop time");
-    setVal(drop[1]!, "");
-    await user.click(save(d));
-    expect(within(d).getByRole("alert")).toHaveTextContent("Stop 2 (Malviya Nagar) needs pickup and drop times (HH:mm)");
-    expect(writes).toHaveLength(0);
+    expect(getRow("tr_buses", "bus_01")).toMatchObject({
+      endPoint: "Edappally", pickupStart: "06:45", dropStart: "15:30",
+      stops: [{ name: "Saket", pickupTime: "07:00" }, { name: "Malviya Nagar", pickupTime: "07:05" }],
+    });
   });
 
-  it("writes the contract bus doc with ordered stops when valid", async () => {
-    seed({ tr_buses: [bus14] });
-    const { user, d } = await openAdd();
-    await user.type(field("Bus number", d), " 16 ");
-    await user.type(field("Registration no", d), "dl 01 ab 7000");
-    await user.clear(field("Capacity (seats)", d)); await user.type(field("Capacity (seats)", d), "32");
-    await user.type(field("Route name", d), "Route 7");
-    await user.click(within(d).getByRole("button", { name: "Add stop" }));
-    await user.click(within(d).getByRole("button", { name: "Add stop" }));
-    const names = within(d).getAllByLabelText("Stop name");
-    await user.type(names[0]!, "Saket"); await user.type(names[1]!, "Malviya Nagar");
-    const pick = within(d).getAllByLabelText("Pickup time"), drop = within(d).getAllByLabelText("Drop time");
-    setVal(pick[0]!, "06:50"); setVal(pick[1]!, "07:02"); setVal(drop[0]!, "15:40"); setVal(drop[1]!, "15:52");
-    // reorder and back: route order is the array order
-    await user.click(within(d).getAllByRole("button", { name: "Move down" })[0]!);
-    await user.click(within(d).getAllByRole("button", { name: "Move down" })[0]!);
-    await user.click(save(d));
-    expect(writesTo("tr_buses")).toHaveLength(1);
-    expect(getRow("tr_buses", "bus_02")).toMatchObject({
-      number: "16", regNo: "DL-01-AB-7000", capacity: 32, routeName: "Route 7", pickupStart: "06:45", dropStart: "15:30", status: "Active", studentCount: 0,
-      stops: [{ id: "stp_01", name: "Saket", pickupTime: "06:50", dropTime: "15:40" }, { id: "stp_02", name: "Malviya Nagar", pickupTime: "07:02", dropTime: "15:52" }],
-      updatedBy: "admin_uid",
-    });
-    expect(await screen.findByText("Bus added")).toBeInTheDocument();
+  it("can designate an existing administrator for expiry reminders", async () => {
+    seed({ users: [
+      { id: ADMIN_UID, schoolId: "sch_test", role: "admin", name: "Transport Lead" },
+      { id: "staff_01", schoolId: "sch_test", role: "staff", name: "Office Staff" },
+    ] });
+    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Expiry reminders" }));
+    const d = dialog("Bus expiry reminders");
+    expect(within(d).queryByRole("option", { name: "Office Staff" })).not.toBeInTheDocument();
+    await user.selectOptions(field("Transport administrator", d), ADMIN_UID);
+    await user.click(within(d).getByRole("button", { name: "Save settings" }));
+    expect(getRow("tr_settings", "expiry_notifications")).toMatchObject({ recipientUid: ADMIN_UID });
   });
 
   it("on edit, blocks a capacity below the riders, then syncs riders' and crew's names in one batch", async () => {

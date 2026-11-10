@@ -6,9 +6,8 @@ import { Avatar, Badge, Button, Card, Checkbox, EmptyState, Modal, ProgressBar, 
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { DashHeader, useSetupProgress } from "./DashHeader";
-import { useDashPrefs } from "./DashboardView";
 import { errMsg, fmtDay, parse, type Notif, type SetupExc, type Staff, nowLocal, TODAY } from "./data";
-import { dataExceptions, EXC_KIND_LABEL, isIngestionPhase, type DataException } from "./logic";
+import { dataExceptions, EXC_KIND_LABEL, type DataException } from "./logic";
 
 type Me = { id: string; name: string; title: string };
 type Stu = { id: string; name: string; grn?: string; grade: string; section: string; classId?: string; status: string; phone?: string; guardian?: string };
@@ -20,11 +19,10 @@ const TEACHING = /PGT|TGT|PRT|HOD|teacher/i;
 
 export function SetupView() {
   const { steps, done, total, pct } = useSetupProgress();
-  const { rows: steps0, update: updStep } = useCollection<{ id: string; done: boolean; doneAt: string }>("setup_steps");
+  const { update: updStep } = useCollection<{ id: string; done: boolean; doneAt: string }>("setup_steps");
   // setup_exceptions only holds demo / imported rows (nothing in the live system writes it): the real checks are derived
   // from the student roster and clear themselves once the record is fixed
   const { rows: legacyExcs, update: updExc } = useCollection<SetupExc>("setup_exceptions");
-  const { prefs, save: savePref } = useDashPrefs();
   const { rows: me } = useCollection<Me>("me");
   const { create: notify } = useCollection<Notif>("notifications");
   const { rows: students } = useCollection<Stu>("students");
@@ -44,7 +42,6 @@ export function SetupView() {
   const [graph, setGraph] = useState(false);
   const [snap, setSnap] = useState(false);
   const [sign, setSign] = useState(false);
-  void steps0;
 
   const excs: Exc[] = [...dataExceptions(students), ...legacyExcs];
   const current = steps.find((s) => !s.done);
@@ -70,7 +67,7 @@ export function SetupView() {
     ["Pupil-Teacher Ratio", "UDISE+ norm ≤ 30 : 1", ptr === null ? "—" : `${Math.round(ptr)} : 1`, `${active.length} students · ${teachers} teachers`, ptr !== null && ptr <= 30],
     ["Section Capacity", "RTE: ≤ 40 per section", over.length ? `${over.length} over cap` : "Within cap", `${roster.size} sections with students`, over.length === 0],
     ["Guardian Contacts", "Valid 10-digit phone", `${active.length ? Math.round((withPhone / active.length) * 100) : 0}%`, `${withPhone} of ${active.length} students`, active.length > 0 && withPhone === active.length],
-    ["Ingestion Exceptions", "Flagged discrepancies", `${unresolved.length} open`, `${resolvedN} resolved`, unresolved.length === 0],
+    ["Student Data Checks", "Flagged discrepancies", `${unresolved.length} open`, `${resolvedN} resolved`, unresolved.length === 0],
   ];
   const allPass = checks.every((c) => c[4]);
   const FILTERS = [
@@ -84,9 +81,6 @@ export function SetupView() {
   const velocity = total ? Math.round(((done + (current ? resolvedN / Math.max(1, excs.length) : 0)) / total) * 100) : 0;
 
   const complete = (id: string, no: number) => {
-    const step = steps.find((s) => s.id === id);
-    // only the data ingestion phase (07) is gated by the flagged records
-    if (step && isIngestionPhase(step) && unresolved.length) { toast(`Resolve all ${unresolved.length} flagged exceptions before completing this phase`, "error"); return; }
     return run(async () => {
       await updStep(id, { done: true, doneAt: TODAY });
       await notify({ category: "statutory", title: "Setup Wizard", body: `Phase ${String(no).padStart(2, "0")} completed — setup is now ${Math.round(((done + 1) / total) * 100)}% done`, createdAt: nowLocal(), read: false, href: "/setup" } as never);
@@ -117,7 +111,6 @@ export function SetupView() {
           <div><div className="flex flex-wrap items-center gap-3"><h2 className="t-headline-md !text-[18px]">Academic Roll-Forward Pipeline</h2><Badge tone="brand" className="font-semibold tracking-wide">STAGE {current?.no ?? total} OF {total} {current ? "RUNNING" : "COMPLETE"}</Badge></div>
             <p className="mt-1 text-on-surface-variant">Sequential prerequisite steps validated by Academic Board, CBSE Compliance, and Registrar.</p></div>
           <div className="flex gap-2">
-            {prefs?.bannerDismissed && <Button variant="outline" size="sm" disabled={busy} onClick={() => run(() => savePref({ bannerDismissed: false }), "Setup banner restored on the dashboard")}>Show on dashboard</Button>}
             <Button variant="outline" size="sm" onClick={() => setGraph(true)}><Eye size={14} />View Dependency Graph</Button></div>
         </div>
         <ProgressBar value={pct} className="mt-4" />
@@ -144,9 +137,9 @@ export function SetupView() {
         <div className="min-w-0 space-y-6">
           <Card>
             <div className="flex flex-wrap items-start justify-between gap-3 p-5 pb-3">
-              <div><div className="flex flex-wrap items-center gap-3"><h2 className="t-headline-md !text-[18px]">Stage 7: Ingestion Flagged Discrepancies</h2>
+              <div><div className="flex flex-wrap items-center gap-3"><h2 className="t-headline-md !text-[18px]">Student Data Checks</h2>
                 <Badge tone={unresolved.length ? "warning" : "success"}>{unresolved.length} Unresolved Exception{unresolved.length === 1 ? "" : "s"}</Badge></div>
-                <p className="mt-1 text-on-surface-variant">Records quarantined from AY 2025–26 promotion batch awaiting administrative remediation.</p></div>
+                <p className="mt-1 text-on-surface-variant">Review issues in student records whenever you’re ready.</p></div>
               <div className="flex gap-2"><Button variant="outline" size="sm" onClick={() => { setFilter("all"); setPage(1); toast("Filters reset"); }}><Filter size={14} />Filters</Button>
                 <Button size="sm" className="!bg-success" disabled={!unresolved.length || busy} onClick={() => { const n = sel.length || unresolved.length;
                   return run(() => notify({ category: "ops", title: "Parent notice", body: `Data-correction request sent to ${n} guardian${n > 1 ? "s" : ""} (simulated)`, createdAt: nowLocal(), read: false } as never), `Notified ${n} guardian${n > 1 ? "s" : ""} (simulated)`); }}>Batch Notify Parents</Button></div>
@@ -174,7 +167,7 @@ export function SetupView() {
                     </tr>))}
                 </tbody>
               </table>
-              {rows.length === 0 && <p className="grid place-items-center gap-1 px-6 py-10 text-center"><ScanFace className="text-success" /><span className="font-semibold">{unresolved.length ? "No exceptions in this view" : "All exceptions resolved"}</span><span className="text-on-surface-variant">{unresolved.length ? "Try another filter." : "You can now complete Phase 07."}</span></p>}
+              {rows.length === 0 && <p className="grid place-items-center gap-1 px-6 py-10 text-center"><ScanFace className="text-success" /><span className="font-semibold">{unresolved.length ? "No exceptions in this view" : "All exceptions resolved"}</span><span className="text-on-surface-variant">{unresolved.length ? "Try another filter." : "There are no student data issues to review."}</span></p>}
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-on-surface-variant">
               <span>Showing {view.length ? (cur - 1) * 6 + 1 : 0}–{Math.min(view.length, cur * 6)} of {view.length} discrepancies</span>

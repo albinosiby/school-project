@@ -29,7 +29,7 @@ class _LoginScreenState extends State<LoginScreen> with ValidationMixin {
   final _mobile = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
-  // Firebase logins are email + password from the school's invite (no mobile passcodes yet)
+  // Firebase logins use the email saved by the school and the parent's password.
   String _tab = AppConfig.isFirebase
       ? LoginScreen.emailTab
       : LoginScreen.mobileTab;
@@ -85,7 +85,9 @@ class _LoginScreenState extends State<LoginScreen> with ValidationMixin {
         Text('Welcome Back', style: T.title),
         SizedBox(height: 6.h),
         Text(
-          "Access your ward's academic scores, daily attendance, bus tracking, and fee statements.",
+          AppConfig.isFirebase
+              ? 'Sign in with the email on your school record and the password your school gave you.'
+              : "Access your ward's academic scores, daily attendance, bus tracking, and fee statements.",
           style: T.body.copyWith(fontSize: 13.sp),
         ),
         SizedBox(height: 18.h),
@@ -253,19 +255,13 @@ class _LoginScreenState extends State<LoginScreen> with ValidationMixin {
         hint: 'Your password',
         controller: _password,
         obscure: true,
-        validator: (v) => validateRequired(v, 'Password'),
+        validator: (value) => validateRequired(value, 'Password'),
       ),
-      Align(
-        alignment: Alignment.centerRight,
-        child: TextButton(
-          onPressed: () => context.push(RoutePaths.forgotPassword),
-          style: TextButton.styleFrom(minimumSize: Size(0, 44.h)),
-          child: Text(
-            'Forgot password?',
-            style: T.bodyStrong.copyWith(color: C.primary, fontSize: 13.sp),
-          ),
+      if (AppConfig.isFirebase)
+        Text(
+          'Need a new password? Contact your school office.',
+          style: T.bodyStrong.copyWith(color: C.primary, fontSize: 13.sp),
         ),
-      ),
     ],
   );
 }

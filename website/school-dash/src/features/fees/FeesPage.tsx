@@ -14,8 +14,12 @@ import { ReceiptModal } from "./ReceiptModal";
 import { PaymentVerification } from "./PaymentVerification";
 import { feeTotal, todayIso, type Concession, type Invoice, type Payment, type Reminder, type Structure } from "./types";
 import { useMyName } from "@/lib/useMe";
+import { BatchInvoiceDialog } from "./BatchInvoiceDialog";
+import { FeePlanEditor } from "@/features/onboarding/FeePlanEditor";
+import { classLabel, feePlanError, gradeFeeRecord, gradePlanScope, isTransportFee, normalizedFeePlan, type FeePlan } from "./feePlan";
+import { feeScopesForClasses, parseFeeScope, streamName, type AcademicClass } from "@/lib/academicStreams";
 
-type Student = { id: string; name: string; grn: string; grade: string; section: string; guardian: string; phone: string; status?: string; deleted?: boolean };
+type Student = { id: string; name: string; grn: string; grade: string; section: string; classId?: string; streamId?: string; stream?: string; guardian: string; phone: string; status?: string; deleted?: boolean };
 const tone = { Paid: "success", Pending: "info", Overdue: "danger", Partial: "warning" } as const;
 const MODES = ["Cash", "UPI QR", "Card", "Cheque", "NetBank"];
 const noopSub = () => () => {};
@@ -29,6 +33,7 @@ export function FeesPage() {
   const con = useCollection<Concession>("fee_concessions");
   const rem = useCollection<Reminder>("fee_reminders");
   const students = useCollection<Student>("students");
+  const classes = useCollection<AcademicClass>("classes");
   const integ = useCollection<{ id: string; name: string; enabled: boolean }>("set_integrations");
   const toVerify = useCollection<{ id: string; status: string }>("fee_claims").rows.filter((c) => c.status === "Pending").length;
 
@@ -112,6 +117,32 @@ export function FeesPage() {
     } catch { toast("Could not log reminders", "error"); return false; }
   };
   const safe = (fn: () => Promise<unknown>, ok: string) => fn().then(() => toast(ok)).catch(() => toast("Could not save — check your connection", "error"));
+
+  const generateInvoices = async (rows: Omit<Invoice, "id">[], notifyParents: boolean) => {
+    let created = 0;
+    try {
+      // Each chunk uses at most 400 writes. A reminder is never queued without its invoice.
+      for (let offset = 0; offset < rows.length; offset += 200) {
+        const chunk = rows.slice(offset, offset + 200);
+        const batch = writeBatch(db);
+        const sentAt = new Date().toISOString();
+        for (const row of chunk) {
+          const invoice = { ...row, id: newId("inv") };
+          batch.set(schoolDoc("fee_invoices", invoice.id), { ...invoice, ...createStamp() });
+          if (notifyParents) {
+            const id = `rem_${invoice.id}`;
+            batch.set(schoolDoc("fee_reminders", id), { ...reminderDoc(invoice, sentAt, fmtDate), id, ...createStamp() });
+          }
+        }
+        await batch.commit();
+        created += chunk.length;
+      }
+      toast(`${created} invoices generated${notifyParents ? " · parent payment messages queued" : ""}`);
+    } catch {
+      toast(`Stopped after ${created} of ${rows.length} invoices. Please try again.`, "error");
+      throw new Error("Could not generate all invoices");
+    }
+  };
 
   const cols: Column<Invoice>[] = [
     { key: "student", header: "Student & GRN", sortValue: (i) => i.student, render: (i) => (
@@ -200,17 +231,13 @@ export function FeesPage() {
 
       {main === "structure" && (
         <Card className="mt-5">
-          <CardHeader title="Fee Structure" subtitle="Per-term fee heads by grade. Used when generating batch invoices."
-            actions={str.rows.length < 12 && <Button size="sm" onClick={() => setEditFs({ id: "", grade: "", tuition: 0, lab: 0, activity: 0, library: 0, transport: 0 })}><Plus size={14} />Add grade</Button>} />
-          <DataTable rows={[...str.rows].sort((a, b) => +a.grade - +b.grade)} pageSize={12} onRowClick={setEditFs} columns={[
-            { key: "grade", header: "Grade", render: (s) => <b>Grade {s.grade}</b> },
-            { key: "tuition", header: "Tuition", render: (s) => inrFull(s.tuition) },
-            { key: "lab", header: "Lab", render: (s) => inrFull(s.lab) },
-            { key: "activity", header: "Activity", render: (s) => inrFull(s.activity) },
-            { key: "library", header: "Library", render: (s) => inrFull(s.library) },
-            { key: "transport", header: "Transport (optional)", render: (s) => inrFull(s.transport) },
-            { key: "total", header: "Term total", render: (s) => <b>{inrFull(feeTotal(s))}</b> },
-            { key: "e", header: "", render: (s) => <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); setEditFs(s); }}>Edit</Button> },
+          <CardHeader title="Fee Structure" subtitle="Fee items and collection schedules by class. Updated plans show mandatory recurring totals per year."
+            actions={str.rows.length < 18 && <Button size="sm" onClick={() => setEditFs({ id: "", grade: "", tuition: 0, lab: 0, activity: 0, library: 0, transport: 0 })}><Plus size={14} />Add grade</Button>} />
+          <DataTable rows={[...str.rows].sort((a, b) => +a.grade - +b.grade || gradePlanScope(a).localeCompare(gradePlanScope(b)))} pageSize={18} onRowClick={setEditFs} columns={[
+            { key: "grade", header: "Class / stream", render: (row) => <b>{classLabel(gradePlanScope(row))}</b> },
+            { key: "items", header: "Fee items", render: (row) => row.schemaVersion === 2 ? <div className="space-y-1">{row.items?.some((item) => !isTransportFee(item)) ? row.items.filter((item) => !isTransportFee(item)).map((item) => <p key={item.id} className="text-xs"><span className="font-medium">{item.name}</span> · {inrFull(item.amount)} / {item.frequency.toLowerCase()}{!item.mandatory && " · Optional"}{item.newStudentsOnly && " · New admissions"}</p>) : "No fees assigned"}</div> : <span className="text-xs">Tuition {inrFull(row.tuition)} · Lab {inrFull(row.lab)} · Activity {inrFull(row.activity)} · Library {inrFull(row.library)}</span> },
+            { key: "total", header: "Mandatory total", render: (row) => <div><b>{inrFull(feeTotal(row))}</b><p className="mt-0.5 text-xs text-outline">{row.schemaVersion === 2 ? "Recurring / year" : "Per term · excludes transport"}</p></div> },
+            { key: "e", header: "", render: (row) => <Button size="sm" variant="outline" onClick={(event) => { event.stopPropagation(); setEditFs(row); }}>Edit</Button> },
           ]} />
         </Card>
       )}
@@ -274,13 +301,13 @@ export function FeesPage() {
         </ul>
       </Modal>
 
-      <BatchModal open={batch} onClose={() => setBatch(false)} structure={str.rows} students={students.rows.filter(isActiveStudent)} invoices={inv.rows} onCreate={async (rows) => { let n = 0; try { for (const r of rows) { await inv.create(r as Omit<Invoice, "id">); n++; } toast(`${n} invoices generated`); } catch { toast(`Stopped after ${n} of ${rows.length} invoices — try again`, "error"); throw new Error("batch"); } }} />
+      <BatchInvoiceDialog open={batch} onClose={() => setBatch(false)} structure={str.rows} students={students.rows.filter(isActiveStudent)} classes={classes.rows} invoices={inv.rows} onCreate={generateInvoices} />
       <InvoiceModal open={newInv} onClose={() => setNewInv(false)} students={students.rows.filter(isActiveStudent)} invoices={inv.rows}
         onSave={async (row) => { try { const r = await inv.create(row); toast(`Invoice ${r.no} created for ${r.student}`); setNewInv(false); } catch { toast("Could not create the invoice", "error"); } }} />
-      <StructureModal fs={editFs} taken={str.rows.map((x) => x.grade)} onClose={() => setEditFs(null)} onSave={async (s) => {
+      <StructureModal key={editFs?.id ?? "closed"} fs={editFs} taken={str.rows.map(gradePlanScope)} scopes={feeScopesForClasses(classes.rows)} onClose={() => setEditFs(null)} onSave={async (s) => {
         try {
           if (s.id) { await str.update(s.id, s); toast(`Grade ${s.grade} fee structure updated`); }
-          else { await str.create({ ...s, id: `fs_${s.grade}` }); toast(`Grade ${s.grade} fee structure added`); }
+          else { await str.create({ ...s, id: `fs_${gradePlanScope(s).replace(":", "_")}` }); toast(`${classLabel(gradePlanScope(s))} fee structure added`); }
           setEditFs(null);
         } catch { toast("Could not save fee structure", "error"); } }} />
       <ConcessionModal open={newCon} onClose={() => setNewCon(false)} students={students.rows} onSave={async (c) => { try { await con.create(c as Omit<Concession, "id">); toast("Concession request submitted"); setNewCon(false); } catch { toast("Could not submit concession", "error"); } }} />
@@ -288,50 +315,37 @@ export function FeesPage() {
   );
 }
 
-function BatchModal({ open, onClose, structure, students, invoices, onCreate }: { open: boolean; onClose: () => void; structure: Structure[]; students: Student[]; invoices: Invoice[]; onCreate: (rows: Omit<Invoice, "id">[]) => Promise<void> }) {
-  const [grade, setGrade] = useState("8");
-  const [term, setTerm] = useState("Term 2");
-  const [due, setDue] = useState("2026-12-15");
-  const [busy, setBusy] = useState(false);
-  const fs = structure.find((s) => s.grade === grade);
-  const targets = students.filter((s) => s.grade === grade && !invoices.some((i) => i.grn === s.grn && i.term === term));
-  const total = fs ? feeTotal(fs) : 0;
-  const run = async () => {
-    if (!fs || !targets.length || !due) return;
-    setBusy(true);
-    // continue after the highest invoice number on file (length-based numbering collides)
-    const today = todayIso();
-    const nos = nextInvoiceNos(invoices, targets.length, today.slice(0, 4));
-    try { await onCreate(targets.map((s, k) => ({ no: nos[k], studentId: s.id, student: s.name, grade: s.grade, section: s.section, grn: s.grn, guardian: s.guardian ?? "", phone: s.phone ?? "", term, issued: today, due, amount: total, paid: 0, balance: total, status: invoiceStatus({ amount: total, paid: 0, due }, today),
-      lines: [{ label: `Tuition Fee (${term})`, amount: fs.tuition }, { label: "Lab", amount: fs.lab }, { label: "Activity", amount: fs.activity }, { label: "Library", amount: fs.library }] })));
-      onClose();
-    } catch { /* parent toasts; keep modal open */ } finally { setBusy(false); }
+function ConfiguredStructureModal({ fs, onClose, onSave }: { fs: Structure; onClose: () => void; onSave: (value: Structure) => void }) {
+  const scope = gradePlanScope(fs);
+  const [value, setValue] = useState<FeePlan>(() => ({ schemaVersion: 2, academicYear: fs.academicYear ?? "", termsPerYear: fs.termsPerYear ?? 2, grades: [scope], items: (fs.items ?? []).filter((item) => !isTransportFee(item)).map((item) => ({ ...item, grades: [scope] })), late: 0, upi: true, card: true }));
+  const [error, setError] = useState("");
+  const save = () => {
+    const why = feePlanError(value);
+    if (why) return setError(why);
+    onSave({ ...fs, ...gradeFeeRecord(normalizedFeePlan(value), scope) });
   };
-  return (
-    <Modal open={open} onClose={onClose} title="Generate Batch Invoices" subtitle="Creates invoices from the fee structure for enrolled students" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={busy || !fs || !targets.length || !due} onClick={run}>{busy ? "Generating…" : `Generate ${fs ? targets.length : 0} invoices`}</Button></>}>
-      <div className="grid gap-4">
-        <Field label="Grade"><Select value={grade} onChange={(e) => setGrade(e.target.value)}>{Array.from({ length: 12 }, (_, g) => <option key={g} value={g + 1}>Grade {g + 1}</option>)}</Select></Field>
-        <Field label="Term"><Select value={term} onChange={(e) => setTerm(e.target.value)}><option>Term 2</option><option>Term 3</option></Select></Field>
-        <Field label="Due date" required><Input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
-        <p className="rounded-lg bg-surface-container-low p-3 text-sm text-on-surface-variant">{!fs ? `No fee structure is set for Grade ${grade}. Add it under Fee Structure first.` : targets.length ? <>{targets.length} enrolled students in Grade {grade} without a {term} invoice. Each is billed <b>{inrFull(total)}</b>.</> : `Every enrolled Grade ${grade} student already has a ${term} invoice.`}</p>
-      </div>
-    </Modal>
-  );
+  return <Modal open onClose={onClose} title={`${fs.id ? "Edit" : "Add"} ${classLabel(scope)} fee structure`} footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save}>Save</Button></>}>
+    {!fs.id && <div className="mb-4 grid gap-3 sm:grid-cols-2"><Field label="Academic year"><Input value={value.academicYear} placeholder="2026-27" onChange={(event) => setValue({ ...value, academicYear: event.target.value })} /></Field><Field label="Terms per year"><Select value={value.termsPerYear} onChange={(event) => setValue({ ...value, termsPerYear: Number(event.target.value) })}>{[1, 2, 3, 4].map((count) => <option key={count} value={count}>{count}</option>)}</Select></Field></div>}
+    <FeePlanEditor value={value} onChange={(next) => { setValue(next); setError(""); }} compact />
+    {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}
+  </Modal>;
 }
 
-function StructureModal({ fs, taken, onClose, onSave }: { fs: Structure | null; taken: string[]; onClose: () => void; onSave: (s: Structure) => void }) {
+function StructureModal({ fs, taken, scopes, onClose, onSave }: { fs: Structure | null; taken: string[]; scopes: string[]; onClose: () => void; onSave: (s: Structure) => void }) {
   const [v, setV] = useState<Structure | null>(null);
   const cur = v?.id === fs?.id ? v : fs;
   if (!fs || !cur) return null;
-  const keys = ["tuition", "lab", "activity", "library", "transport"] as const;
+  if (cur.schemaVersion === 2) return <ConfiguredStructureModal key={cur.id} fs={cur} onClose={onClose} onSave={onSave} />;
+  const keys = ["tuition", "lab", "activity", "library"] as const;
   const bad = keys.some((k) => !(cur[k] >= 0) || !Number.isInteger(cur[k])) || !cur.grade;
-  const free = Array.from({ length: 12 }, (_, g) => String(g + 1)).filter((g) => !taken.includes(g));
+  const free = [...new Set(["LKG", "UKG", ...Array.from({ length: 10 }, (_, g) => String(g + 1)), ...scopes])].filter((g) => !taken.includes(g));
   return (
     <Modal open onClose={() => { setV(null); onClose(); }} title={fs.id ? `Edit Grade ${fs.grade} fee structure` : "Add a grade fee structure"} footer={<><Button variant="outline" onClick={() => { setV(null); onClose(); }}>Cancel</Button><Button disabled={bad} onClick={() => { onSave(cur); setV(null); }}>Save</Button></>}>
-      {!fs.id && <Field label="Grade" required className="mb-4"><Select value={cur.grade} onChange={(e) => setV({ ...cur, grade: e.target.value })}><option value="">Select a grade…</option>{free.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>}
+      {!fs.id && <Field label="Grade" required className="mb-4"><Select value={cur.grade} onChange={(e) => { const { grade, streamId } = parseFeeScope(e.target.value); setV({ ...cur, grade, ...(streamId ? { streamId, stream: streamName(streamId), schemaVersion: 2, items: [] } : {}) }); }}><option value="">Select a grade…</option>{free.map((g) => <option key={g} value={g}>{classLabel(g)}</option>)}</Select></Field>}
       <div className="grid grid-cols-2 gap-4">{keys.map((k) => (
         <Field key={k} label={k[0].toUpperCase() + k.slice(1)}><Input type="number" min={0} value={cur[k]} onChange={(e) => setV({ ...cur, [k]: Number(e.target.value) })} /></Field>))}</div>
       <p className="mt-4 text-sm text-on-surface-variant">Term total (excl. transport): <b>{inrFull(feeTotal(cur))}</b></p>
+      <p className="mt-2 text-xs text-on-surface-variant">Set transportation fees on each bus under Transport → Buses.</p>
     </Modal>
   );
 }

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { homeFor, useAuth } from "@/lib/authContext";
 
 /** May this user open a page of this kind? A product owner opens the school console only while inside a school (contract 16). */
-export const allowed = (u: { role: "admin" | "owner"; schoolId: string }, role: "admin" | "owner") =>
+export const allowed = (u: { role: "admin" | "owner" | "staff"; schoolId: string }, role: "admin" | "owner") =>
   role === "owner" ? u.role === "owner" : u.role === "admin" || (u.role === "owner" && !!u.schoolId);
 
 /** Lets in the signed-in users of one kind: school admins (default) or product owners (`role="owner"`). */

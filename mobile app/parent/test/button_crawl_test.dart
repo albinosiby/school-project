@@ -46,7 +46,6 @@ final _routes = <String>[
 final _publicRoutes = <String>[
   RoutePaths.welcome,
   RoutePaths.login,
-  RoutePaths.forgotPassword,
   RoutePaths.register,
 ];
 

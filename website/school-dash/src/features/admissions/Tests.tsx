@@ -5,7 +5,7 @@ import { Avatar, Badge, Button, Card, CardHeader, Checkbox, DataTable, Field, In
 import { fmtDate } from "@/lib/format";
 import { downloadCsv, todayISO, useAdm } from "./lib";
 import { resultPatch, scoreError, slotBatch, slotEligible, slotError } from "./logic";
-import { GRADES, PANEL_LABEL, gradeLabel, type Application, type PanelStatus, type Slot, type SlotStatus } from "./types";
+import { PANEL_LABEL, gradeLabel, type Application, type PanelStatus, type Slot, type SlotStatus } from "./types";
 
 const PANEL_TONE: Record<PanelStatus, "success" | "info" | "warning" | "neutral" | "danger"> = { cleared: "success", scheduled: "info", hall_ticket: "neutral", in_review: "warning", waitlisted: "neutral", rejected: "danger" };
 const SLOT_TONE: Record<SlotStatus, "info" | "success" | "brand" | "warning"> = { scheduled: "warning", completed: "success", scores_entered: "brand", published: "info" };
@@ -13,7 +13,7 @@ const SLOT_LABEL: Record<SlotStatus, string> = { scheduled: "Scheduled", complet
 const NEXT: Partial<Record<SlotStatus, [SlotStatus, string]>> = { scheduled: ["completed", "Mark completed"], completed: ["scores_entered", "Confirm scores entered"], scores_entered: ["published", "Publish results"] };
 
 export function Tests() {
-  const { apps, slots, logMessage, ready } = useAdm();
+  const { cohorts, apps, slots, logMessage, ready } = useAdm();
   const toast = useToast();
   const [grade, setGrade] = useState("");
   const [pstat, setPstat] = useState("");
@@ -34,7 +34,7 @@ export function Tests() {
 
   const cols: Column<Application>[] = [
     { key: "name", header: "Candidate Details", sortValue: (a) => a.name, render: (a) => <div className="flex items-center gap-3"><Avatar name={a.name} size={34} /><div><div className="font-semibold">{a.name}</div><div className="text-xs text-on-surface-variant">{a.ref}</div></div></div> },
-    { key: "grade", header: "Grade", sortValue: (a) => GRADES.findIndex((g) => g.id === a.grade), render: (a) => <Badge>{gradeLabel(a.grade)}</Badge> },
+    { key: "grade", header: "Grade", sortValue: (a) => cohorts.findIndex((g) => g.id === a.grade), render: (a) => <Badge>{gradeLabel(a.grade)}</Badge> },
     { key: "batch", header: "Test Batch & Date", sortValue: (a) => slotOf(a)?.date ?? "", render: (a) => { const s = slotOf(a); return s ? <span className="text-sm">{s.batch.replace("BATCH #", "Batch ")} · {fmtDate(s.date)}</span> : "—"; } },
     { key: "score", header: "Written Score", sortValue: (a) => a.writtenScore ?? -1, render: (a) => a.writtenScore == null ? <span className="italic text-on-surface-variant">Diagnostic Pending</span> : <div className="flex items-center gap-2"><ProgressBar className="w-20" value={a.writtenScore} tone={a.writtenScore >= 80 ? "success" : a.writtenScore >= 65 ? "brand" : "warning"} /><b className="text-sm">{a.writtenScore}/100</b></div> },
     { key: "panel", header: "Panel Status", render: (a) => a.panelStatus ? <Badge tone={PANEL_TONE[a.panelStatus]}>{PANEL_LABEL[a.panelStatus]}{a.panelStatus === "waitlisted" && a.waitlistNo ? ` (WL-${String(a.waitlistNo).padStart(2, "0")})` : ""}</Badge> : "—" },
@@ -76,7 +76,7 @@ export function Tests() {
       <Card>
         <CardHeader title="Candidate Evaluation & Interview" subtitle={`${rows.length} active`} />
         {!ready ? <p className="p-5">Loading…</p> : <DataTable rows={rows} columns={cols} pageSize={6} selectable selected={sel} onSelectedChange={setSel} searchText={(a) => `${a.name} ${a.ref}`}
-          toolbar={<><Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-40"><option value="">Grade: All</option>{GRADES.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</Select>
+          toolbar={<><Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-40"><option value="">Grade: All</option>{cohorts.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</Select>
             <Select aria-label="Status" value={pstat} onChange={(e) => setPstat(e.target.value)} className="w-44"><option value="">Status: All</option>{Object.entries(PANEL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></>} />}
       </Card>
 

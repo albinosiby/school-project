@@ -18,7 +18,6 @@ export const NAV = [
 ] as const;
 
 export const EXTRA_PAGES = [
-  { href: "/setup", label: "Setup Wizard" },
   { href: "/approvals", label: "Approvals Inbox" },
   { href: "/calendar", label: "Academic Calendar" },
   { href: "/notifications", label: "Notifications" },

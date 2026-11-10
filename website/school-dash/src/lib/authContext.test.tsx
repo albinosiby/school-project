@@ -103,8 +103,17 @@ describe("login guard", () => {
     vi.mocked(signInWithEmailAndPassword).mockRejectedValueOnce(Object.assign(new Error("Firebase: Error (auth/invalid-credential)."), { code: "auth/invalid-credential" }));
     await expect(box.ctx!.login("a@s.in", "nope")).rejects.toThrow("Incorrect email or password.");
   });
-  it("signup refuses an empty organization name before creating anything", async () => {
+  it("loads a delegated staff role and directs it to staff access", async () => {
+    const { homeFor } = await real();
+    seed({ users: [{ id: "uid_principal", schoolId: "sch_test", role: "staff", staffRole: "principal" }] });
+    let observer: (user: unknown) => void = () => {};
+    vi.mocked(onAuthStateChanged).mockImplementationOnce((_auth, callback) => {
+      observer = callback as typeof observer;
+      return () => {};
+    });
     const box = await mount();
-    await expect(box.ctx!.signup("a@s.in", "secret1", "  ")).rejects.toThrow("Organization name is required");
+    await act(async () => observer({ uid: "uid_principal", email: "principal@s.in" }));
+    expect(box.ctx!.user).toMatchObject({ role: "staff", staffRole: "principal", schoolId: "sch_test" });
+    expect(homeFor(box.ctx!.user)).toBe("/staff-access");
   });
 });

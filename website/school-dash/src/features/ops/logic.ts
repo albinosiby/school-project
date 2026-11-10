@@ -1,6 +1,7 @@
 // Pure rules behind the OPS screens (classes, attendance, timetable, substitutions, live classes, homework).
 // Kept free of React so they can be unit tested; the views call these and only render.
 import { DAY_NAMES, GRADES, SECTIONS, classIdOf, clsLabel, dayOfIso, studentClassId } from "./shared";
+import { isSeniorGrade, streamIdOf } from "@/lib/academicStreams";
 
 type Errors = Record<string, string>;
 
@@ -19,7 +20,7 @@ export const tsMs = (v: unknown): number => {
 // Classes and assignments (contract sections 3, 10, 13.1)
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type ClassRow = { id: string; grade: string; section: string; classTeacherId?: string; classTeacher?: string; room?: string; wing?: string; studentCount?: number };
+export type ClassRow = { id: string; grade: string; section: string; streamId?: string; stream?: string; classTeacherId?: string; classTeacher?: string; room?: string; wing?: string; studentCount?: number; subjects?: string[]; capacity?: number };
 export type Assignment = { id: string; classId: string; subject: string; teacherId: string; topic?: string; periodsPerWeek?: number };
 
 /** the other class this teacher is already class teacher of (a teacher is class teacher of one class) */
@@ -33,12 +34,13 @@ export const roomTakenBy = (classes: ClassRow[], room: string, classId: string) 
 };
 
 /** Add / edit class. `editId` is the class being edited (its grade and section are fixed then). */
-export function validateClass(v: { grade: string; section: string; classTeacherId: string; room: string }, classes: ClassRow[], nameOf: (id: string) => string, editId?: string): Errors {
+export function validateClass(v: { grade: string; section: string; streamId?: string; classTeacherId: string; room: string }, classes: ClassRow[], nameOf: (id: string) => string, editId?: string): Errors {
   const e: Errors = {};
   const grade = String(v.grade ?? "").trim(), section = String(v.section ?? "").trim();
   if (!GRADES.includes(grade)) e.grade = "Grade must be 1–12";
   if (!SECTIONS.includes(section)) e.section = "Section must be A–D";
-  const id = editId ?? classIdOf(grade, section);
+  if (!editId && isSeniorGrade(grade) && !streamIdOf(v.streamId)) e.streamId = "Choose a stream";
+  const id = editId ?? classIdOf(grade, section, v.streamId);
   if (!editId && !e.grade && !e.section && classes.some((c) => c.id === id)) e.section = "This class already exists";
   const ct = classTeacherElsewhere(classes, v.classTeacherId, id);
   if (ct) e.classTeacherId = `${nameOf(v.classTeacherId) || v.classTeacherId} is already class teacher of ${clsLabel(ct.id)}`;
@@ -112,10 +114,10 @@ export function attendanceSaveError(v: { date: string; today: string; rosterSize
 }
 
 /** the admin day record body (section 9): only non-present students are listed in `marks` */
-export function adminDayRecord(v: { date: string; grade: string; section: string; rosterIds: string[]; marks: Record<string, Mark | undefined> }) {
+export function adminDayRecord(v: { date: string; grade: string; section: string; classId?: string; rosterIds: string[]; marks: Record<string, Mark | undefined> }) {
   const nonPresent: Record<string, "A" | "L" | "E"> = {};
   v.rosterIds.forEach((id) => { const m = v.marks[id]; if (m === "A" || m === "L" || m === "E") nonPresent[id] = m; });
-  return { date: v.date, classId: classIdOf(v.grade, v.section), grade: v.grade, section: v.section, period: 0, total: v.rosterIds.length, marks: nonPresent, submitted: true, teacherId: "", markedBy: "admin" };
+  return { date: v.date, classId: v.classId ?? classIdOf(v.grade, v.section), grade: v.grade, section: v.section, period: 0, total: v.rosterIds.length, marks: nonPresent, submitted: true, teacherId: "", markedBy: "admin" };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -304,7 +306,7 @@ export function validateHomework(f: { title: string; subject: string; classId: s
   if (!f.title.trim()) e.title = "Title is required";
   else if (f.title.trim().length > 120) e.title = "Title is at most 120 characters";
   if (!f.subject.trim()) e.subject = "Pick a subject";
-  if (!/^cls_\d+[A-D]$/.test(f.classId)) e.grade = "Pick a class";
+  if (!/^cls_(?:\d+[A-D]|(?:11|12)_(?:science|commerce|humanities|course_[a-z0-9]+(?:_[a-z0-9]+)*)_[A-H])$/.test(f.classId)) e.grade = "Pick a class";
   else if (ctx.classChanged && !ctx.size) e.grade = "No students in this class";
   if (!f.due) e.due = "Due date is required";
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(f.due)) e.due = "Enter a valid date";

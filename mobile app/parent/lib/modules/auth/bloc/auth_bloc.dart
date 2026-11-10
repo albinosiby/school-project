@@ -10,7 +10,7 @@ export '../models/auth_models.dart';
 export 'auth_events.dart';
 export 'auth_states.dart';
 
-/// Session + two-step sign-in (identify, then passcode) + Google/Apple (simulated) + password reset.
+/// Session + two-step sign-in (identify, then passcode) + Google/Apple (simulated).
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   AuthBloc(this._repo) : super(const AuthState()) {
     on<AuthStarted>((event, emit) async {
@@ -61,23 +61,6 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         );
       }
     }, transformer: droppable());
-    on<PasswordResetRequested>((event, emit) async {
-      emit(state.copyWith(reset: ResetStatus.sending));
-      try {
-        await _repo.sendPasswordReset(event.email);
-        emit(state.copyWith(reset: ResetStatus.sent));
-      } catch (e) {
-        emit(
-          state.copyWith(
-            reset: ResetStatus.failed,
-            resetError: errorMessage(e),
-          ),
-        );
-      }
-    });
-    on<PasswordResetCleared>(
-      (event, emit) => emit(state.copyWith(reset: ResetStatus.idle)),
-    );
     on<LogoutRequested>((event, emit) async {
       await _repo.logout();
       emit(const AuthState(status: AuthStatus.unauthenticated));
@@ -102,7 +85,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       final c = await request();
       // backends without a passcode step (Firebase email login) sign in directly
       if (c.verified) {
-        emit(AuthState(status: AuthStatus.authenticated, guardian: await _repo.verifyOtp(c, '')));
+        emit(
+          AuthState(
+            status: AuthStatus.authenticated,
+            guardian: await _repo.verifyOtp(c, ''),
+          ),
+        );
         return;
       }
       emit(AuthState(status: AuthStatus.otpSent, challenge: c));

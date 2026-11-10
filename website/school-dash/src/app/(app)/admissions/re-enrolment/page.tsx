@@ -1,3 +1,5 @@
-import { Reenrolment } from "@/features/admissions/Reenrol";
+import { redirect } from "next/navigation";
 
-export default function Page() { return <Reenrolment />; }
+export default function Page() {
+  redirect("/admissions");
+}

@@ -5,79 +5,44 @@ import { field, fieldError, renderUI, rowsOf, screen, seed, writes, writesTo } f
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-03T10:00:00")); });
 afterEach(() => { vi.useRealTimers(); });
 
-const open = () => renderUI(<EnquirySlideOver open onClose={() => {}} />);
-const create = () => screen.getByRole("button", { name: /Create Enquiry/ });
+const open = (mode: "enquiry" | "application" = "enquiry") => renderUI(<EnquirySlideOver open mode={mode} onClose={() => {}} />);
 
-describe("Log enquiry form", () => {
-  it("shows every required-field error and writes nothing", async () => {
+describe("Admissions intake", () => {
+  it("requires the student, grade and guardian contact", async () => {
     const { user } = open();
-    await user.click(create());
-    expect(fieldError("Student Full Name")).toBe("Student name is required");
-    expect(fieldError("Date of Birth")).toBe("Date of birth is required");
-    expect(fieldError("Primary Guardian")).toBe("Guardian name is required");
-    expect(fieldError("Mobile Number")).toBe("Enter a valid mobile number");
-    expect(fieldError("Email Address")).toBe("Enter a valid email");
+    await user.click(screen.getByRole("button", { name: "Create enquiry" }));
+    expect(fieldError("Student name")).toBe("Student name is required");
+    expect(fieldError("Grade or course")).toBe("Choose a grade");
+    expect(fieldError("Guardian name")).toBe("Guardian name is required");
+    expect(fieldError("Guardian phone")).toBe("Enter a valid mobile number");
     expect(writes).toHaveLength(0);
   });
 
-  it("rejects a future DOB, a bad phone / email and a follow-up in the past", async () => {
+  it("saves a basic enquiry without a follow-up date or message", async () => {
     const { user } = open();
-    await user.type(field("Student Full Name"), "Samaira Kapoor");
-    await user.type(field("Date of Birth"), "2026-12-01");
-    await user.type(field("Primary Guardian"), "Dr. Vikram Kapoor");
-    await user.type(field("Mobile Number"), "----------");
-    await user.type(field("Email Address"), "vikram@kapoor");
-    await user.type(field("Follow-up Date"), "2026-11-02");
-    await user.click(create());
-    expect(fieldError("Date of Birth")).toBe("DOB cannot be in the future");
-    expect(fieldError("Mobile Number")).toBe("Enter a valid mobile number");
-    expect(fieldError("Email Address")).toBe("Enter a valid email");
-    expect(fieldError("Follow-up Date")).toBe("Follow-up date cannot be in the past");
-    expect(fieldError("Student Full Name")).toBe("");
-    expect(writes).toHaveLength(0);
-  });
-
-  it("creates the enquiry with the next reference and logs the prospectus message", async () => {
-    seed({ adm_enquiries: [{ id: "adm_enq_009", ref: "ENQ-2026-0009", name: "Old", grade: "1", source: "Walk-In", stage: "new", createdAt: "2026-10-01" }], staff: [{ id: "stf_001", name: "Meera Iyer", status: "Active" }] });
-    const { user } = open();
-    expect(screen.getByText("ENQ-2026-0010")).toBeInTheDocument();
-    await user.type(field("Student Full Name"), "  Samaira Kapoor ");
-    await user.selectOptions(field("Target Grade / Cohort"), "3");
-    await user.type(field("Date of Birth"), "2018-06-12");
-    await user.type(field("Primary Guardian"), "Dr. Vikram Kapoor");
-    await user.type(field("Mobile Number"), "+91 98452 31209");
-    await user.type(field("Email Address"), "vikram@kapoor.in");
-    await user.selectOptions(field("Assign to Counsellor"), "Meera Iyer");
-    await user.click(screen.getByRole("radio", { name: "Referral" }));
-    await user.click(create());
-    const row = rowsOf<Record<string, unknown>>("adm_enquiries").find((r) => r.ref === "ENQ-2026-0010");
-    expect(row).toMatchObject({
-      name: "Samaira Kapoor", grade: "3", dob: "2018-06-12", guardian: "Dr. Vikram Kapoor", phone: "+91 98452 31209", email: "vikram@kapoor.in",
-      source: "Referral", stage: "new", assignee: "Meera Iyer", createdAt: "2026-11-03", applicationId: "", lostReason: "", sibling: false,
-    });
-    expect(String(row?.submittedTs)).toMatch(/^2026-11-03T/);
-    expect(writesTo("adm_messages")).toHaveLength(1);
-    expect(writesTo("adm_messages")[0]!.data).toMatchObject({ kind: "WhatsApp prospectus", to: "+91 98452 31209" });
-    expect(await screen.findByText(/Enquiry ENQ-2026-0010 created/)).toBeInTheDocument();
-  });
-
-  it("offers the school's staff as counsellors instead of demo names", () => {
-    seed({ staff: [{ id: "stf_002", name: "Ravi Kumar", status: "Active" }, { id: "stf_003", name: "Gone", status: "Inactive" }] });
-    open();
-    const opts = [...(field("Assign to Counsellor") as unknown as HTMLSelectElement).options].map((o) => o.text);
-    expect(opts).toEqual(["Unassigned", "Ravi Kumar"]);
-  });
-
-  it("does not send the WhatsApp message when unticked", async () => {
-    const { user } = open();
-    await user.type(field("Student Full Name"), "A");
-    await user.type(field("Date of Birth"), "2019-01-01");
-    await user.type(field("Primary Guardian"), "G");
-    await user.type(field("Mobile Number"), "9845231209");
-    await user.type(field("Email Address"), "g@x.in");
-    await user.click(screen.getByRole("checkbox", { name: /Dispatch digital prospectus/ }));
-    await user.click(create());
-    expect(writesTo("adm_enquiries")).toHaveLength(1);
+    await user.type(field("Student name"), "Samaira Kapoor");
+    await user.selectOptions(field("Grade or course"), "3");
+    await user.type(field("Guardian name"), "Dr. Kapoor");
+    await user.type(field("Guardian phone"), "9845231209");
+    await user.selectOptions(field("Gender"), "Female");
+    await user.type(field("Parent email"), "parent@example.test");
+    await user.type(field("Date of birth"), "2018-06-12");
+    expect(screen.queryByLabelText("Follow-up date")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create enquiry" }));
+    expect(rowsOf("adm_enquiries")[0]).toMatchObject({ name: "Samaira Kapoor", grade: "3", gender: "Female", email: "parent@example.test", dob: "2018-06-12", followUp: "", stage: "new" });
     expect(writesTo("adm_messages")).toHaveLength(0);
+  });
+
+  it("starts a walk-in application directly with a custom course and guardian email", async () => {
+    seed({ adm_seats: [{ id: "seat_11_course_home_science", grade: "11-course_home_science", streamId: "course_home_science", stream: "Home Science", group: "senior", capacity: 30, rteSeats: 0 }] });
+    const { user } = open("application");
+    await user.type(field("Student name"), "Samaira Kapoor");
+    await user.selectOptions(field("Grade or course"), "11-course_home_science");
+    await user.type(field("Guardian name"), "Dr. Kapoor");
+    await user.type(field("Guardian phone"), "9845231209");
+    await user.type(field("Parent email"), "Parent@example.test");
+    await user.click(screen.getByRole("button", { name: "Create application" }));
+    expect(rowsOf("adm_applications")[0]).toMatchObject({ name: "Samaira Kapoor", enquiryId: "", grade: "11-course_home_science", email: "parent@example.test", status: "submitted" });
+    expect(writesTo("adm_enquiries")).toHaveLength(0);
   });
 });

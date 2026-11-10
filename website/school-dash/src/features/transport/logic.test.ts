@@ -178,6 +178,10 @@ describe("buses and stops", () => {
     expect(validateBus({ ...ok, number: "14", regNo: "DL-01-AB-4092" }, [], existing, "bus_01")).toEqual({});
     expect(validateBus({ ...ok, capacity: "4" }, [], existing, "bus_01", 5).capacity).toBe("5 students are on this bus; capacity cannot be lower");
   });
+  it("accepts a bus-specific monthly fee, an unset fee, and explicitly free transport", () => {
+    for (const monthlyFee of [undefined, "", "0", "1200", "1500.50"]) expect(validateBus({ ...ok, monthlyFee }, [], existing)).toEqual({});
+    for (const monthlyFee of ["-1", "abc", "Infinity", "1.001", "10000001"]) expect(validateBus({ ...ok, monthlyFee }, [], existing).monthlyFee).toContain("Enter an amount from ₹0");
+  });
   it("checks the start times and the stops", () => {
     expect(validateBus({ ...ok, pickupStart: "", dropStart: "06:00" }, [], existing)).toEqual({ pickupStart: "Enter a time as HH:mm" });
     expect(validateBus({ ...ok, dropStart: "06:00" }, [], existing)).toEqual({ dropStart: "The drop must start after the pickup" });

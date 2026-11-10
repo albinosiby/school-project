@@ -6,13 +6,13 @@ import { Avatar, Badge, Button, Card, DataTable, Field, Modal, Select, Stat, use
 import { cn } from "@/lib/cn";
 import { fmtDate, inrFull } from "@/lib/format";
 import { pct, useAdm, useToday } from "./lib";
-import { GRADES, gradeLabel, type Offer, type OfferStatus } from "./types";
+import { gradeLabel, type Offer, type OfferStatus } from "./types";
 
 const TONE: Record<OfferStatus, "warning" | "success" | "brand" | "danger" | "neutral"> = { pending: "warning", accepted: "brand", enrolled: "success", declined: "danger", lapsed: "neutral" };
 const LABEL: Record<OfferStatus, string> = { pending: "Offer Pending", accepted: "Accepted · Token Paid", enrolled: "Enrolled", declined: "Declined", lapsed: "Lapsed" };
 
 export function Offers() {
-  const { offers, apps, seatRows, ready, generateOffer, acceptOffer, declineOffer, lapseOffer, enrolOffer, logMessage, config } = useAdm();
+  const { cohorts, offers, apps, seatRows, ready, generateOffer, acceptOffer, declineOffer, lapseOffer, enrolOffer, logMessage, config } = useAdm();
   const toast = useToast();
   const today = useToday();
   const [tab, setTab] = useState("all");
@@ -60,7 +60,7 @@ export function Offers() {
       </div>
       <Card>
         <div className="flex flex-wrap items-center gap-3 p-4">
-          <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-44"><option value="">All Grades</option>{GRADES.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</Select>
+          <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-44"><option value="">All Grades</option>{cohorts.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</Select>
           <div role="tablist" className="flex flex-wrap gap-1">{tabs.map(([id, l]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id!)} className={cn("cursor-pointer rounded px-3 py-1.5 text-sm font-medium", tab === id ? "bg-secondary text-on-secondary" : "text-on-surface-variant hover:bg-surface-container")}>{l}</button>)}</div>
           <Button className="ml-auto" onClick={() => setGen(true)}><Plus size={16} />Generate offer</Button>
         </div>

@@ -1,3 +1,5 @@
-import { FormBuilder } from "@/features/admissions/FormBuilder";
+import { redirect } from "next/navigation";
 
-export default function Page() { return <FormBuilder />; }
+export default function Page() {
+  redirect("/admissions");
+}

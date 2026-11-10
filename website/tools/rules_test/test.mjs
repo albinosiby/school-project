@@ -56,8 +56,20 @@ await check("teacher cannot read another user doc", assertFails(getDoc(doc(as("t
 await check("admin reads staff user doc of own school", assertSucceeds(getDoc(doc(as("a1"), "users/t1"))));
 await check("admin creates teacher user doc", assertSucceeds(setDoc(doc(as("a1"), "users/newT"), { schoolId: "S1", role: "teacher", staffId: "stf_030" })));
 await check("admin cannot create user doc in another school", assertFails(setDoc(doc(as("a1"), "users/x"), { schoolId: "S2", role: "teacher", staffId: "s" })));
-await check("new admin self-creates own school doc", assertSucceeds(setDoc(doc(as("newAdmin"), "users/newAdmin"), { schoolId: "newAdmin", role: "admin" })));
+await check("new account cannot self-create a school admin profile", assertFails(setDoc(doc(as("newAdmin"), "users/newAdmin"), { schoolId: "newAdmin", role: "admin" })));
 await check("user cannot self-create admin of another school", assertFails(setDoc(doc(as("evil"), "users/evil"), { schoolId: "S1", role: "admin" })));
+await env.withSecurityRulesDisabled(async (ctx) => {
+  await setDoc(doc(ctx.firestore(), "platform_admins/owner"), {});
+  await setDoc(doc(ctx.firestore(), "users/principal"), { schoolId: "S1", role: "staff", staffRole: "principal" });
+});
+await check("platform owner can create a School Admin", assertSucceeds(setDoc(doc(as("owner"), "users/new-school"), { schoolId: "new-school", role: "admin" })));
+await check("school admin cannot create another School Admin", assertFails(setDoc(doc(as("a1"), "users/another-admin"), { schoolId: "S1", role: "admin" })));
+await check("school admin cannot promote an existing teacher", assertFails(updateDoc(doc(as("a1"), "users/t1"), { role: "admin" })));
+await check("school admin can clean up an already-revoked staff profile", assertSucceeds(deleteDoc(doc(as("a1"), "users/revoked"))));
+await check("school admin cannot bypass managed staff provisioning", assertFails(setDoc(doc(as("a1"), "users/principal2"), { schoolId: "S1", role: "staff", staffRole: "principal" })));
+await check("principal cannot bypass managed staff provisioning", assertFails(setDoc(doc(as("principal"), "users/new-assistant"), { schoolId: "S1", role: "staff", staffRole: "office_staff" })));
+await check("principal cannot grant themselves broader access", assertFails(updateDoc(doc(as("principal"), "users/principal"), { role: "admin" })));
+await check("principal cannot read school financial records", assertFails(getDoc(doc(as("principal"), "schools/S1/fee_invoices/f1"))));
 await check("teacher cannot promote self", assertFails(updateDoc(doc(as("t1"), "users/t1"), { role: "admin" })));
 
 console.log("tenancy");

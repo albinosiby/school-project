@@ -2,7 +2,7 @@
 // Accounts (emulator only) are written to tools/e2e/.accounts.json (git-ignored).
 //   FIRESTORE_EMULATOR_HOST=localhost:8080 FIREBASE_AUTH_EMULATOR_HOST=localhost:9099 node tools/e2e/seed.mjs
 import { createRequire } from "node:module";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, scryptSync } from "node:crypto";
 import { writeFileSync } from "node:fs";
 
 process.env.FIRESTORE_EMULATOR_HOST ??= "localhost:8080";
@@ -67,8 +67,15 @@ writeFileSync(new URL("./.accounts.json", import.meta.url), JSON.stringify({ pro
 
 await db.doc(`users/${accounts.admin.uid}`).set({ schoolId: SID, role: "admin", email: accounts.admin.email, name: "E2E Principal", createdAt: now() });
 await db.doc(`users/${accounts.teacher.uid}`).set({ schoolId: SID, role: "teacher", staffId: "stf_025", email: accounts.teacher.email, name: "Mrs. Anita Sharma", createdAt: now() });
-// the admin web writes the parent user like this (arrays start empty; onStudentWritten fills them)
-await db.doc(`users/${accounts.parent.uid}`).set({ schoolId: SID, role: "parent", email: accounts.parent.email, name: "Mr. Rahul Sharma", studentIds: [], classIds: [], grns: [], createdAt: now() });
+// onStudentWritten fills the child links when the test school links its first student.
+const parent = accounts.parent;
+const version = randomBytes(16).toString("hex");
+const salt = randomBytes(16).toString("hex");
+const emailKey = createHash("sha256").update(parent.email).digest("hex");
+await db.doc(`users/${parent.uid}`).set({ schoolId: SID, role: "parent", email: parent.email, name: "Mr. Rahul Sharma",
+  studentIds: [], classIds: [], grns: [], parentCredentialVersion: version, createdAt: now() });
+await db.doc(`parent_credentials/${emailKey}`).set({ uid: parent.uid, schoolId: SID, version, salt,
+  hash: scryptSync(parent.password, salt, 32).toString("hex"), issuedAt: Date.now(), issuedBy: accounts.admin.uid });
 await db.doc(`users/${accounts.driver.uid}`).set({ schoolId: SID, role: "driver", crewId: "crw_001", email: accounts.driver.email, name: "Ramesh Kumar", createdAt: now() });
 await db.doc(`users/${accounts.attendant.uid}`).set({ schoolId: SID, role: "attendant", crewId: "crw_002", email: accounts.attendant.email, name: "Suresh Yadav", createdAt: now() });
 

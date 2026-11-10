@@ -1,3 +1,5 @@
+import { courseIdOf, isCourseId, streamName } from "@/lib/academicStreams";
+
 // Shared admissions data model. Collections (all `adm_` prefixed):
 //  adm_enquiries, adm_applications, adm_offers, adm_slots, adm_seats, adm_form (builder schema),
 //  adm_config (fees, safeguards, stats), adm_campaign + adm_reenrolment, adm_messages (simulated sends).
@@ -9,16 +11,16 @@ export type EnqStage = "new" | "contacted" | "campus" | "app_issued" | "offered"
 export type Enquiry = {
   id: string; ref: string; name: string; grade: string; dob: string; prevSchool: string; guardian: string; relation: string;
   phone: string; email: string; area: string; source: string; stage: EnqStage; assignee: string; followUp: string; note: string;
-  sibling: boolean; createdAt: string; applicationId: string; lostReason: string; answers?: Record<string, string>;
+  sibling: boolean; createdAt: string; applicationId: string; lostReason: string; gender?: string; studentId?: string; answers?: Record<string, string>;
   /** ISO date-time of the submission (public form); createdAt stays the local YYYY-MM-DD */ submittedTs?: string;
 };
 
 export type DocState = "verified" | "pending" | "rejected" | "na";
 export type DocKey = "birth" | "idProof" | "immunisation" | "tc";
 export const DOC_LABEL: Record<DocKey, string> = { birth: "Birth Certificate", idProof: "Aadhaar / Passport ID", immunisation: "Immunisation Record", tc: "Previous TC / Report" };
-export type AppStatus = "submitted" | "docs_pending" | "verified" | "test_scheduled" | "tested" | "shortlisted" | "waitlisted" | "offered" | "enrolled" | "rejected" | "withdrawn" | "lapsed";
+export type AppStatus = "submitted" | "docs_pending" | "verified" | "approved" | "test_scheduled" | "tested" | "shortlisted" | "waitlisted" | "offered" | "enrolled" | "rejected" | "withdrawn" | "lapsed";
 export const APP_STATUS_LABEL: Record<AppStatus, string> = {
-  submitted: "Submitted", docs_pending: "Documents Pending", verified: "Verified", test_scheduled: "Test Scheduled", tested: "Tested",
+  submitted: "Submitted", docs_pending: "Documents Pending", verified: "Verified", approved: "Approved", test_scheduled: "Test Scheduled", tested: "Tested",
   shortlisted: "Shortlisted", waitlisted: "Waitlisted", offered: "Offer Issued", enrolled: "Enrolled", rejected: "Rejected", withdrawn: "Declined Offer", lapsed: "Offer Lapsed",
 };
 export type PanelStatus = "hall_ticket" | "scheduled" | "in_review" | "cleared" | "waitlisted" | "rejected";
@@ -29,7 +31,7 @@ export type Application = {
   id: string; ref: string; enquiryId: string; name: string; gender: string; dob: string; guardian: string; phone: string; email: string;
   grade: string; tag: Tag; status: AppStatus; submittedAt: string; feePaid: boolean; feeMode: string; docs: Record<DocKey, DocState>;
   testSlotId: string; interviewSlotId: string; writtenScore: number | null; panelStatus: PanelStatus | null; panelist: string;
-  waitlistNo: number; offerId: string; notes: string;
+  waitlistNo: number; offerId: string; notes: string; studentId?: string; relation?: string;
 };
 
 export type OfferStatus = "pending" | "accepted" | "enrolled" | "declined" | "lapsed";
@@ -44,7 +46,7 @@ export type Slot = {
   capacity: number; invigilator: string; status: SlotStatus;
 };
 
-export type Seat = { id: string; grade: string; group: string; capacity: number; rteSeats: number; block: string };
+export type Seat = { id: string; grade: string; group: string; capacity: number; rteSeats: number; block: string; streamId?: string; stream?: string; reservationRevision?: number; latestReservationId?: string };
 
 export type FieldType = "text" | "textarea" | "select" | "radio" | "date" | "tel" | "email" | "number";
 export type FormField = { id: string; key: string; label: string; type: FieldType; required: boolean; core?: boolean; placeholder?: string; options?: string[]; rule?: string };
@@ -83,17 +85,41 @@ export const GRADES = [
   { id: "7", label: "Grade 7", group: "middle", minAge: 12 },
   { id: "8", label: "Grade 8", group: "middle", minAge: 13 },
   { id: "9", label: "Grade 9", group: "middle", minAge: 14 },
+  { id: "10", label: "Grade 10", group: "middle", minAge: 15 },
   { id: "11-Science", label: "Grade 11 (Science)", group: "senior", minAge: 16 },
   { id: "11-Commerce", label: "Grade 11 (Commerce)", group: "senior", minAge: 16 },
+  { id: "11-Humanities", label: "Grade 11 (Humanities)", group: "senior", minAge: 16 },
+  { id: "12-Science", label: "Grade 12 (Science)", group: "senior", minAge: 17 },
+  { id: "12-Commerce", label: "Grade 12 (Commerce)", group: "senior", minAge: 17 },
+  { id: "12-Humanities", label: "Grade 12 (Humanities)", group: "senior", minAge: 17 },
 ] as const;
 export const GROUPS = [
   { id: "pre", label: "Pre-Primary", sub: "Nursery, LKG & UKG" },
   { id: "primary", label: "Primary", sub: "Grades 1–5 (Elementary)" },
-  { id: "middle", label: "Middle & Secondary", sub: "Grades 6–9 (Academic Block)" },
-  { id: "senior", label: "Senior Secondary", sub: "Grade 11 – Science & Commerce" },
+  { id: "middle", label: "Middle & Secondary", sub: "Grades 6–10 (Academic Block)" },
+  { id: "senior", label: "Senior Secondary", sub: "Grades 11–12" },
 ] as const;
-export const gradeLabel = (id: string) => GRADES.find((g) => g.id === id)?.label ?? id;
-export const gradeIdFromLabel = (label: string) => GRADES.find((g) => g.label === label || g.id === label)?.id ?? label;
-export const groupOfGrade = (id: string) => GRADES.find((g) => g.id === id)?.group ?? "primary";
+export function gradeLabel(id: string) {
+  const builtIn = GRADES.find((grade) => grade.id === id);
+  if (builtIn) return builtIn.label;
+  const [grade, stream = ""] = id.split("-");
+  return (grade === "11" || grade === "12") && isCourseId(stream) ? `Grade ${grade} (${streamName(stream)})` : id;
+}
+export function gradeIdFromLabel(label: string) {
+  const builtIn = GRADES.find((grade) => grade.label === label || grade.id === label);
+  if (builtIn) return builtIn.id;
+  const custom = /^Grade (11|12) \((.+)\)$/.exec(label);
+  return custom && courseIdOf(custom[2]!) ? `${custom[1]}-${courseIdOf(custom[2]!)}` : label;
+}
+export const groupOfGrade = (id: string) => GRADES.find((g) => g.id === id)?.group ?? (/^(11|12)-course_/.test(id) ? "senior" : "primary");
+
+export type AdmissionCohort = { id: string; label: string; group: string; minAge: number };
+export function admissionCohorts(seats: Seat[]): AdmissionCohort[] {
+  const custom = seats.filter((row) => row.streamId && isCourseId(row.streamId) && /^(11|12)-/.test(row.grade));
+  return [...GRADES, ...custom.sort((a, b) => a.grade.localeCompare(b.grade)).map((row) => ({
+    id: row.grade, group: "senior", minAge: row.grade.startsWith("11-") ? 16 : 17,
+    label: row.stream ? `Grade ${row.grade.slice(0, 2)} (${row.stream})` : gradeLabel(row.grade),
+  }))];
+}
 /** Value stored in the shared `students` collection. */
-export const studentGrade = (id: string) => (id.startsWith("11") ? "11" : id);
+export const studentGrade = (id: string) => (/^(11|12)-/.exec(id)?.[1] ?? id);

@@ -25,6 +25,8 @@ class LoginSubmitted extends AuthEvent {
   const LoginSubmitted(this.email, this.password);
   final String email, password;
   @override
+  bool get stringify => false;
+  @override
   List<Object?> get props => [email, password];
 }
 
@@ -57,18 +59,6 @@ class SocialSignInRequested extends AuthEvent {
   List<Object?> get props => [provider];
 }
 
-class PasswordResetRequested extends AuthEvent {
-  const PasswordResetRequested(this.email);
-  final String email;
-  @override
-  List<Object?> get props => [email];
-}
-
 class LogoutRequested extends AuthEvent {
   const LogoutRequested();
-}
-
-/// Forgot-password screen opened: forget the previous result.
-class PasswordResetCleared extends AuthEvent {
-  const PasswordResetCleared();
 }

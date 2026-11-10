@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-  allocationError, ayLabel, ayStart, bellError, buildSchedule, canOpenStep, classIdOfLabel, classesFor, currentTermName, feeError, firstOpenStep,
-  inviteError, markCompleted, newStaffErrors, nextEmpId, nextStaffId, parseStudentCsv, profileErrors, progressPct, sectionRowsFor, sectionsError,
-  splitCsvLine, studentDocs, termDays, termErrors, termStatus, type Bell,
+  allocationError, ayLabel, ayStart, bellError, buildSchedule, initialBell, canOpenStep, classIdOfLabel, classesFor, currentTermName, firstOpenStep,
+  markCompleted, profileErrors, progressPct, sectionRowsFor, sectionsError,
+  termDays, termErrors, termStatus, type Bell,
 } from "./logic";
 
 describe("step progress", () => {
-  it("firstOpenStep is the first unfinished step, 8 when all are done", () => {
+  it("firstOpenStep is the first unfinished step, 6 when all are done", () => {
     expect(firstOpenStep([])).toBe(1);
     expect(firstOpenStep([1, 2, 4])).toBe(3);
-    expect(firstOpenStep([1, 2, 3, 4, 5, 6, 7, 8])).toBe(8);
+    expect(firstOpenStep([1, 2, 3, 4, 5, 6])).toBe(6);
+    expect(firstOpenStep([1, 2, 3, 4, 5, 6, 7, 8])).toBe(6);
   });
   it("markCompleted is unique, sorted and ignores out-of-range numbers", () => {
     expect(markCompleted([3, 1], 2)).toEqual([1, 2, 3]);
@@ -18,9 +19,12 @@ describe("step progress", () => {
   });
   it("progress and step access", () => {
     expect(progressPct([])).toBe(0);
-    expect(progressPct([1, 2, 2, 9])).toBe(25);
+    expect(progressPct([1, 2, 2, 7, 9])).toBe(33);
+    expect(progressPct([1, 2, 3, 4, 5, 6, 8])).toBe(100);
     expect(canOpenStep(3, [1, 2])).toBe(true);
     expect(canOpenStep(4, [1, 2])).toBe(false);
+    expect(canOpenStep(7, [1, 2, 3, 4, 5, 6])).toBe(false);
+    expect(canOpenStep(8, [1, 2, 3, 4, 5, 6])).toBe(false);
     expect(canOpenStep(0, [])).toBe(false);
     expect(canOpenStep(1.5, [1])).toBe(false);
   });
@@ -34,7 +38,7 @@ describe("step progress", () => {
 });
 
 describe("1 · profile", () => {
-  const ok = { name: "Sunrise Academy", short: "", board: "CBSE", affiliation: "#1930281", addressLine1: "12 School Road", addressLine2: "", country: "IN", state: "IN.16", district: "IN.16.521", city: "Pune", pin: "411001", phone: "+91 20 2345 6789", email: "office@sunrise.in", principal: "" };
+  const ok = { name: "Sunrise Academy", short: "", board: "CBSE", affiliation: "#1930281", addressLine1: "12 School Road", addressLine2: "", country: "IN", state: "IN.16", district: "IN.16.521", city: "Pune", pin: "411001", phone: "+91 20 2345 6789", email: "office@sunrise.in" };
   it("accepts a valid profile", () => { expect(profileErrors(ok)).toEqual({}); });
   it("reports each bad field", () => {
     expect(profileErrors({ ...ok, name: " ", affiliation: "12-34", city: "", phone: "98100", email: "office@" })).toEqual({
@@ -89,110 +93,89 @@ describe("3 · classes", () => {
       { grade: "Grade 5", stream: "Primary", sections: ["5-A", "5-B"], roster: 0, cap: 60 },
     ]);
     expect(classIdOfLabel("5-B")).toBe("cls_5B");
-    expect(classIdOfLabel("11-Sci-A")).toBe("cls_11A");
+    expect(classIdOfLabel("11-Sci-A")).toBe("cls_11_science_A");
     expect(classIdOfLabel("LKG-A")).toBe("cls_LKGA");
   });
 });
 
 describe("4 · bell schedule", () => {
-  const v: Bell = { gates: "07:45", start: "08:30", end: "14:45", periods: 8, len: 40, snackAfter: 3, snackMin: 15, lunchAfter: 5, lunchMin: 30 };
-  it("builds periods with breaks after the chosen periods", () => {
-    const s = buildSchedule(v);
+  const v: Bell = initialBell();
+  const custom: Bell = { ...v, end: "16:00", breaks: [
+    { name: "Afternoon break", start: "15:00", duration: 10 },
+    { name: "Morning break", start: "11:00", duration: 10 },
+    { name: "Lunch", start: "12:00", duration: 60 },
+  ] };
+
+  it("preserves the timing of existing period-relative schedules", () => {
+    const legacy = { gates: "07:45", start: "08:30", end: "14:45", periods: 8, len: 40, snackAfter: 3, snackMin: 15, lunchAfter: 5, lunchMin: 30 };
+    expect(initialBell(legacy).breaks).toEqual([
+      { name: "Morning break", start: "10:30", duration: 15 }, { name: "Lunch", start: "12:05", duration: 30 },
+    ]);
+    const s = buildSchedule(initialBell(legacy));
     expect(s.rows).toHaveLength(10);
-    expect(s.rows[3]).toEqual({ label: "Snack break", from: "10:30", to: "10:45", break: true });
-    expect(s.endsAt).toBe(8 * 60 + 30 + 8 * 40 + 45);
+    expect(s.rows[3]).toEqual({ label: "Morning break", from: "10:30", to: "10:45", break: true });
+    expect(s.endsAt).toBe(14 * 60 + 35);
+    expect(initialBell({ ...legacy, snackMin: 0, lunchMin: 0 }).breaks).toEqual([]);
+    expect(initialBell({ ...legacy, breaks: [] }).breaks).toEqual([]);
   });
-  it("validates times, counts, breaks and the closing time", () => {
+
+  it("keeps all three breaks at exact times and moves full lessons past them", () => {
+    const schedule = buildSchedule(custom);
+    expect(bellError(custom)).toBe("");
+    expect(schedule.rows.filter((row) => row.break)).toEqual([
+      { label: "Morning break", from: "11:00", to: "11:10", break: true },
+      { label: "Lunch", from: "12:00", to: "13:00", break: true },
+      { label: "Afternoon break", from: "15:00", to: "15:10", break: true },
+    ]);
+    expect(schedule.rows.filter((row) => row.gap)).toEqual([
+      { label: "Unallocated time", from: "10:30", to: "11:00", gap: true },
+      { label: "Unallocated time", from: "11:50", to: "12:00", gap: true },
+    ]);
+    expect(schedule.rows.at(-1)).toEqual({ label: "Period 8", from: "15:10", to: "15:50" });
+    expect(schedule.endsAt).toBe(15 * 60 + 50);
+    expect(custom.breaks[0]?.name).toBe("Afternoon break"); // sorting never changes the editor's row order
+  });
+
+  it("handles no breaks, adjacent breaks, and breaks after the final lesson", () => {
+    expect(buildSchedule({ ...v, breaks: [] }).endsAt).toBe(13 * 60 + 50);
+    const day = { ...v, periods: 1, breaks: [
+      { name: "Assembly break", start: "08:30", duration: 10 },
+      { name: "Morning break", start: "08:40", duration: 10 },
+      { name: "Lunch", start: "12:00", duration: 60 },
+    ] };
+    expect(bellError(day)).toBe("");
+    expect(buildSchedule(day).rows[2]).toEqual({ label: "Period 1", from: "08:50", to: "09:30" });
+    expect(buildSchedule(day).endsAt).toBe(13 * 60);
+  });
+
+  it("validates school times, period limits and closing time", () => {
     expect(bellError(v)).toBe("");
     expect(bellError({ ...v, start: "07:45" })).toBe("Classes must start after the gates open.");
     expect(bellError({ ...v, gates: "" })).toBe("Enter all times as HH:mm.");
+    expect(bellError({ ...v, end: "08:00" })).toBe("School must close after the first period starts.");
     expect(bellError({ ...v, periods: 13 })).toBe("Use between 1 and 12 periods.");
     expect(bellError({ ...v, len: 15 })).toBe("Period length should be between 20 and 90 minutes.");
-    expect(bellError({ ...v, lunchMin: 95 })).toBe("Breaks should be between 0 and 90 minutes.");
-    expect(bellError({ ...v, snackAfter: 8 })).toBe("Breaks must come after a period and before the last one.");
-    expect(bellError({ ...v, snackAfter: 8, snackMin: 0 })).toBe("");
     expect(bellError({ ...v, end: "14:00" })).toBe("The schedule runs until 14:35, past the closing time of 14:00. Shorten the periods or move closing time.");
   });
-});
 
-describe("5 · fees", () => {
-  const fees = { pri: { tuition: 24000, lab: 0, activity: 2500, library: 1500 } };
-  it("validates amounts, due day, late fee and payment methods", () => {
-    expect(feeError(fees, 10, 2, true, false)).toBe("");
-    expect(feeError({ pri: { ...fees.pri, lab: -1 } }, 10, 2, true, true)).toBe("Fees cannot be negative.");
-    expect(feeError({ pri: { ...fees.pri, tuition: 0 } }, 10, 2, true, true)).toBe("Tuition must be greater than zero for every band.");
-    expect(feeError({ pri: { ...fees.pri, tuition: NaN } }, 10, 2, true, true)).toBe("Fees cannot be negative.");
-    expect(feeError(fees, 29, 2, true, true)).toBe("Due day should be between 1 and 28.");
-    expect(feeError(fees, 0, 2, true, true)).toBe("Due day should be between 1 and 28.");
-    expect(feeError(fees, 10, 11, true, true)).toBe("Late fee should be between 0% and 10%.");
-    expect(feeError(fees, 10, 2, false, false)).toBe("Enable at least one online payment method.");
+  it("refuses unnamed, incomplete, overlapping and out-of-day breaks", () => {
+    const withBreak = (patch: Partial<Bell["breaks"][number]>) => ({ ...v, breaks: [{ name: "Lunch", start: "12:00", duration: 60, ...patch }] });
+    expect(bellError(withBreak({ name: " " }))).toBe("Break 1: enter a name of up to 80 characters.");
+    expect(bellError(withBreak({ start: "" }))).toBe("Lunch: enter a valid start time.");
+    expect(bellError(withBreak({ start: "24:00" }))).toBe("Lunch: enter a valid start time.");
+    for (const duration of [0, -10, 181, 1.5, NaN]) expect(bellError(withBreak({ duration }))).toBe("Lunch: duration must be between 1 and 180 minutes.");
+    expect(bellError(withBreak({ start: "08:00" }))).toBe("Lunch: the entire break must be within the school day.");
+    expect(bellError(withBreak({ start: "14:00" }))).toBe("Lunch: the entire break must be within the school day.");
+    expect(bellError({ ...custom, breaks: [...custom.breaks, { name: "Another break", start: "11:05", duration: 10 }] })).toBe("Another break overlaps Morning break.");
+    expect(bellError({ ...custom, breaks: [...custom.breaks, { name: "Another lunch", start: "12:00", duration: 10 }] })).toBe("Another lunch overlaps Lunch.");
   });
 });
 
 describe("6 · staff", () => {
-  const staff = [{ id: "stf_003", email: "a@s.in", empId: "EMP-1002" }, { id: "legacy", email: "", empId: "EMP-1003" }];
-  it("ids and employee numbers", () => {
-    expect(nextStaffId([])).toBe("stf_001");
-    expect(nextStaffId(staff.map((s) => s.id))).toBe("stf_004");
-    expect(nextEmpId(staff)).toBe("EMP-1004");
-    expect(nextEmpId([])).toBe("EMP-1001");
-  });
-  it("new staff need a name and a unique valid email", () => {
-    expect(newStaffErrors({ name: "Ravi", email: "ravi@s.in" }, staff)).toEqual({});
-    expect(newStaffErrors({ name: " ", email: "ravi" }, staff)).toEqual({ name: "Enter the new staff member's name.", email: "Enter a valid email (it is the teacher's login)." });
-    expect(newStaffErrors({ name: "Ravi", email: " A@S.in " }, staff)).toEqual({ email: "Another staff member already uses this email." });
-  });
-  it("class-teacher coverage needs staff and half of the sections", () => {
-    const secs = ["5-A", "5-B", "5-C"];
-    expect(allocationError(0, secs, {})).toBe("Add at least one staff member before continuing.");
-    expect(allocationError(2, secs, { s1: "5-A" })).toBe("2 of 3 sections have no class teacher yet. Assign at least half to continue.");
-    expect(allocationError(2, secs, { s1: "5-A", s2: "5-B" })).toBe("");
-    expect(allocationError(2, secs, { s1: "5-A", s2: "5-A" })).toBe("A section can have only one class teacher.");
-    expect(allocationError(1, [], {})).toBe("");
-  });
-});
-
-describe("7 · student import", () => {
-  it("splits quoted CSV values", () => {
-    expect(splitCsvLine('"Nair, Aarav",5,A,"Mr. ""Raj"" Nair",+91 98100')).toEqual(["Nair, Aarav", "5", "A", 'Mr. "Raj" Nair', "+91 98100"]);
-  });
-  it("validates each row and skips the header", () => {
-    const text = "name,grade,section,guardian,phone\nAarav,5,a,Mr. Nair,+91 9810011223\n,5,A,G,9810011223\nB,13,A,G,9810011223\nC,5,J,G,9810011223\nD,5,A,,9810011223\nE,5,A,G,98100\nF,Grade 3,B,G,9810011224\nG,lkg,A,G,9810011225";
-    const rows = parseStudentCsv(text);
-    expect(rows.map((r) => [r.line, r.error ?? "OK"])).toEqual([
-      [2, "OK"], [3, "Missing name"], [4, 'Unknown grade "13"'], [5, "Section must be A–H"], [6, "Missing guardian"], [7, "Phone needs 10–13 digits"], [8, "OK"], [9, "OK"],
-    ]);
-    expect(rows[0]).toMatchObject({ section: "A", grade: "5" });
-    expect(rows[6]).toMatchObject({ grade: "3" });
-    expect(rows[7]).toMatchObject({ grade: "LKG" });
-  });
-  it("refuses classes that do not exist, duplicates and students already in the system", () => {
-    const text = "A,5,A,G,9810011223\nA,5,A,G,+91 98100 11223\nB,5,C,G,9810011224\nC,5,B,G,9810011225";
-    const rows = parseStudentCsv(text, ["cls_5A", "cls_5B"], [{ name: "c", grade: "5", section: "B", phone: "9810011225" }]);
-    expect(rows.map((r) => r.error ?? "OK")).toEqual(["OK", "Duplicate of line 1", "No class 5-C (add it in step 3)", "Already in the system"]);
-  });
-  it("builds contract student docs with stu ids, classId and per-class rolls", () => {
-    const existing = [{ id: "stu_004", name: "X", grn: "GRN-9001", grade: "5", section: "A", classId: "cls_5A", roll: 7 }];
-    const docs = studentDocs(parseStudentCsv("A,5,A,G,9810011223\nB,5,B,G,9810011224\nC,5,A,G,9810011225\nbad,,,,"), existing);
-    expect(docs).toEqual([
-      { id: "stu_005", name: "A", grn: "GRN-9002", grade: "5", section: "A", classId: "cls_5A", roll: 8, guardian: "G", phone: "9810011223", status: "Active", attendance: 100 },
-      { id: "stu_006", name: "B", grn: "GRN-9003", grade: "5", section: "B", classId: "cls_5B", roll: 1, guardian: "G", phone: "9810011224", status: "Active", attendance: 100 },
-      { id: "stu_007", name: "C", grn: "GRN-9004", grade: "5", section: "A", classId: "cls_5A", roll: 9, guardian: "G", phone: "9810011225", status: "Active", attendance: 100 },
-    ]);
-  });
-  it("is empty for empty input", () => { expect(parseStudentCsv(" \n \n")).toEqual([]); });
-});
-
-describe("8 · parent invite", () => {
-  const ch = { app: true, sms: false };
-  it("validates channel, message, schedule and confirmation", () => {
-    expect(inviteError(ch, "Hi {link}", "now", "", true, "2026-11-03")).toBe("");
-    expect(inviteError({ app: false }, "Hi {link}", "now", "", true, "2026-11-03")).toBe("Choose at least one channel.");
-    expect(inviteError(ch, "  ", "now", "", true, "2026-11-03")).toBe("Write the invitation message.");
-    expect(inviteError(ch, "Hi", "now", "", true, "2026-11-03")).toBe("The message must include the {link} variable so parents can sign in.");
-    expect(inviteError(ch, "Hi {link}", "later", "", true, "2026-11-03")).toBe("Pick the date to send the invitations.");
-    expect(inviteError(ch, "Hi {link}", "later", "2026-11-02", true, "2026-11-03")).toBe("Pick today or a later date.");
-    expect(inviteError(ch, "Hi {link}", "later", "2026-11-03", true, "2026-11-03")).toBe("");
-    expect(inviteError(ch, "Hi {link}", "now", "", false, "2026-11-03")).toBe("Confirm the parent contact data has been verified.");
+  it("accepts optional assignments and rejects two class teachers for the same section", () => {
+    expect(allocationError({})).toBe("");
+    expect(allocationError({ s1: "5-A" })).toBe("");
+    expect(allocationError({ s1: "5-A", s2: "5-B" })).toBe("");
+    expect(allocationError({ s1: "5-A", s2: "5-A" })).toBe("A section can have only one class teacher.");
   });
 });

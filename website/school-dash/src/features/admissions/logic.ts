@@ -1,8 +1,9 @@
+import { classIdOf, classStream, isCourseId, isSeniorGrade, streamFromClassId, streamIdOf, streamName } from "@/lib/academicStreams";
 // Pure admissions logic (no React, no Firestore): seat maths, offer/enrolment records, validation, report figures.
 // Components and the useAdm() hook in ./lib call these; the unit tests exercise them directly.
 import {
   type Application, type AppStatus, type DocKey, type DocState, type Enquiry, type FormField, type FormSection, type Offer,
-  type PanelStatus, type Reenrol, type Seat, type Slot, GRADES, GROUPS, SOURCES, studentGrade,
+  type PanelStatus, type Reenrol, type Seat, type Slot, GRADES, GROUPS, SOURCES, admissionCohorts, gradeLabel, studentGrade,
 } from "./types";
 
 // ---------- small helpers ----------
@@ -39,18 +40,37 @@ const LIVE: Offer["status"][] = ["pending", "accepted"];
  * One row per configured grade (in GRADES order): enrolled = applications enrolled; held = enrolled + live offers
  * (pending/accepted); free = capacity − held (may be negative if capacity was cut); quota counts cover enrolled + live.
  */
-export function computeSeatRows(seats: Seat[], apps: Application[], offers: Offer[]): SeatRow[] {
-  return GRADES.map((g) => seats.find((s) => s.grade === g.id)).filter((s): s is Seat => !!s).map((s) => {
-    const enrolled = apps.filter((a) => a.grade === s.grade && a.status === "enrolled");
+export function computeSeatRows(seats: Seat[], apps: Application[], offers: Offer[], students: StudentRow[] = []): SeatRow[] {
+  const rosterApplications = new Set(students.map((student) => student.applicationId).filter(Boolean));
+  const knownOffers = new Set(students.map((student) => student.offerId).filter(Boolean));
+  return admissionCohorts(seats).map((g) => seats.find((s) => s.grade === g.id)).filter((s): s is Seat => !!s).map((s) => {
+    const course = s.streamId && isCourseId(s.streamId);
+    const streamId = streamIdOf(s.streamId || s.grade.split("-").slice(1).join("-"));
+    const roster = students.filter((student) => !student.deleted &&
+      (!student.status || student.status === "Active") && String(student.grade) === studentGrade(s.grade) &&
+      (classStream(student) || streamFromClassId(student.classId)) === streamId);
+    const rosterOffers = new Set(roster.map((student) => student.offerId).filter(Boolean));
+    const applicationIds = new Set(roster.map((student) => student.applicationId).filter(Boolean));
+    const enrolled = apps.filter((a) => a.grade === s.grade && a.status === "enrolled" && (
+      applicationIds.has(a.id) || rosterOffers.has(a.offerId) ||
+      (!course && !rosterApplications.has(a.id) && !knownOffers.has(a.offerId) && !a.studentId)
+    ));
+    const enrolledIds = new Set(enrolled.map((a) => a.id));
+    const linkedOffers = new Set(enrolled.map((a) => a.offerId).filter(Boolean));
+    const linkedRoster = roster.filter((student) =>
+      enrolledIds.has(student.applicationId ?? "") || linkedOffers.has(student.offerId ?? ""),
+    ).length;
+    const directCount = roster.length - linkedRoster;
+    const occupied = enrolled.length + directCount;
     // an enrolled offer is counted through its application, not twice
-    const live = offers.filter((o) => o.grade === s.grade && LIVE.includes(o.status));
+    const live = offers.filter((o) => o.grade === s.grade && LIVE.includes(o.status) && !rosterOffers.has(o.id));
     const liveApps = live.map((o) => apps.find((a) => a.id === o.applicationId)).filter((a): a is Application => !!a);
     const all = [...enrolled, ...liveApps];
     const capacity = Number(s.capacity) || 0;
     return {
       ...s, capacity, rteSeats: Number(s.rteSeats) || 0,
-      enrolled: enrolled.length, held: enrolled.length + live.length, free: capacity - enrolled.length - live.length,
-      gen: all.filter((a) => a.tag === "general" || a.tag === "staff").length, rte: all.filter((a) => a.tag === "rte").length,
+      enrolled: occupied, held: occupied + live.length, free: capacity - occupied - live.length,
+      gen: directCount + all.filter((a) => a.tag === "general" || a.tag === "staff").length, rte: all.filter((a) => a.tag === "rte").length,
       sib: all.filter((a) => a.tag === "sibling").length, waitlisted: apps.filter((a) => a.grade === s.grade && a.status === "waitlisted").length,
     };
   });
@@ -77,31 +97,31 @@ export function docPatch(a: Application, key: DocKey, state: DocState): Partial<
   const complete = docsComplete({ docs });
   const patch: Partial<Application> = { docs };
   if (complete && (a.status === "submitted" || a.status === "docs_pending")) patch.status = "verified";
-  else if (!complete && a.status === "verified") patch.status = "docs_pending";
+  else if (!complete && (a.status === "verified" || a.status === "approved")) patch.status = "docs_pending";
   else if (!complete && a.status === "submitted" && Object.values(docs).some((s) => s === "verified")) patch.status = "docs_pending";
   return patch;
 }
 
 /** Stages the admissions desk may set by hand (offer / enrolment stages are driven by the offer flow). */
-export const MANUAL_STATUSES: AppStatus[] = ["submitted", "docs_pending", "verified", "test_scheduled", "tested", "shortlisted", "waitlisted", "rejected"];
+export const MANUAL_STATUSES: AppStatus[] = ["submitted", "docs_pending", "verified", "approved", "test_scheduled", "tested", "shortlisted", "waitlisted", "rejected"];
 /** Why a manual stage move is refused ("" when allowed). */
 export function stageMoveError(a: Application, to: AppStatus) {
   if (LOCKED_APP.includes(a.status)) return "This application is managed in Offer & Enrolment";
   if (!MANUAL_STATUSES.includes(to)) return "This stage is set by the offer flow";
-  if (to === "verified" && !docsComplete(a)) return "Verify every required document first";
+  if ((to === "verified" || to === "approved") && !docsComplete(a)) return "Verify every required document first";
   if (to === "test_scheduled" && !a.testSlotId) return "Assign a test slot under Tests & Interviews first";
   if ((to === "tested" || to === "shortlisted") && a.writtenScore == null) return "Enter the written score under Tests & Interviews first";
   return "";
 }
 const LOCKED_APP: AppStatus[] = ["offered", "enrolled", "withdrawn", "lapsed"];
 /** Statuses an offer can be generated from (Applications detail + Offers "Generate offer"). */
-export const OFFERABLE: AppStatus[] = ["verified", "tested", "shortlisted", "waitlisted"];
+export const OFFERABLE: AppStatus[] = ["verified", "approved", "tested", "shortlisted", "waitlisted"];
 /** Why an offer cannot be generated ("" when it can). */
 export function offerBlocker(a: Application, seatRows: SeatRow[], offers: Offer[]) {
   const seat = seatRows.find((s) => s.grade === a.grade);
   if (!seat) return "No seat matrix configured for this grade";
   if (offers.some((o) => o.applicationId === a.id && LIVE.includes(o.status))) return "An active offer already exists";
-  if (seat.free <= 0) return `No free seat in ${GRADES.find((g) => g.id === a.grade)?.label ?? a.grade} — increase capacity or release an offer`;
+  if (seat.free <= 0) return `No free seat in ${gradeLabel(a.grade)} — increase capacity or release an offer`;
   return "";
 }
 /** Offer doc for an application (`ref` from the existing offers, expiry = issue date + validity days, default 7). */
@@ -154,15 +174,15 @@ export const slotEligible = (slot: Pick<Slot, "type">, apps: Application[]) => a
   : ["tested", "shortlisted"].includes(a.status) && !a.interviewSlotId);
 
 // ---------- enrolment → shared `students` (contract section 3) ----------
-export type StudentRow = { id: string; name: string; grn?: string; grade: string; section: string; classId?: string; roll?: number; status?: string; offerId?: string };
-export type ClassRef = { id: string; grade: string; section: string };
+export type StudentRow = { id: string; name: string; grn?: string; grade: string; section: string; classId?: string; streamId?: string; stream?: string; roll?: number; status?: string; offerId?: string; applicationId?: string; deleted?: boolean };
+export type ClassRef = { id: string; grade: string; section: string; streamId?: string; stream?: string; capacity?: number };
 /** contract section 2: `cls_{grade}{SECTION}` */
-export const classIdOf = (grade: string, section: string) => `cls_${grade}${section.toUpperCase()}`;
+export { classIdOf } from "@/lib/academicStreams";
 /** Next zero-padded id `stu_001`… above the highest numeric id in use. */
 export const nextStudentId = (ids: string[]) => `stu_${String(Math.max(0, ...ids.map((i) => Number(/^stu_(\d+)$/.exec(i)?.[1] ?? 0))) + 1).padStart(3, "0")}`;
 /** Next integer roll in a class (students without classId are matched by grade + section). */
 export const nextRoll = (students: StudentRow[], classId: string) =>
-  Math.max(0, ...students.filter((s) => (s.classId ?? classIdOf(String(s.grade), String(s.section ?? ""))) === classId).map((s) => Number(s.roll) || 0)) + 1;
+  Math.max(0, ...students.filter((s) => (s.classId ?? classIdOf(String(s.grade), String(s.section ?? ""), s.streamId)) === classId).map((s) => Number(s.roll) || 0)) + 1;
 /** Next GRN `GIS-####` not in use (same scheme as Students & Guardians). */
 export function nextGrn(students: Pick<StudentRow, "grn">[], prefix = "GIS") {
   const taken = new Set(students.map((s) => String(s.grn ?? "").trim().toLowerCase()));
@@ -171,25 +191,32 @@ export function nextGrn(students: Pick<StudentRow, "grn">[], prefix = "GIS") {
   return `${prefix}-${k}`;
 }
 /** Section for a new admission in `grade`: the existing class of that grade with the fewest students (ties: lower letter), else "A". */
-export function sectionFor(grade: string, classes: ClassRef[], students: StudentRow[]) {
-  const mine = classes.filter((c) => String(c.grade) === grade).sort((a, b) => a.section.localeCompare(b.section));
+export function sectionFor(grade: string, classes: ClassRef[], students: StudentRow[], streamId?: string) {
+  const mine = classes.filter((c) => String(c.grade) === grade && (!streamId || classStream(c) === streamId)).sort((a, b) => a.section.localeCompare(b.section));
   if (!mine.length) return "A";
-  const size = (c: ClassRef) => students.filter((s) => (s.classId ?? classIdOf(String(s.grade), String(s.section ?? ""))) === c.id).length;
-  return mine.reduce((best, c) => (size(c) < size(best) ? c : best)).section.toUpperCase();
+  const size = (c: ClassRef) => students.filter((s) => (!isCourseId(streamId ?? "") || (!s.deleted && (!s.status || s.status === "Active"))) &&
+    (s.classId ?? classIdOf(String(s.grade), String(s.section ?? ""), s.streamId)) === c.id).length;
+  const available = isCourseId(streamId ?? "") ? mine.filter((row) => Number(row.capacity) > size(row)) : mine;
+  if (!available.length) throw new Error(`No open section seats in Grade ${grade} ${streamName(streamId)}.`);
+  return available.reduce((best, c) => (size(c) < size(best) ? c : best)).section.toUpperCase();
 }
 /** The `students` doc created when an accepted offer is enrolled (contract-exact id, classId, int roll, string grade/section). */
 export function enrolmentStudent(o: Offer, a: Application | undefined, e: Enquiry | undefined, students: StudentRow[], classes: ClassRef[], today: string) {
   const grade = studentGrade(o.grade);
-  const section = sectionFor(grade, classes, students);
-  const classId = classIdOf(grade, section);
+  const streamId = isSeniorGrade(grade) ? streamIdOf(o.grade.split("-").slice(1).join("-")) : "";
+  if (isSeniorGrade(grade) && !streamId) throw new Error("Choose the student's stream before enrolment");
+  if (streamId && !classes.some((row) => row.grade === grade && classStream(row) === streamId)) throw new Error(`Configure Grade ${grade} ${streamName(streamId)} sections before enrolment`);
+  const section = sectionFor(grade, classes, students, streamId);
+  const classId = classes.find((row) => row.grade === grade && row.section === section && (!streamId || classStream(row) === streamId))?.id ?? classIdOf(grade, section, streamId);
   const doc: Record<string, unknown> = {
-    id: nextStudentId(students.map((s) => s.id)), name: o.name.trim(), grn: nextGrn(students), grade, section, classId, roll: nextRoll(students, classId),
+    id: nextStudentId(students.map((s) => s.id)), name: o.name.trim(), grn: nextGrn(students), grade, section, classId, ...(streamId ? { streamId, stream: streamName(streamId) } : {}), roll: nextRoll(students, classId),
     guardian: o.guardian, phone: o.phone, status: "Active", attendance: 100, admissionDate: today, offerId: o.id,
   };
   if (a?.dob || e?.dob) doc.dob = a?.dob || e?.dob;
   if (a?.gender) doc.gender = a.gender;
   if (e?.relation) doc.relation = e.relation;
-  if (a?.email || e?.email) doc.guardianEmail = (a?.email || e?.email || "").trim();
+  const parentEmail = (a?.email ?? e?.email ?? "").trim().toLowerCase();
+  if (parentEmail) doc.guardianEmail = parentEmail;
   return doc as StudentRow & Record<string, unknown> & { id: string; classId: string; roll: number; grn: string };
 }
 
@@ -341,16 +368,16 @@ export function overviewStats(E: Enquiry[], A: Application[], O: Offer[], seatRo
 }
 
 // ---------- enquiries ----------
-export type EnquiryDraft = { name: string; grade: string; dob: string; guardian: string; phone: string; email: string; followUp: string };
+export type EnquiryDraft = { name: string; grade: string; dob: string; guardian: string; phone: string; email: string; followUp?: string };
 /** Log-enquiry form rule (all errors at once; "" keys absent when valid). */
-export function enquiryErrors(f: EnquiryDraft, today: string) {
+export function enquiryErrors(f: EnquiryDraft, today: string, cohorts: readonly { id: string }[] = GRADES, { contactOnly = false } = {}) {
   const e: Record<string, string> = {};
   if (!f.name.trim()) e.name = "Student name is required";
-  if (!GRADES.some((g) => g.id === f.grade)) e.grade = "Choose a grade";
-  if (!f.dob) e.dob = "Date of birth is required"; else if (f.dob > today) e.dob = "DOB cannot be in the future";
+  if (!cohorts.some((g) => g.id === f.grade)) e.grade = "Choose a grade";
+  if (!f.dob && !contactOnly) e.dob = "Date of birth is required"; else if (f.dob > today) e.dob = "DOB cannot be in the future";
   if (!f.guardian.trim()) e.guardian = "Guardian name is required";
   if (!isPhone(f.phone)) e.phone = "Enter a valid mobile number";
-  if (!isEmail(f.email)) e.email = "Enter a valid email";
+  if ((f.email || !contactOnly) && !isEmail(f.email)) e.email = "Enter a valid email";
   if (f.followUp && f.followUp < today) e.followUp = "Follow-up date cannot be in the past";
   return e;
 }

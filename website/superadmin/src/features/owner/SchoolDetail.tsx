@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ExternalLink, KeyRound, Mail, PauseCircle, PlayCircle, Plus, Trash2, UserMinus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Select, Stat, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { schoolConsoleUrl } from "@edvio/shared/sites";
+import staffPolicy from "../../../../functions/staffRoles.json";
 import { addAdminLogin, deleteSchool, ownerError, reactivateSchool, removeAccess, sendReset, setPassword, suspendSchool, updatePlatform } from "./api";
 import { forgetSchool, loadCounts, loadProfile, usePlatformSchools, useSchoolCollection, useSchoolUsers } from "./data";
 import { EMAIL, fmtDate, generatePassword, MIN_ADMIN_PASSWORD, PLANS, type PlatformUser, type SchoolCounts, type SchoolProfile } from "./logic";
@@ -13,7 +14,7 @@ type Student = { id: string; name?: string; grn?: string; grade?: string; sectio
 type Staff = { id: string; name?: string; empId?: string; department?: string; designation?: string; role?: string; email?: string; phone?: string; status?: string; authUid?: string };
 type ClassRow = { id: string; grade?: string; section?: string; classTeacher?: string; room?: string; studentCount?: number };
 
-const ROLE_LABEL: Record<string, string> = { admin: "Admin", teacher: "Teacher", parent: "Parent", driver: "Driver", attendant: "Bus attendant" };
+const ROLE_LABEL: Record<string, string> = { admin: "School Admin", staff: "Staff", parent: "Parent", attendant: "Bus attendant", ...staffPolicy.labels };
 const statusTone = (s?: string) => (!s || /active|present/i.test(s) ? "success" : /leave|pending/i.test(s) ? "warning" : "neutral");
 
 export function SchoolDetail({ sid }: { sid: string }) {
@@ -48,7 +49,7 @@ export function SchoolDetail({ sid }: { sid: string }) {
 
   const loginCols: Column<PlatformUser>[] = [
     { key: "email", header: "Login", sortValue: (u) => u.email ?? "", render: (u) => <div><p className="font-medium">{u.email || "—"}</p><p className="text-xs text-on-surface-variant">{u.name || ""}</p></div> },
-    { key: "role", header: "Role", sortValue: (u) => u.role, render: (u) => <Badge tone={u.role === "admin" ? "brand" : "neutral"}>{ROLE_LABEL[u.role] ?? u.role}</Badge> },
+    { key: "role", header: "Role", sortValue: (u) => u.staffRole ?? u.role, render: (u) => <Badge tone={u.role === "admin" ? "brand" : "neutral"}>{ROLE_LABEL[u.staffRole ?? u.role] ?? u.role}</Badge> },
     { key: "created", header: "Created", sortValue: (u) => u.createdAt ?? "", render: (u) => fmtDate(u.createdAt) },
     { key: "act", header: "", className: "text-right", render: (u) => (
       <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
@@ -215,16 +216,20 @@ function PasswordModal({ user, onClose }: { user: PlatformUser | null; onClose: 
 
 function AddAdminModal({ open, sid, onClose }: { open: boolean; sid: string; onClose: () => void }) {
   const toast = useToast();
-  const [v, setV] = useState({ name: "", email: "", password: "" });
+  const [v, setV] = useState({ name: "", email: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
-  const close = () => { setV({ name: "", email: "", password: "" }); setErr(""); onClose(); };
+  const close = () => { setV({ name: "", email: "" }); setErr(""); onClose(); };
   const save = async () => {
     if (v.name.trim().length < 2) return setErr("Enter the admin's name.");
     if (!EMAIL.test(v.email.trim())) return setErr("Enter a valid email.");
-    if (v.password.length < MIN_ADMIN_PASSWORD) return setErr(`The password needs at least ${MIN_ADMIN_PASSWORD} characters.`);
     setBusy(true);
-    try { await addAdminLogin(sid, v); toast(`${v.email.trim()} can now sign in as an admin`); close(); } catch (e) { setErr(ownerError(e)); } finally { setBusy(false); }
+    try {
+      const sent = await addAdminLogin(sid, v);
+      if (sent) toast(`School Admin created. Password email sent to ${v.email.trim()}`);
+      else toast("School Admin created. Use the email reset action to retry.", "error");
+      close();
+    } catch (e) { setErr(ownerError(e)); } finally { setBusy(false); }
   };
   return (
     <Modal open={open} onClose={close} title="Add an admin login" subtitle="Another person who can run this school"
@@ -232,8 +237,7 @@ function AddAdminModal({ open, sid, onClose }: { open: boolean; sid: string; onC
       <div className="space-y-3">
         <Field label="Name"><Input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></Field>
         <Field label="Email (sign-in id)"><Input type="email" value={v.email} onChange={(e) => setV({ ...v, email: e.target.value })} autoComplete="off" /></Field>
-        <Field label="Password"><div className="flex gap-2"><Input value={v.password} onChange={(e) => setV({ ...v, password: e.target.value })} className="font-mono" autoComplete="new-password" />
-          <Button type="button" variant="outline" onClick={() => setV({ ...v, password: generatePassword() })}>Generate</Button></div></Field>
+        <Field label="Role"><Input value="School Admin" readOnly /></Field>
         {err && <p role="alert" className="text-sm text-error">{err}</p>}
       </div>
     </Modal>

@@ -7,7 +7,7 @@ export interface PlatformSchool {
   createdAt?: string; createdBy?: string; updatedAt?: string; updatedBy?: string;
 }
 /** users/{uid} of any login (the console lists the admins of every school). */
-export interface PlatformUser { id: string; schoolId: string; role: string; email?: string; name?: string; createdAt?: string }
+export interface PlatformUser { id: string; schoolId: string; role: string; staffRole?: string; email?: string; name?: string; createdAt?: string }
 /** schools/{sid}/school/school plus the setup state, as far as the console reads them. */
 export interface SchoolProfile { name?: string; short?: string; city?: string; board?: string; academicYear?: string; setupComplete?: boolean; exists: boolean }
 export interface SchoolCounts { students: number; staff: number; classes: number }

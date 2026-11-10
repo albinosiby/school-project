@@ -156,6 +156,22 @@ describe("Reminders", () => {
 });
 
 describe("Fee structure", () => {
+  it("adds a configured senior stream after setup without colliding with its sibling stream", async () => {
+    seed({ classes: [{ id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }, { id: "cls_11_commerce_A", grade: "11", section: "A", streamId: "commerce" }], fee_structure: [{ id: "fs_11_science", grade: "11", streamId: "science", tuition: 3000, lab: 0, activity: 0, library: 0, transport: 0 }] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: "Fee Structure" }));
+    await user.click(screen.getByRole("button", { name: /Add grade/ }));
+    expect(within(field("Grade")).queryByRole("option", { name: "Grade 11 · Science" })).not.toBeInTheDocument();
+    await user.selectOptions(field("Grade"), "11:commerce");
+    const modal = dialog("Add Grade 11 · Commerce fee structure");
+    await user.type(field("Academic year", modal), "2026-27");
+    await user.click(within(modal).getByRole("button", { name: "Tuition" }));
+    await user.type(field("Amount per collection (₹)", modal), "2200");
+    await user.click(within(modal).getByRole("button", { name: "Save" }));
+    expect(getRow("fee_structure", "fs_11_commerce")).toMatchObject({ grade: "11", streamId: "commerce", schemaVersion: 2, items: [expect.objectContaining({ amount: 2200, grades: ["11:commerce"] })] });
+    expect(getRow("fee_structure", "fs_11_science")).toMatchObject({ tuition: 3000 });
+  });
+
   it("adds a grade's structure as fs_{grade}", async () => {
     const { user } = renderUI(<FeesPage />);
     await user.click(screen.getByRole("tab", { name: "Fee Structure" }));
@@ -167,5 +183,111 @@ describe("Fee structure", () => {
     await user.type(field("Tuition", d), "24000");
     await user.click(within(d).getByRole("button", { name: "Save" }));
     expect(getRow("fee_structure", "fs_7")).toMatchObject({ grade: "7", tuition: 24000, lab: 0 });
+  });
+
+  it("shows and edits configured fee items without reverting to the old fixed heads", async () => {
+    seed({ fee_structure: [{ id: "fs_10", grade: "10", schemaVersion: 2, academicYear: "2026-27", termsPerYear: 2, tuition: 0, lab: 0, activity: 0, library: 0, transport: 0, items: [
+      { id: "tuition", name: "Tuition", amount: 2000, grades: ["10"], frequency: "Monthly", dueDate: "2026-11-10", mandatory: true, newStudentsOnly: false },
+    ] }] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: "Fee Structure" }));
+    expect(screen.getByText("Recurring / year")).toBeInTheDocument();
+    expect(screen.getByText("₹24,000")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    const modal = dialog("Edit Grade 10 fee structure");
+    await user.click(within(modal).getByRole("button", { name: /^Expand fee item 1:/ }));
+    await user.clear(field("Amount per collection (₹)", modal));
+    await user.type(field("Amount per collection (₹)", modal), "2200");
+    await user.click(within(modal).getByRole("button", { name: "Save" }));
+    expect(getRow("fee_structure", "fs_10")).toMatchObject({ schemaVersion: 2, items: [expect.objectContaining({ amount: 2200, frequency: "Monthly" })] });
+  });
+});
+
+describe("Configured fee billing", () => {
+  it("bills only the selected stream, excluding ambiguous legacy students and other classes", async () => {
+    const science = { ...student, id: "sci", grn: "SCI", grade: "11", section: "A", classId: "cls_11_science_A" };
+    seed({ students: [science, { ...science, id: "com", grn: "COM", classId: "cls_11_commerce_A" }, { ...science, id: "legacy", grn: "OLD", classId: "cls_11A" }, { ...science, id: "twelve", grn: "XII", grade: "12", classId: "cls_12_science_A" }],
+      classes: [{ id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }, { id: "cls_11_commerce_A", grade: "11", section: "A", streamId: "commerce" }],
+      fee_structure: [
+        { ...structure, id: "fs_11_science", grade: "11", streamId: "science", items: [{ ...tuition, grades: ["11:science"], amount: 3000 }] },
+        { ...structure, id: "fs_11_commerce", grade: "11", streamId: "commerce", items: [{ ...tuition, grades: ["11:commerce"], amount: 2200 }] },
+      ],
+    });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("button", { name: "Generate Batch Invoices" }));
+    const modal = dialog("Generate Batch Invoices");
+    await user.selectOptions(field("Grade", modal), "11");
+    expect(within(modal).getByRole("button", { name: "Generate 0 invoices" })).toBeDisabled();
+    await user.selectOptions(field("Stream", modal), "science");
+    expect(within(modal).getByText(/1 students have no stream assignment/)).toBeInTheDocument();
+    await user.type(field("Billing period", modal), "November");
+    await user.click(within(modal).getByRole("switch", { name: "Notify parents" }));
+    await user.click(within(modal).getByRole("button", { name: "Generate 1 invoices" }));
+    expect(rowsOf("fee_invoices")).toEqual([expect.objectContaining({ studentId: "sci", grn: "SCI", grade: "11", streamId: "science", amount: 3000 })]);
+    expect(rowsOf("fee_reminders")).toEqual([expect.objectContaining({ grn: "SCI", amount: 3000 })]);
+  });
+
+  const tuition = { id: "tuition", name: "Tuition", amount: 2000, grades: ["10"], frequency: "Monthly", dueDate: "2026-11-10", mandatory: true, newStudentsOnly: false };
+  const structure = { id: "fs_10", grade: "10", schemaVersion: 2, academicYear: "2026-27", termsPerYear: 2, tuition: 99999, lab: 99999, activity: 99999, library: 99999, transport: 99999, items: [tuition,
+    { ...tuition, id: "annual", name: "Annual fee", frequency: "Annual", amount: 3000 },
+    { ...tuition, id: "transport", name: "Transport", amount: 1200, mandatory: false },
+    { ...tuition, id: "admission", name: "Admission", amount: 5000, newStudentsOnly: true },
+  ] };
+
+  it("bills only the chosen frequency and excludes optional, admission-only and legacy amounts", async () => {
+    seed({ students: [student], fee_structure: [structure] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("button", { name: "Generate Batch Invoices" }));
+    const modal = dialog("Generate Batch Invoices");
+    await user.selectOptions(field("Grade", modal), "10");
+    expect(within(modal).getByRole("button", { name: "Generate 1 invoices" })).toBeDisabled();
+    await user.type(field("Billing period", modal), "November");
+    await user.click(within(modal).getByRole("button", { name: "Generate 1 invoices" }));
+    expect(rowsOf("fee_invoices")).toEqual([expect.objectContaining({ amount: 2000, term: "2026-27 · Monthly · November", studentId: student.id, lines: [{ label: "Tuition", amount: 2000 }] })]);
+    expect(rowsOf("fee_reminders")).toHaveLength(0);
+  });
+
+  it("queues parent messages only for newly billed students when Notify parents is enabled", async () => {
+    seed({ students: [student, { ...student, id: "other", grn: "OTHER", grade: "9" }], fee_structure: [structure] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("button", { name: "Generate Batch Invoices" }));
+    const modal = dialog("Generate Batch Invoices");
+    await user.selectOptions(field("Grade", modal), "10");
+    await user.type(field("Billing period", modal), "November");
+    const toggle = within(modal).getByRole("switch", { name: "Notify parents" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await user.click(toggle);
+    await user.click(within(modal).getByRole("button", { name: "Generate 1 invoices" }));
+    const created = rowsOf<{ id: string }>("fee_invoices");
+    expect(created).toHaveLength(1);
+    expect(rowsOf("fee_reminders")).toEqual([expect.objectContaining({ invoiceId: created[0]!.id, grn: student.grn, amount: 2000, channel: "Parent app" })]);
+    expect(await screen.findByText("1 invoices generated · parent payment messages queued")).toBeInTheDocument();
+  });
+
+  it("queues no messages and creates no invoices if the billing batch fails", async () => {
+    seed({ students: [student], fee_structure: [structure] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("button", { name: "Generate Batch Invoices" }));
+    const modal = dialog("Generate Batch Invoices");
+    await user.selectOptions(field("Grade", modal), "10");
+    await user.type(field("Billing period", modal), "November");
+    await user.click(within(modal).getByRole("switch", { name: "Notify parents" }));
+    failNextWrite();
+    await user.click(within(modal).getByRole("button", { name: "Generate 1 invoices" }));
+    expect(await screen.findByText("Stopped after 0 of 1 invoices. Please try again.")).toBeInTheDocument();
+    expect(rowsOf("fee_invoices")).toHaveLength(0);
+    expect(rowsOf("fee_reminders")).toHaveLength(0);
+    expect(dialog("Generate Batch Invoices")).toBeInTheDocument();
+  });
+
+  it("does not create duplicate invoices for a previously billed class and collection period", async () => {
+    seed({ students: [student], fee_structure: [structure], fee_invoices: [invoice({ term: "2026-27 · Monthly · November" })] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("button", { name: "Generate Batch Invoices" }));
+    const modal = dialog("Generate Batch Invoices");
+    await user.selectOptions(field("Grade", modal), "10");
+    await user.type(field("Billing period", modal), "  NOVEMBER  ");
+    expect(within(modal).getByRole("button", { name: "Generate 0 invoices" })).toBeDisabled();
+    expect(writesTo("fee_invoices")).toHaveLength(0);
   });
 });

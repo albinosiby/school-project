@@ -50,6 +50,17 @@ const form = (p: Partial<StudentFormValues> = {}): StudentFormValues => ({ name:
   phone: "+91 98100 00011", email: "", guardianEmail: "", dob: "", address: "", status: "Active", attendance: 100, ...p });
 
 describe("validateStudent", () => {
+  it("requires a configured senior stream and allocates rolls independently within each stream", () => {
+    const classes = [{ id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }, { id: "cls_11_commerce_A", grade: "11", section: "A", streamId: "commerce" }];
+    const existing = [{ id: "sci", classId: "cls_11_science_A", roll: 8 }, { id: "com", classId: "cls_11_commerce_A", roll: 2 }];
+    const ctx = { existing, classes, today: "2026-11-03" };
+    expect(validateStudent(form({ grade: "11" }), ctx).errors.streamId).toContain("Choose a stream");
+    expect(validateStudent(form({ grade: "11", streamId: "science" }), ctx).doc).toMatchObject({ classId: "cls_11_science_A", streamId: "science", stream: "Science", roll: 9 });
+    expect(validateStudent(form({ grade: "11", streamId: "commerce" }), ctx).doc).toMatchObject({ classId: "cls_11_commerce_A", roll: 3 });
+    expect(validateStudent(form({ grade: "11", streamId: "humanities" }), ctx).errors.section).toBeTruthy();
+    expect(validateStudent(form({ grade: "11", streamId: "commerce", section: "B" }), ctx).doc).toBeUndefined();
+  });
+
   const existing = [{ id: "stu_001", name: "A", grn: "GIS-1", classId: "cls_6A", grade: "6", section: "A", roll: 3 }, { id: "stu_002", name: "B", grn: "GIS-2", grade: "7", section: "B", roll: 1 }];
   const today = "2026-11-03";
   it("builds the contract doc: classId, int roll, trimmed fields, lower-case login email", () => {

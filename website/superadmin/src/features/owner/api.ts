@@ -1,7 +1,7 @@
 "use client";
 // Owner console actions (DATA_CONTRACT section 16).
 // New logins are created on a secondary Firebase app so the owner stays signed in on the default one. A new school is
-// bootstrapped by that secondary app signed in as the new admin (the same starter data as a self sign-up), then the
+// bootstrapped with the owner session, then the
 // owner records it in platform_schools. Setting another login's password and deleting a school need admin credentials:
 // the ownerSetPassword / ownerDeleteSchool Cloud Functions do those.
 import { deleteApp, getApps, initializeApp } from "firebase/app";
@@ -9,18 +9,18 @@ import { createUserWithEmailAndPassword, getAuth, sendPasswordResetEmail, signOu
 import { deleteDoc, doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { bootstrapSchool } from "@/lib/bootstrap";
-import { auth, db, firebaseOptions, firestoreFor, functions, withEmulator } from "@/lib/firebase";
-import type { LeadStatus, NewSchoolInput, PlatformSchool } from "./logic";
+import { auth, db, firebaseOptions, functions, withEmulator } from "@/lib/firebase";
+import { generatePassword, type LeadStatus, type NewSchoolInput, type PlatformSchool } from "./logic";
 
 const nowIso = () => new Date().toISOString();
 const me = () => auth.currentUser?.uid ?? "";
 
-/** A fresh secondary app per login creation: its Auth session and Firestore are thrown away afterwards. */
-async function withSecondary<T>(fn: (a: ReturnType<typeof getAuth>, app: ReturnType<typeof initializeApp>) => Promise<T>) {
+/** A fresh secondary app per login creation keeps the owner signed in on the primary app. */
+async function withSecondary<T>(fn: (a: ReturnType<typeof getAuth>) => Promise<T>) {
   const name = `owner-${Date.now().toString(36)}`;
   const app = getApps().find((a) => a.name === name) ?? initializeApp(firebaseOptions, name);
   const sAuth = withEmulator(getAuth(app));
-  try { return await fn(sAuth, app); } finally { await signOut(sAuth).catch(() => {}); await deleteApp(app).catch(() => {}); }
+  try { return await fn(sAuth); } finally { await signOut(sAuth).catch(() => {}); await deleteApp(app).catch(() => {}); }
 }
 
 export const ownerError = (e: unknown): string => {
@@ -55,11 +55,11 @@ async function writePlatform(sid: string, patch: Partial<PlatformSchool>) {
  */
 export async function createSchool(v: NewSchoolInput, leadId = ""): Promise<string> {
   const name = v.name.trim(), email = v.adminEmail.trim().toLowerCase(), adminName = v.adminName.trim();
-  const sid = await withSecondary(async (sAuth, app) => {
+  const sid = await withSecondary(async (sAuth) => {
     const cred = await createUserWithEmailAndPassword(sAuth, email, v.password);
     try {
       await updateProfile(cred.user, { displayName: name });
-      await bootstrapSchool(cred.user.uid, name, email, { adminName, city: v.city.trim(), board: v.board, phone: v.phone.trim() }, firestoreFor(app));
+      await bootstrapSchool(cred.user.uid, name, email, { adminName, city: v.city.trim(), board: v.board, phone: v.phone.trim() }, db);
       return cred.user.uid;
     } catch (e) {
       await deleteDoc(doc(db, "users", cred.user.uid)).catch(() => {});
@@ -72,17 +72,17 @@ export async function createSchool(v: NewSchoolInput, leadId = ""): Promise<stri
   return sid;
 }
 
-/** Another admin login for an existing school (e.g. the principal and the office manager). */
-export async function addAdminLogin(sid: string, v: { name: string; email: string; password: string }) {
+/** A School Admin login for an existing school. */
+export async function addAdminLogin(sid: string, v: { name: string; email: string }) {
   const email = v.email.trim().toLowerCase();
-  const uid = await withSecondary(async (sAuth) => {
-    const cred = await createUserWithEmailAndPassword(sAuth, email, v.password);
+  await withSecondary(async (sAuth) => {
+    const cred = await createUserWithEmailAndPassword(sAuth, email, generatePassword(24));
     try {
       await setDoc(doc(db, "users", cred.user.uid), { schoolId: sid, role: "admin", email, name: v.name.trim(), createdAt: nowIso(), updatedAt: nowIso(), updatedBy: me() });
       return cred.user.uid;
     } catch (e) { await cred.user.delete().catch(() => {}); throw e; }
   });
-  return uid;
+  return sendReset(email).then(() => true, () => false);
 }
 
 /** Takes away a login's access to its school (its users doc). The Auth account itself stays until the school is deleted. */

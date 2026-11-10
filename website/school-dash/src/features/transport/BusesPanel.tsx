@@ -2,15 +2,18 @@
 // Transport > Buses: tr_buses CRUD with the ordered stops list, crew allotment, student assignment (contract 14.1 / 14.2).
 import { Fragment, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, UserMinus } from "lucide-react";
-import { deleteField, writeBatch } from "firebase/firestore";
+import { deleteField, runTransaction, writeBatch } from "firebase/firestore";
 import { Badge, Button, Card, Checkbox, DataTable, EmptyState, Field, Input, Modal, SearchBox, Select, SlideOver, Tabs, Textarea, useToast, type Column, type Tone } from "@/components/ui";
 import { GRADES, SECTIONS } from "@/features/ops/shared";
 import { useCollection } from "@/lib/useCollection";
 import { db } from "@/lib/firebase";
+import { inrFull } from "@/lib/format";
 import type { Student } from "@/features/people/StudentsView";
 import { applyAllot, busLabel, planAllot, planBusEdit, schoolDoc, stamp, stopsOf, studentLabel, t12 } from "./shared";
 import { busStudentCounts, capacityError, isActiveStudent, moveStop, nextBusId, nextStopId, validateBus } from "./logic";
 import type { Bus, BusStatus, BusStop, Crew } from "./types";
+import { VehicleForm } from "./VehicleForm";
+import { ExpiryReminderSettings } from "./ExpiryReminderSettings";
 
 const STATUS: BusStatus[] = ["Active", "Maintenance", "Inactive"];
 const statusTone: Record<BusStatus, Tone> = { Active: "success", Maintenance: "warning", Inactive: "neutral" };
@@ -21,7 +24,8 @@ export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null;
   const crew = useCollection<Crew>("tr_crew").rows;
   const allStudents = useCollection<Student>("students").rows;
   const students = useMemo(() => allStudents.filter(isActiveStudent), [allStudents]);
-  const [form, setForm] = useState<{ edit?: Bus } | null>(null);
+  const [form, setForm] = useState<{ mode: "add" } | { mode: "vehicle" | "operations"; edit: Bus } | null>(null);
+  const [reminders, setReminders] = useState(false);
   const [del, setDel] = useState<Bus | null>(null);
   const [busy, setBusy] = useState(false);
   const open = openBusId ? buses.rows.find((b) => b.id === openBusId) ?? null : null;
@@ -40,9 +44,9 @@ export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null;
   }
 
   /** saves the bus and, in the same batch, the names its riders and crew keep for it (number, stop names, removed stops) */
-  async function saveBusEdit(b: Bus, v: Omit<Bus, "id" | "studentCount">) {
+  async function saveBusEdit(b: Bus, v: Partial<Bus>) {
     const batch = writeBatch(db); const s = stamp();
-    const sync = planBusEdit({ id: b.id, number: v.number, stops: v.stops }, allStudents, crew);
+    const sync = planBusEdit({ id: b.id, number: v.number ?? b.number, stops: v.stops ?? stopsOf(b) }, allStudents, crew);
     batch.update(schoolDoc("tr_buses", b.id), { ...v, studentCount: sync.studentCount, ...s });
     sync.students.forEach((p, id) => batch.update(schoolDoc("students", id), { ...p, ...s }));
     sync.crew.forEach((p, id) => batch.update(schoolDoc("tr_crew", id), { ...p, ...s }));
@@ -50,17 +54,19 @@ export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null;
   }
 
   const cols: Column<Bus>[] = [
-    { key: "number", header: "Bus", sortValue: (b) => Number(b.number) || b.number, render: (b) => <div><div className="font-semibold">{busLabel(b)}</div><div className="t-caption text-outline">{b.model || "—"}</div></div> },
+    { key: "number", header: "Bus", sortValue: (b) => Number(b.number) || b.number, render: (b) => <div><div className="font-semibold">{busLabel(b)}</div><div className="t-caption text-outline">{[b.displayName, b.model].filter(Boolean).join(" · ") || "—"}</div></div> },
     { key: "regNo", header: "Reg no", sortValue: (b) => b.regNo, render: (b) => <span className="font-mono text-sm">{b.regNo}</span> },
-    { key: "route", header: "Route", sortValue: (b) => b.routeName, render: (b) => <div>{b.routeName}<div className="t-caption text-outline">{stopsOf(b).length} stops · pickup {t12(b.pickupStart)}</div></div> },
+    { key: "route", header: "Route", sortValue: (b) => b.endPoint || b.routeName, render: (b) => <div>{b.endPoint || b.routeName}
+      {(stopsOf(b).length > 0 || b.pickupStart) && <div className="t-caption text-outline">{stopsOf(b).length} stops{b.pickupStart && ` · pickup ${t12(b.pickupStart)}`}</div>}</div> },
     { key: "capacity", header: "Capacity", sortValue: (b) => b.capacity, render: (b) => b.capacity },
+    { key: "monthlyFee", header: "Fee / month", sortValue: (b) => b.monthlyFee ?? -1, render: (b) => b.monthlyFee == null ? <span className="text-outline">Not set</span> : <span className="font-mono text-sm">{inrFull(b.monthlyFee)}</span> },
     { key: "driver", header: "Driver", sortValue: (b) => b.driver ?? "", render: (b) => b.driver || <span className="text-outline">Unassigned</span> },
     { key: "attendant", header: "Attendant", sortValue: (b) => b.attendant ?? "", render: (b) => b.attendant || <span className="text-outline">Unassigned</span> },
     { key: "students", header: "Students", sortValue: (b) => onBus(b.id).length, render: (b) => { const n = onBus(b.id).length; return <span className={n > b.capacity ? "font-semibold text-error" : ""}>{n}{b.capacity ? ` / ${b.capacity}` : ""}</span>; } },
     { key: "status", header: "Status", sortValue: (b) => b.status, render: (b) => <Badge tone={statusTone[b.status] ?? "neutral"}>{b.status}</Badge> },
     { key: "actions", header: "", className: "text-right", render: (b) => (
       <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-        <Button size="sm" variant="ghost" aria-label={`Edit ${busLabel(b)}`} onClick={() => setForm({ edit: b })}><Pencil size={14} /></Button>
+        <Button size="sm" variant="ghost" aria-label={`Edit ${busLabel(b)}`} onClick={() => setForm({ mode: "operations", edit: b })}><Pencil size={14} /></Button>
         <Button size="sm" variant="ghost" aria-label={`Delete ${busLabel(b)}`} onClick={() => setDel(b)}><Trash2 size={14} className="text-error" /></Button>
       </div>) },
   ];
@@ -70,20 +76,49 @@ export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null;
       <Card className="pt-4">
         <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
           <p className="text-on-surface-variant">Click a bus to allot crew, assign students and review stops.</p>
-          <Button className="ml-auto" onClick={() => setForm({})}><Plus size={16} />Add Bus</Button>
+          <Button className="ml-auto" variant="outline" onClick={() => setReminders(true)}>Expiry reminders</Button>
+          <Button disabled={!buses.ready} onClick={() => setForm({ mode: "add" })}><Plus size={16} />Add Bus</Button>
         </div>
-        {buses.ready ? <DataTable rows={buses.rows} columns={cols} pageSize={10} onRowClick={(b) => onOpenBus(b.id)} searchText={(b) => `${b.number} ${b.regNo} ${b.routeName} ${b.driver ?? ""} ${b.attendant ?? ""}`}
-          empty={<EmptyState title="No buses yet" hint="Add a bus with its route and stops to get started." />} />
+        {buses.ready ? <DataTable rows={buses.rows} columns={cols} pageSize={10} onRowClick={(b) => onOpenBus(b.id)} searchText={(b) => `${b.number} ${b.regNo} ${b.displayName ?? ""} ${b.endPoint ?? ""} ${b.routeName} ${b.driver ?? ""} ${b.attendant ?? ""}`}
+          empty={<EmptyState title="No buses yet" hint="Add a bus with its vehicle details and route end point." />} />
           : <p className="px-5 pb-5 text-on-surface-variant">Loading buses…</p>}
       </Card>
-      {form && <BusForm key={form.edit?.id ?? "new"} edit={form.edit} existing={buses.rows} onBus={form.edit ? onBus(form.edit.id).length : 0} onClose={() => setForm(null)} onSave={async (v) => {
-        try {
-          if (form.edit) { await saveBusEdit(form.edit, v); toast("Bus updated"); }
-          else { await buses.create({ ...v, id: nextBusId(buses.rows.map((b) => b.id)), studentCount: 0 } as Bus); toast("Bus added"); }
+      {reminders && <ExpiryReminderSettings onClose={() => setReminders(false)} />}
+      {form?.mode === "operations" && <BusForm key={form.edit.id} edit={form.edit} existing={buses.rows}
+        onBus={onBus(form.edit.id).length} onClose={() => setForm(null)} onSave={async (values) => {
+          try {
+            await saveBusEdit(form.edit, values);
+            toast("Bus updated");
+            setForm(null);
+          } catch { toast("Could not save the bus", "error"); }
+        }} />}
+      {form && form.mode !== "operations" && <VehicleForm key={form.mode === "add" ? "new" : form.edit.id}
+        bus={form.mode === "vehicle" ? form.edit : undefined} existing={buses.rows}
+        assigned={form.mode === "vehicle" ? onBus(form.edit.id).length : 0} onClose={() => setForm(null)}
+        onSave={async (values) => {
+          if (form.mode === "vehicle") {
+            const bus = buses.rows.find((row) => row.id === form.edit.id);
+            if (!bus) throw new Error("This bus no longer exists.");
+            const routeName = !bus.routeName || bus.routeName === bus.endPoint ? values.endPoint : bus.routeName;
+            await saveBusEdit(bus, { ...values, routeName });
+            toast("Vehicle details saved");
+          } else {
+            const id = nextBusId(buses.rows.map((bus) => bus.id));
+            const ref = schoolDoc("tr_buses", id);
+            await runTransaction(db, async (tx) => {
+              if ((await tx.get(ref)).exists()) throw new Error("Another bus was just added. Check the form and try again.");
+              tx.set(ref, {
+                ...values, id, routeName: values.endPoint, stops: [], pickupStart: "", dropStart: "",
+                status: "Active", studentCount: 0, monthlyFee: null, _o: Date.now(), ...stamp(),
+              });
+            });
+            toast("Bus added");
+          }
           setForm(null);
-        } catch { toast("Could not save the bus", "error"); }
-      }} />}
-      {open && <BusDetail bus={open} crew={crew} students={students} buses={buses.rows} onClose={() => onOpenBus(null)} onEdit={() => setForm({ edit: open })} />}
+        }} />}
+      {open && !form && <BusDetail bus={open} crew={crew} students={students} buses={buses.rows}
+        onClose={() => onOpenBus(null)} onEdit={() => setForm({ mode: "operations", edit: open })}
+        onEditVehicle={() => setForm({ mode: "vehicle", edit: open })} />}
       <Modal open={!!del} onClose={() => setDel(null)} title="Delete bus?" subtitle={del ? `${busLabel(del)} · ${del.routeName}` : ""}
         footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" disabled={busy} onClick={() => del && removeBus(del)}>Delete</Button></>}>
         <p className="text-on-surface-variant">This removes the bus permanently. {del && onBus(del.id).length > 0 ? `${onBus(del.id).length} student(s) are taken off the bus and ` : ""}its crew become unassigned.</p></Modal>
@@ -92,26 +127,31 @@ export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null;
 }
 
 type StopDraft = BusStop & { landmark: string };
-function BusForm({ edit, existing, onBus, onClose, onSave }: { edit?: Bus; existing: Bus[]; onBus: number; onClose: () => void; onSave: (v: Omit<Bus, "id" | "studentCount">) => Promise<void> }) {
-  const [f, setF] = useState({ number: edit?.number ?? "", regNo: edit?.regNo ?? "", capacity: String(edit?.capacity ?? 40), model: edit?.model ?? "", routeName: edit?.routeName ?? "", pickupStart: edit?.pickupStart ?? "06:45", dropStart: edit?.dropStart ?? "15:30", status: edit?.status ?? "Active", note: edit?.note ?? "" });
+function BusForm({ edit, existing, onBus, onClose, onSave }: { edit: Bus; existing: Bus[]; onBus: number; onClose: () => void; onSave: (v: Omit<Bus, "id" | "studentCount">) => Promise<void> }) {
+  const [f, setF] = useState({ number: edit?.number ?? "", regNo: edit?.regNo ?? "", capacity: String(edit?.capacity ?? 40), monthlyFee: edit?.monthlyFee == null ? "" : String(edit.monthlyFee), model: edit?.model ?? "", routeName: edit?.routeName ?? "", pickupStart: edit?.pickupStart ?? "06:45", dropStart: edit?.dropStart ?? "15:30", status: edit?.status ?? "Active", note: edit?.note ?? "" });
   const [stops, setStops] = useState<StopDraft[]>(stopsOf(edit).map((s) => ({ ...s, landmark: s.landmark ?? "" })));
   const [err, setErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
   const setStop = (i: number, k: keyof StopDraft, v: string) => setStops((p) => p.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
   const move = (i: number, d: -1 | 1) => setStops((p) => moveStop(p, i, d));
-  const addStop = () => setStops((p) => [...p, { id: nextStopId(p), name: "", pickupTime: p.at(-1)?.pickupTime ?? f.pickupStart, dropTime: p.at(-1)?.dropTime ?? f.dropStart, landmark: "" }]);
+  const addStop = () => {
+    if (!f.pickupStart) set("pickupStart", "06:45");
+    if (!f.dropStart) set("dropStart", "15:30");
+    setStops((p) => [...p, { id: nextStopId(p), name: "", pickupTime: p.at(-1)?.pickupTime ?? (f.pickupStart || "06:45"), dropTime: p.at(-1)?.dropTime ?? (f.dropStart || "15:30"), landmark: "" }]);
+  };
   async function submit() {
-    const e = validateBus(f, stops, existing, edit?.id, onBus);
+    const e = validateBus(f, stops, existing, edit.id, onBus, !!edit.endPoint);
+    if (edit.totalSeats != null && Number(f.capacity) > edit.totalSeats) e.capacity ??= "Student seating cannot exceed total seating";
     setErr(e); if (Object.keys(e).length) return;
     const body: Omit<Bus, "id" | "studentCount"> = { number: f.number.trim(), regNo: f.regNo.trim().toUpperCase().replace(/\s+/g, "-"), capacity: Number(f.capacity), routeName: f.routeName.trim(), pickupStart: f.pickupStart, dropStart: f.dropStart, status: f.status as BusStatus,
-      stops: stops.map((s) => ({ id: s.id, name: s.name.trim(), pickupTime: s.pickupTime, dropTime: s.dropTime, ...(s.landmark.trim() ? { landmark: s.landmark.trim() } : {}) })), model: f.model.trim(), note: f.note.trim() };
+      stops: stops.map((s) => ({ id: s.id, name: s.name.trim(), pickupTime: s.pickupTime, dropTime: s.dropTime, ...(s.landmark.trim() ? { landmark: s.landmark.trim() } : {}) })), model: f.model.trim(), note: f.note.trim(), monthlyFee: f.monthlyFee.trim() ? Number(f.monthlyFee) : null };
     setSaving(true);
     try { await onSave(body); } finally { setSaving(false); }
   }
   return (
-    <SlideOver open onClose={onClose} title={edit ? `Edit ${busLabel(edit)}` : "Add Bus"} subtitle="Bus, route timings and stops in route order" width="max-w-xl"
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={saving}>{saving ? "Saving…" : edit ? "Save Changes" : "Add Bus"}</Button></>}>
+    <SlideOver open onClose={onClose} title={`Edit ${busLabel(edit)}`} subtitle="Bus, route timings and stops in route order" width="max-w-xl"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Bus number" required error={err.number}><Input value={f.number} onChange={(e) => set("number", e.target.value)} placeholder="14" /></Field>
         <Field label="Registration no" required error={err.regNo}><Input value={f.regNo} onChange={(e) => set("regNo", e.target.value)} placeholder="DL-01-AB-4092" /></Field>
@@ -123,6 +163,10 @@ function BusForm({ edit, existing, onBus, onClose, onSave }: { edit?: Bus; exist
         <Field label="Status"><Select value={f.status} onChange={(e) => set("status", e.target.value)}>{STATUS.map((s) => <option key={s}>{s}</option>)}</Select></Field>
         <Field label="Note" className="sm:col-span-2"><Textarea value={f.note} onChange={(e) => set("note", e.target.value)} className="min-h-16" placeholder="e.g. Fitness certificate due in March" /></Field>
       </div>
+      <section className="mt-6 rounded-lg border border-outline-variant/60 p-4">
+        <h3 className="mb-3 text-sm font-semibold">Transportation fee</h3>
+        <Field label="Monthly transport fee (₹)" hint="Per student assigned to this bus. Leave blank if not yet decided, or enter 0 for free transport." error={err.monthlyFee}><Input type="number" min={0} max={10000000} step={0.01} value={f.monthlyFee} onChange={(e) => set("monthlyFee", e.target.value)} placeholder="e.g. 1200" /></Field>
+      </section>
       <section className="mt-6">
         <div className="mb-2 flex items-center justify-between"><h3 className="t-label-caps text-on-surface-variant">Stops ({stops.length})</h3><Button size="sm" variant="outline" onClick={addStop}><Plus size={14} />Add stop</Button></div>
         {err.stops && <p className="mb-2 text-xs text-error" role="alert">{err.stops}</p>}
@@ -148,7 +192,7 @@ function BusForm({ edit, existing, onBus, onClose, onSave }: { edit?: Bus; exist
   );
 }
 
-function BusDetail({ bus, crew, students, buses, onClose, onEdit }: { bus: Bus; crew: Crew[]; students: Student[]; buses: Bus[]; onClose: () => void; onEdit: () => void }) {
+function BusDetail({ bus, crew, students, buses, onClose, onEdit, onEditVehicle }: { bus: Bus; crew: Crew[]; students: Student[]; buses: Bus[]; onClose: () => void; onEdit: () => void; onEditVehicle: () => void }) {
   const toast = useToast();
   const [tab, setTab] = useState("crew");
   const [busy, setBusy] = useState(false);
@@ -206,8 +250,9 @@ function BusDetail({ bus, crew, students, buses, onClose, onEdit }: { bus: Bus; 
       </Select></Field>);
 
   return (
-    <SlideOver open onClose={onClose} title={busLabel(bus)} subtitle={`${bus.routeName} · ${bus.regNo} · ${assigned.length}/${bus.capacity} seats`} width="max-w-2xl"
-      footer={<><Badge tone={statusTone[bus.status] ?? "neutral"} className="mr-auto self-center">{bus.status}</Badge><Button variant="outline" onClick={onEdit}><Pencil size={14} />Edit bus</Button></>}>
+    <SlideOver open onClose={onClose} title={busLabel(bus)} subtitle={`${bus.endPoint || bus.routeName} · ${bus.regNo} · ${assigned.length}/${bus.capacity} seats`} width="max-w-2xl"
+      footer={<><Badge tone={statusTone[bus.status] ?? "neutral"} className="mr-auto self-center">{bus.status}</Badge><Button variant="outline" onClick={onEditVehicle}>Edit vehicle details</Button><Button variant="outline" onClick={onEdit}><Pencil size={14} />Edit bus</Button></>}>
+      <div className="mb-4 rounded-lg border border-outline-variant/60 bg-surface-container-low p-4"><p className="text-xs text-on-surface-variant">Monthly transport fee per student</p><p className="mt-1 text-lg font-semibold">{bus.monthlyFee == null ? "Not configured" : inrFull(bus.monthlyFee)}</p><p className="mt-1 text-xs text-on-surface-variant">This bus&apos;s rate applies to its assigned students. Update it using Edit bus.</p></div>
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ id: "crew", label: "Crew" }, { id: "students", label: "Students", count: assigned.length }, { id: "stops", label: "Stops", count: stops.length }]} />
       {tab === "crew" && <div className="space-y-4">
         <p className="text-sm text-on-surface-variant">Allotting a crew member here moves them off their previous bus and frees this seat&apos;s previous holder.</p>

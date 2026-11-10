@@ -153,32 +153,6 @@ void main() {
     });
   });
 
-  group('Forgot password', () {
-    testWidgets('empty, invalid, valid sends the link', (t) async {
-      await setUpTestApp();
-      await pumpApp(t, location: RoutePaths.forgotPassword);
-      final email = _hint('you@example.com');
-      final send = find.text('Send reset link');
-
-      await _tap(t, send);
-      expect(find.text('Email is required'), findsOneWidget);
-
-      await _type(t, email, 'rajesh.example.com');
-      await _tap(t, send);
-      expect(find.text('Enter a valid email address'), findsOneWidget);
-
-      await _type(t, email, 'rajesh@example');
-      await _tap(t, send);
-      expect(find.text('Enter a valid email address'), findsOneWidget);
-      expect(find.text('Check your email'), findsNothing);
-
-      await _type(t, email, ' rajesh.sharma@example.com ');
-      await _tap(t, send);
-      expect(find.text('Check your email'), findsOneWidget);
-      expect(find.textContaining('If rajesh.sharma@example.com is registered'), findsOneWidget);
-    });
-  });
-
   group('Passcode', () {
     testWidgets('incomplete, digits only, 6-digit cap, wrong code counts down, lockout', (t) async {
       await setUpTestApp();

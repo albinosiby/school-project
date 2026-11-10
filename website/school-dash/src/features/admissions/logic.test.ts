@@ -238,9 +238,9 @@ describe("enrolment → students (contract section 3)", () => {
     expect(sectionFor("7", classes, students)).toBe("A");
   });
   it("builds the contract-exact student doc from the offer, application and enquiry", () => {
-    const d = enrolmentStudent(offer({ status: "accepted", grade: "11-Science", name: " Riya Sen " }), app({ email: " sen@x.in " }), enq({ relation: "Mother" }), students, [], "2026-11-03");
+    const d = enrolmentStudent(offer({ status: "accepted", grade: "11-Science", name: " Riya Sen " }), app({ email: " sen@x.in " }), enq({ relation: "Mother" }), students, [{ id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }], "2026-11-03");
     expect(d).toEqual({
-      id: "stu_010", name: "Riya Sen", grn: "GIS-8810", grade: "11", section: "A", classId: "cls_11A", roll: 1, guardian: "Mr. Sen", phone: "9810000001",
+      id: "stu_010", name: "Riya Sen", grn: "GIS-8810", grade: "11", section: "A", classId: "cls_11_science_A", streamId: "science", stream: "Science", roll: 1, guardian: "Mr. Sen", phone: "9810000001",
       status: "Active", attendance: 100, admissionDate: "2026-11-03", offerId: "o1", dob: "2019-05-01", gender: "Female", relation: "Mother", guardianEmail: "sen@x.in",
     });
     expect(typeof d.roll).toBe("number");

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Button, Field, Input, Select } from "@/components/ui";
+import { Button, Field, Input, Select, Textarea } from "@/components/ui";
 import { Grid } from "./FormBits";
 import type { SchoolAddress } from "./address";
 import { COUNTRIES, INDIA_STATES, loadCountryStates, NOT_APPLICABLE, OTHER_LOCATION, type AddressState } from "./locations";
@@ -28,7 +28,7 @@ export function useAddressLocations(country: string) {
   };
 }
 
-export function SchoolAddressFields({ value: v, onChange, errors, states, loading, error, retry, disabled }: {
+export function SchoolAddressFields({ value: v, onChange, errors, states, loading, error, retry, disabled, studentCities }: {
   value: SchoolAddress;
   onChange: (patch: Partial<SchoolAddress>) => void;
   errors: Record<string, string>;
@@ -37,15 +37,18 @@ export function SchoolAddressFields({ value: v, onChange, errors, states, loadin
   error?: string;
   retry: () => void;
   disabled: boolean;
+  studentCities?: string[];
 }) {
   const districts = states.find((s) => s.code === v.state)?.districts ?? [];
+  const [manualCityDistrict, setManualCityDistrict] = useState<string>();
+  const cityIsManual = manualCityDistrict === v.district || (!!v.city && !studentCities?.includes(v.city));
   const indian = v.country === "IN";
   const postalRequired = indian || !!COUNTRIES.find((c) => c.code === v.country)?.postalCodeRequired;
   return (
     <fieldset className="min-w-0 space-y-4" disabled={disabled}>
-      <legend className="sr-only">School address</legend>
+      <legend className="sr-only">{studentCities ? "Student address" : "School address"}</legend>
       <Field label="Address line 1" required error={errors.addressLine1}>
-        <Input value={v.addressLine1} onChange={(e) => onChange({ addressLine1: e.target.value })} autoComplete="address-line1" placeholder="Building number and street" maxLength={200} required aria-invalid={!!errors.addressLine1} />
+        {studentCities ? <Textarea value={v.addressLine1} onChange={(e) => onChange({ addressLine1: e.target.value })} maxLength={200} required aria-invalid={!!errors.addressLine1} /> : <Input value={v.addressLine1} onChange={(e) => onChange({ addressLine1: e.target.value })} autoComplete="address-line1" placeholder="Building number and street" maxLength={200} required aria-invalid={!!errors.addressLine1} />}
       </Field>
       <Field label="Address line 2" hint="Optional" error={errors.addressLine2}>
         <Input value={v.addressLine2} onChange={(e) => onChange({ addressLine2: e.target.value })} autoComplete="address-line2" placeholder="Area, locality or landmark" maxLength={200} aria-invalid={!!errors.addressLine2} />
@@ -75,9 +78,20 @@ export function SchoolAddressFields({ value: v, onChange, errors, states, loadin
           </Select>
         </Field>
         {v.district === OTHER_LOCATION && <Field label="District name" required error={errors.districtName}><Input value={v.districtName ?? ""} onChange={(e) => onChange({ districtName: e.target.value })} maxLength={100} required aria-invalid={!!errors.districtName} /></Field>}
-        <Field label="City" required error={errors.city}>
+        {studentCities && <Field label="City" required error={cityIsManual ? undefined : errors.city}>
+          <Select value={cityIsManual ? OTHER_LOCATION : v.city} disabled={!v.district} onChange={(e) => {
+            const other = e.target.value === OTHER_LOCATION;
+            setManualCityDistrict(other ? v.district : undefined);
+            onChange({ city: other ? "" : e.target.value });
+          }}>
+            <option value="">Select city</option>
+            {studentCities.map((city) => <option key={city}>{city}</option>)}
+            <option value={OTHER_LOCATION}>Other / not listed</option>
+          </Select>
+        </Field>}
+        {(!studentCities || cityIsManual) && <Field label={studentCities ? "City name" : "City"} required error={errors.city}>
           <Input value={v.city} onChange={(e) => onChange({ city: e.target.value })} autoComplete="address-level2" maxLength={100} required aria-invalid={!!errors.city} />
-        </Field>
+        </Field>}
         <Field label={indian ? "PIN code" : "Postal code"} required={postalRequired} hint={postalRequired ? undefined : "Optional for this country"} error={errors.pin}>
           <Input value={v.pin} onChange={(e) => onChange({ pin: e.target.value })} autoComplete="postal-code" inputMode={indian ? "numeric" : "text"} placeholder={indian ? "e.g. 682001" : "Postal code"} maxLength={indian ? 6 : 20} required={postalRequired} aria-invalid={!!errors.pin} />
         </Field>

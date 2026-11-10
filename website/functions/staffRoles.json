@@ -1,0 +1,20 @@
+{
+  "labels": {
+    "principal": "Principal",
+    "vice_principal": "Vice Principal",
+    "accountant": "Accountant",
+    "office_administrator": "Office Administrator",
+    "office_staff": "Office Staff",
+    "hod": "HOD",
+    "teacher": "Teacher",
+    "driver": "Driver",
+    "helper": "Helper",
+    "general_staff": "General Staff"
+  },
+  "assignable": {
+    "admin": ["principal", "vice_principal", "accountant", "office_administrator", "office_staff", "hod", "teacher", "driver", "helper", "general_staff"],
+    "principal": ["vice_principal", "accountant", "office_administrator", "office_staff", "hod", "teacher", "driver", "helper", "general_staff"],
+    "vice_principal": ["office_administrator", "office_staff", "hod", "teacher"],
+    "office_administrator": ["office_staff", "driver", "helper", "general_staff"]
+  }
+}

@@ -66,10 +66,8 @@ const stepData: [string, string][] = [
   ["Bell Schedule", "8 periods × 40 mins, 2 recesses, zero conflict."],
   ["Fee Structure", "4 quarter slabs, concessions & UPI gateway set."],
   ["Staff Allocations", "82 teachers assigned; 0 orphaned periods."],
-  ["Data Sync & Ingestion", "DigiLocker UID / Aadhaar 85% verified. 1,248 / 1,480."],
-  ["Portal & App Gateway", "Parent credentials unlock upon Phase 07 zero-error sign-off."],
 ];
-const shortNames = ["School Profile", "AY & Terms", "Grades", "Timetable", "Grading", "Staff Ready", "Data Import", "Parent Invite"];
+const shortNames = ["School Profile", "AY & Terms", "Grades", "Timetable", "Grading", "Staff Ready"];
 const setup_steps = stepData.map(([title, desc], i) => ({ id: `step_${i + 1}`, no: i + 1, title, short: shortNames[i], desc, done: false, doneAt: "" }));
 
 const exc = (id: string, name: string, guardian: string, grade: string, grn: string, status: string, tone: string, kind: string, issue: string, action: string) =>

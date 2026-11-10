@@ -17,7 +17,7 @@ const DEAD_TOKEN = new Set(["messaging/registration-token-not-registered", "mess
 // the same audience test the teacher app uses for circulars
 const STAFF_AUDIENCE = /staff|teacher|faculty|all school/i;
 const chunk = (a, n) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
-const clsLabel = (classId = "") => classId.replace(/^cls_(\d+)([A-Z])$/, "$1-$2");
+const { clsLabel, labelToClassId } = require("./classIdentity");
 
 /** users/{uid} of the school's teachers, optionally only these staff ids. */
 async function teacherUsers(sid, staffIds) {
@@ -243,7 +243,7 @@ exports.onExamPaperChanged = onDocumentWritten("schools/{sid}/exm_papers/{id}", 
   // results published for one or more classes ("10-B")
   const newly = (after.published ?? []).filter((c) => !(before.published ?? []).includes(c));
   if (newly.length) {
-    const classIds = newly.map((c) => `cls_${String(c).replace("-", "")}`);
+    const classIds = newly.map(labelToClassId);
     await notify(sid, await paperTeachers(sid, { ...after, classIds }), {
       type: "exam", category: "Academic", tag: "Results", title: "Results published",
       body: `${after.subject} results for ${newly.join(", ")} are now visible to parents.`, route: "/marks",
@@ -404,6 +404,7 @@ exports.onRegularizationWithdrawn = onDocumentDeleted("schools/{sid}/staff_regul
 
 const shared = {};
 Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));
+Object.assign(exports, require("./parentLogin"));
 
 // ---------------------------------------------------------------------------
 // Transport (DATA_CONTRACT section 14): bus attendance alerts to parents, crew leave requests in the admin bell. See transport.js.
@@ -414,3 +415,7 @@ Object.assign(exports, require("./transport")({ db, notifyAdmin, ...shared }));
 // Owner console (DATA_CONTRACT section 16): callable actions for product owners. See owner.js.
 // ---------------------------------------------------------------------------
 Object.assign(exports, require("./owner"));
+
+Object.assign(exports, require("./staff"));
+
+Object.assign(exports, require("./classRolls"));

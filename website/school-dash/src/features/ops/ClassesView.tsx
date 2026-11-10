@@ -5,11 +5,12 @@ import { Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHe
 import { useCollection } from "@/lib/useCollection";
 import { GRADES, SECTIONS, SUBJECTS, activeStudent, classIdOf, clsLabel, nextId, studentClassId, teachingStaff, type StaffRef } from "./shared";
 import { classTeacherElsewhere, validateAssignment, validateClass, type Assignment, type ClassRow } from "./logic";
+import { isSeniorGrade, SENIOR_STREAMS, streamName } from "@/lib/academicStreams";
 
 export type { Assignment, ClassRow } from "./logic";
 type Stu = { id: string; classId?: string; grade: string; section: string; status?: string; deleted?: boolean };
 
-const label = (c: ClassRow) => `Grade ${c.grade}-${c.section}`;
+const label = (c: ClassRow) => c.stream ? `Grade ${c.grade} · ${c.stream} · ${c.section}` : clsLabel(c.id);
 
 /**
  * classes + assignments (data contract section 3). The teacher app reads both to decide which classes a teacher sees;
@@ -85,7 +86,7 @@ export function ClassesView() {
         {!classes.ready ? <p className="p-5 text-on-surface-variant">Loading classes…</p> : <DataTable rows={sorted} columns={cols} pageSize={12} onRowClick={(c) => setOpen(c.id)} empty={<EmptyState title="No classes yet" hint="Add a class or create them from the student roster." />} />}
       </Card>
       {adding && <AddClass classes={classes.rows} nameOf={nameOf} onClose={() => setAdding(false)} teachers={teachers}
-        onSave={async (v) => { try { await classes.create({ ...v, id: classIdOf(v.grade, v.section), classTeacher: v.classTeacherId ? nameOf(v.classTeacherId) : "" } as never); toast("Class added"); setAdding(false); } catch { toast("Save failed", "error"); } }} />}
+        onSave={async (v) => { try { const { streamId, ...rest } = v; await classes.create({ ...rest, ...(isSeniorGrade(v.grade) ? { streamId, stream: streamName(streamId) } : {}), id: classIdOf(v.grade, v.section, streamId), classTeacher: v.classTeacherId ? nameOf(v.classTeacherId) : "" } as never); toast("Class added"); setAdding(false); } catch { toast("Save failed", "error"); } }} />}
       {current && <AssignPanel key={current.id} cls={current} classes={classes.rows} all={asg.rows} teachers={teachers} nameOf={nameOf}
         setClassTeacher={(id) => setClassTeacher(current, id)}
         update={(patch) => classes.update(current.id, patch).then(() => { toast("Class updated"); }).catch(() => { toast("Save failed", "error"); })}
@@ -96,11 +97,11 @@ export function ClassesView() {
   );
 }
 
-function AddClass({ classes, teachers, nameOf, onClose, onSave }: { classes: ClassRow[]; teachers: StaffRef[]; nameOf: (id: string) => string; onClose: () => void; onSave: (v: { grade: string; section: string; classTeacherId: string; room: string; wing: string }) => Promise<void> }) {
-  const [f, setF] = useState({ grade: "8", section: "A", classTeacherId: "", room: "", wing: "" });
+function AddClass({ classes, teachers, nameOf, onClose, onSave }: { classes: ClassRow[]; teachers: StaffRef[]; nameOf: (id: string) => string; onClose: () => void; onSave: (v: { grade: string; section: string; streamId: string; classTeacherId: string; room: string; wing: string }) => Promise<void> }) {
+  const [f, setF] = useState({ grade: "8", section: "A", streamId: "", classTeacherId: "", room: "", wing: "" });
   const [err, setErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const set = (k: string, v: string) => { setF((p) => ({ ...p, [k]: v })); setErr((e) => ({ ...e, [k]: "" })); };
+  const set = (k: string, v: string) => { setF((p) => ({ ...p, [k]: v, ...(k === "grade" ? { streamId: "" } : {}) })); setErr((e) => ({ ...e, [k]: "" })); };
   async function submit() {
     const e = validateClass(f, classes, nameOf);
     setErr(e); if (Object.keys(e).length) return;
@@ -111,6 +112,7 @@ function AddClass({ classes, teachers, nameOf, onClose, onSave }: { classes: Cla
     <Modal open onClose={onClose} title="Add class" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={saving} onClick={submit}>{saving ? "Saving…" : "Add class"}</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Grade" required error={err.grade}><Select value={f.grade} onChange={(e) => set("grade", e.target.value)}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
+        {isSeniorGrade(f.grade) && <Field label="Stream" required error={err.streamId}><Select value={f.streamId} onChange={(e) => set("streamId", e.target.value)}><option value="">Select a stream…</option>{SENIOR_STREAMS.map((stream) => <option key={stream.id} value={stream.id}>{stream.name}</option>)}</Select></Field>}
         <Field label="Section" required error={err.section}><Select value={f.section} onChange={(e) => set("section", e.target.value)}>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select></Field>
         <Field label="Class teacher" className="sm:col-span-2" error={err.classTeacherId}><Select value={f.classTeacherId} onChange={(e) => set("classTeacherId", e.target.value)}><option value="">Not assigned</option>{teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</Select></Field>
         <Field label="Room" error={err.room}><Input value={f.room} onChange={(e) => set("room", e.target.value)} /></Field>
@@ -125,7 +127,7 @@ function AssignPanel({ cls, classes, all, teachers, nameOf, setClassTeacher, upd
   onAdd: (v: { subject: string; teacherId: string; topic?: string; periodsPerWeek?: number }) => Promise<boolean>; onChange: (id: string, p: Partial<Assignment>) => void; onRemove: (id: string) => void; onClose: () => void;
 }) {
   const mine = all.filter((a) => a.classId === cls.id).sort((a, b) => a.subject.localeCompare(b.subject));
-  const free = SUBJECTS.filter((s) => !mine.some((a) => a.subject.toLowerCase() === s.toLowerCase()));
+  const free = (cls.subjects ?? SUBJECTS).filter((s) => !mine.some((a) => a.subject.toLowerCase() === s.toLowerCase()));
   const [subject, setSubject] = useState(free[0] ?? ""); const [teacherId, setTeacherId] = useState(""); const [ppw, setPpw] = useState("");
   const [err, setErr] = useState<Record<string, string>>({});
   const [ctErr, setCtErr] = useState("");

@@ -1,3 +1,5 @@
-import { Offers } from "@/features/admissions/Offers";
+import { redirect } from "next/navigation";
 
-export default function Page() { return <Offers />; }
+export default function Page() {
+  redirect("/admissions/applications");
+}

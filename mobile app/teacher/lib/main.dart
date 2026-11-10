@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -36,6 +37,7 @@ Future<TeacherApp> bootstrap() async {
       final map = !AppConfig.emulatorUsb;
       await FirebaseAuth.instance.useAuthEmulator(AppConfig.emulatorHost, 9099, automaticHostMapping: map);
       FirebaseFirestore.instance.useFirestoreEmulator(AppConfig.emulatorHost, 8080, automaticHostMapping: map);
+      FirebaseFunctions.instanceFor(region: 'asia-south1').useFunctionsEmulator(AppConfig.emulatorHost, 5001, automaticHostMapping: map);
       await FirebaseStorage.instance.useStorageEmulator(AppConfig.emulatorHost, 9199, automaticHostMapping: map);
     }
   }

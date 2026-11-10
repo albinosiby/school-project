@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
-import { Link2, Mail, Unlink } from "lucide-react";
-import { Badge, Button, Input, Modal, useToast } from "@/components/ui";
-import { currentSchoolId } from "@/lib/useCollection";
-import { consentGiven, linkParent, normEmail, parentError, resendParentInvite, unlinkParent, validEmail, type Consent, type SchoolUser } from "@/lib/parentAccount";
+import { Unlink } from "lucide-react";
+import { Badge, Button, Field, Input, Modal, Switch, useToast } from "@/components/ui";
+import { useAuth } from "@/lib/authContext";
+import { consentGiven, setParentAppAccess, normEmail, validEmail, type Consent, type ParentCredentials, type SchoolUser } from "@/lib/parentAccount";
 
-type Stu = { id: string; name: string; guardian: string; email?: string; guardianEmail?: string; guardianUids?: string[] };
+import { GeneratedParentPassword } from "./GeneratedParentPassword";
+import { ParentPasswordField } from "./ParentPasswordField";
+import type { Student } from "./StudentsView";
 
 const fmtAt = (v: unknown) => {
   const ms = typeof v === "string" ? Date.parse(v) : typeof v === "number" ? v : (v as { toMillis?: () => number } | null)?.toMillis?.() ?? NaN;
@@ -14,43 +16,95 @@ const fmtAt = (v: unknown) => {
 const yesNo = (v?: boolean) => v === undefined ? <span className="text-outline">—</span> : v ? <Badge tone="success">Yes</Badge> : <Badge>No</Badge>;
 
 /** Student profile > Parent login (data contract 13.1) and consent state (13.3). */
-export function ParentLoginSection({ s, students, users, consents }: { s: Stu; students: Stu[]; users: SchoolUser[]; consents: Map<string, Consent> }) {
+export function ParentLoginSection({ s, students, users, consents }: { s: Student; students: Student[]; users: SchoolUser[]; consents: Map<string, Consent> }) {
   const toast = useToast();
-  const [email, setEmail] = useState(s.guardianEmail || s.email || "");
-  const [err, setErr] = useState("");
+  const admin = useAuth().user;
   const [busy, setBusy] = useState<string | null>(null);
   const [unlink, setUnlink] = useState<{ uid: string; label: string } | null>(null);
   const uids = s.guardianUids ?? [];
-  const linkedEmails = new Set(uids.map((u) => normEmail(users.find((x) => x.id === u)?.email ?? "")));
+  const linkedParent = uids.length === 1 ? users.find((user) => user.id === uids[0] && user.role === "parent") : undefined;
+  const loginEmail = normEmail(s.guardianEmail || linkedParent?.email || "");
+  const pendingEmail = normEmail(s.pendingParentLoginEmail ?? "");
+  const username = loginEmail || pendingEmail;
+  const account = loginEmail ? users.find((u) => u.role === "parent" && uids.includes(u.id) &&
+    normEmail(u.email ?? "") === loginEmail) : undefined;
 
-  async function create() {
-    const e = normEmail(email);
-    if (!validEmail(e)) { setErr("Enter a valid email address"); return; }
-    if (linkedEmails.has(e)) { setErr("This parent login is already linked"); return; }
-    const sid = currentSchoolId(); if (!sid) { toast("Not signed in", "error"); return; }
-    setErr(""); setBusy("create");
+  const [editAccess, setEditAccess] = useState<boolean | null>(null);
+  const [email, setEmail] = useState("");
+  const [accessError, setAccessError] = useState("");
+  const [savingAccess, setSavingAccess] = useState(false);
+  const [confirmReplacement, setConfirmReplacement] = useState(false);
+  const [credentials, setCredentials] = useState<ParentCredentials | null>(null);
+  const savedAccess = !!loginEmail || uids.length > 0;
+  const enabled = editAccess ?? savedAccess;
+
+  async function saveAccess(useSavedEmail = false, regenerate = false) {
+    if (savingAccess) return;
+    const proposedEmail = normEmail(useSavedEmail ? loginEmail : email);
+    if (enabled && !validEmail(proposedEmail)) {
+      setAccessError("Enter a valid login email.");
+      return;
+    }
+    setSavingAccess(true);
+    setAccessError("");
     try {
-      const r = await linkParent(sid, s.id, e, s.guardian || "");
-      if (!r.created) toast(`Linked the existing parent login ${e}`);
-      else if (r.invited) toast(`Parent login created. Password email sent to ${e}`);
-      else toast("Parent login created, but the password email could not be sent. Use Resend invite.", "error");
-      setErr("");
-    } catch (x) { setErr(parentError(x)); } finally { setBusy(null); }
+      const result = await setParentAppAccess(s.id, enabled ? { enabled: true, email: proposedEmail, ...(regenerate ? { regenerate: true } : {}) } : { enabled: false });
+      setEditAccess(null);
+      setEmail("");
+      if (result.state === "issued") setCredentials({ email: result.email, password: result.password });
+      setConfirmReplacement(false);
+      if (result.state === "active") toast("Parent app access enabled.");
+      if (result.state === "off") toast("Parent app access turned off for this student.");
+    } catch (error) {
+      const message = error instanceof Error && !/^internal(?:\s*\[\d+\])?$/i.test(error.message)
+        ? error.message : "Could not reach the parent password service.";
+      setAccessError(message);
+      setConfirmReplacement(false);
+    } finally {
+      setSavingAccess(false);
+    }
   }
-  async function resend(u: SchoolUser) {
-    if (!u.email) return;
-    setBusy(u.id);
-    try { await resendParentInvite(u.email); toast(`Password email sent to ${u.email}`); } catch (x) { toast(parentError(x), "error"); } finally { setBusy(null); }
-  }
+
   async function confirmUnlink() {
-    const sid = currentSchoolId(); if (!sid || !unlink) return;
+    if (!unlink) return;
     setBusy(unlink.uid);
-    try { await unlinkParent(sid, s.id, unlink.uid); toast("Parent login unlinked"); setUnlink(null); } catch { toast("Could not unlink the parent login", "error"); } finally { setBusy(null); }
+    try { await setParentAppAccess(s.id, { enabled: false, unlinkUid: unlink.uid }); toast("Parent login unlinked"); setUnlink(null); } catch { toast("Could not unlink the parent login", "error"); } finally { setBusy(null); }
   }
 
   return (
     <section>
-      <h3 className="t-label-caps mb-2 text-on-surface-variant">Parent login</h3>
+      <h3 className="t-label-caps mb-2 text-on-surface-variant">Parent app access</h3>
+      <div className="mb-3 space-y-2">
+        <div className="flex items-center gap-3">
+          <fieldset disabled={savingAccess}>
+            <Switch label="Enable parent app access" checked={enabled} onChange={(next) => {
+              setEditAccess(next === savedAccess ? null : next);
+              setEmail(next ? pendingEmail : "");
+              setAccessError("");
+            }} />
+          </fieldset>
+          <span className="text-sm">{savingAccess ? "Saving…" : savedAccess ? "Enabled" : pendingEmail ? "Setup pending" : "Off"}</span>
+        </div>
+        {editAccess === true && !savedAccess && <>
+          <Field label="Login email" error={accessError}>
+            <Input type="email" autoComplete="off" maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} disabled={savingAccess} />
+          </Field>
+          <Button size="sm" disabled={savingAccess} onClick={() => saveAccess()}>
+            {savingAccess ? "Saving…" : "Enable parent app access"}
+          </Button>
+        </>}
+        {editAccess === false && savedAccess && <Button size="sm" variant="danger" disabled={savingAccess} onClick={() => saveAccess()}>
+          {savingAccess ? "Saving…" : "Turn off access for this student"}
+        </Button>}
+        {accessError && editAccess !== true && <p role="alert" className="text-sm text-error">{accessError}</p>}
+      </div>
+      {username && <dl className="mb-3 text-sm">
+        <dt className="font-semibold">Parent username</dt>
+        <dd className="break-all text-on-surface-variant">{username}</dd>
+      </dl>}
+      {admin?.role === "admin" && enabled && account?.parentCredentialVersion && <ParentPasswordField
+        key={JSON.stringify([admin.schoolId, admin.id, s.id, account.id, account.parentCredentialVersion])}
+        studentId={s.id} version={account.parentCredentialVersion} />}
       {uids.length === 0 ? <p className="mb-3 text-sm text-on-surface-variant">No parent app login linked yet.</p> : (
         <ul className="mb-3 space-y-2">{uids.map((uid) => {
           const u = users.find((x) => x.id === uid);
@@ -66,7 +120,6 @@ export function ParentLoginSection({ s, students, users, consents }: { s: Stu; s
                   {u && u.role !== "parent" && <Badge tone="danger">Not a parent login ({u.role})</Badge>}
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  {u?.email && <Button size="sm" variant="ghost" disabled={busy === uid} onClick={() => resend(u)}><Mail size={14} />Resend invite</Button>}
                   <Button size="sm" variant="ghost" aria-label="Unlink parent login" disabled={busy === uid} onClick={() => setUnlink({ uid, label: u?.email ?? uid })}><Unlink size={14} className="text-error" />Unlink</Button>
                 </div>
               </div>
@@ -83,15 +136,28 @@ export function ParentLoginSection({ s, students, users, consents }: { s: Stu; s
               </div>
             </li>);
         })}</ul>)}
-      <div className="flex gap-2">
-        <Input type="email" aria-label="Guardian email" placeholder="guardian@example.com" value={email} onChange={(e) => { setEmail(e.target.value); setErr(""); }} />
-        <Button className="shrink-0" disabled={busy === "create"} onClick={create}><Link2 size={14} />{busy === "create" ? "Working…" : "Create & invite"}</Button>
-      </div>
-      {err ? <p className="mt-1 text-xs text-error" role="alert">{err}</p>
-        : <p className="t-caption mt-1 text-outline">An existing parent login with this email (e.g. a sibling&apos;s) is linked; otherwise a login is created and a password email is sent.</p>}
+      {loginEmail && enabled && <div className="space-y-2">
+        {account?.parentCredentialVersion
+          ? <p className="t-caption text-outline">The parent signs in with the password provided by the school.</p>
+          : <p className="t-caption text-outline">Generate a school-managed password for {loginEmail}.</p>}
+        <Button size="sm" variant="outline" disabled={savingAccess || !!credentials}
+          onClick={() => account?.parentCredentialVersion ? setConfirmReplacement(true) : void saveAccess(true)}>
+          {account?.parentCredentialVersion ? "Replace parent password" : "Generate parent password"}
+        </Button>
+      </div>}
+      <Modal open={confirmReplacement} onClose={() => { if (!savingAccess) setConfirmReplacement(false); }}
+        title="Replace parent password?" subtitle={loginEmail}
+        footer={<><Button variant="ghost" disabled={savingAccess} onClick={() => setConfirmReplacement(false)}>Cancel</Button>
+          <Button disabled={savingAccess} onClick={() => saveAccess(true, true)}>{savingAccess ? "Replacing…" : "Replace password"}</Button></>}>
+        <p className="text-on-surface-variant">The new password applies to every student linked to this parent. The parent will need it the next time they sign in.</p>
+      </Modal>
+      <Modal open={!!credentials} onClose={() => setCredentials(null)} title="Parent password"
+        footer={<Button onClick={() => setCredentials(null)}>Done</Button>}>
+        {credentials && <GeneratedParentPassword credentials={credentials} />}
+      </Modal>
       <Modal open={!!unlink} onClose={() => setUnlink(null)} title="Unlink parent login?" subtitle={unlink?.label}
         footer={<><Button variant="ghost" onClick={() => setUnlink(null)}>Cancel</Button><Button variant="danger" disabled={!!unlink && busy === unlink.uid} onClick={confirmUnlink}>{unlink && busy === unlink.uid ? "Unlinking…" : "Unlink"}</Button></>}>
-        <p className="text-on-surface-variant">This parent will no longer see {s.name} in the parent app. The login itself is kept (it may be linked to siblings) and can be linked again later.</p>
+        <p className="text-on-surface-variant">This parent will no longer see {s.name} in the parent app. They can still sign in for any linked siblings.</p>
       </Modal>
     </section>
   );

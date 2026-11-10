@@ -3,12 +3,13 @@
 How the parent app connects to the shared Firebase backend (data contract §13) and what a school has to do.
 
 ## Give a parent access (admin web)
-1. Students → open the student → **Parent login** → enter the guardian's email → **Create & invite**.
-   - A login is created and a "set your password" email is sent. The same email on a sibling links the same login.
-   - Within a minute a Cloud Function fills the login's children (`users/{uid}.studentIds / classIds / grns`).
-2. The parent installs the app, taps **Sign in**, and uses that email and the password they set.
-   (Mobile passcodes and Google/Apple sign-in are not set up yet; the app says so.)
-3. The Students list shows each student's parent-app state: *No parent login*, *Consent pending*, *Consent given*.
+1. In **Admissions**, enable **Parent app access**, enter the parent’s login email, and save the admission to enable access and generate a six-digit password for a new account. For an existing student, open **Student Details → Parent app access**.
+2. Copy the password and share it with the parent. In **Student Details → Parent app access**, a school admin can use **Show password** and **Copy password** under the parent username. A password issued before this feature needs a one-time replacement before it can be viewed there. It remains valid until the school replaces it.
+3. Use the same email for siblings. Use **Replace parent password** when a parent needs a new one. This revokes access for older sessions across all linked siblings. The school can unlink a student without removing a sibling’s access.
+
+Existing accounts with Firebase email/password credentials keep their student links and consent when a school admin generates their first school-managed password. Issue those passwords before asking existing parents to move to the updated app. Managed sign-in uses `signInParent` and Firebase custom tokens. Deploy the callable functions, Firestore rules, Storage rules, and updated parent notification functions before enabling the dashboard flow. The `signInParent` runtime service account needs permission to sign Firebase custom tokens.
+
+Before deploying `setParentAppAccess` and `revealParentPassword`, provision a 32-byte random key encoded as 64 hex characters in the `PARENT_PASSWORD_ENCRYPTION_KEY` Firebase secret. Preserve this key across deploys. Replacing it without re-encrypting the stored passwords requires schools to issue replacements before those passwords can be viewed again. Successful reveals are recorded in Cloud Logging with actor, school, student, and parent IDs. Sign-in still verifies the password hash.
 
 ## What syncs
 | Parent sees | Comes from |
@@ -43,6 +44,14 @@ Records created before the parent functions were deployed are copied for parents
 `node website/tools/parent_backfill/backfill.mjs` (already run once on 27 Oct 2026).
 
 ## Testing without touching the live project
+From `website`, generate a local-only key in `functions/.secret.local` and run the login and sibling access check:
+
+```sh
+# Create the file only if absent. If present, add PARENT_PASSWORD_ENCRYPTION_KEY to it separately.
+(umask 077; set -C; printf 'PARENT_PASSWORD_ENCRYPTION_KEY=%s\n' "$(openssl rand -hex 32)" > functions/.secret.local)
+tools/emulator_exec.sh auth,firestore,functions,storage "node tools/parent_flow_test/email-login.mjs"
+```
+
 `website/tools/e2e/`: `start_emulators.sh` (auth, firestore, functions on a demo project), `seed.mjs` (a small school,
 an admin, a teacher and a parent login; passwords in the git-ignored `.accounts.json`), `act.mjs <step>` (plays the admin
 and teacher side: link, attendance, homework, grade, publish, reply, decide, live, payment, notice, show). Build the app

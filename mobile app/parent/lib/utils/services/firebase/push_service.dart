@@ -22,7 +22,7 @@ class ParentPushService {
   final _foreground = StreamController<PushMessage>.broadcast();
   final _opened = StreamController<String>.broadcast();
   final _subs = <StreamSubscription<Object?>>[];
-  String? _uid, _token;
+  String? _uid, _token, _credentialVersion;
 
   /// Messages that arrive while the app is open (the system does not show those on Android).
   Stream<PushMessage> get foregroundMessages => _foreground.stream;
@@ -51,16 +51,17 @@ class ParentPushService {
     final uid = _uid;
     if (ok && uid != null && _token == null) {
       _uid = null;
-      await start(uid);
+      await start(uid, credentialVersion: _credentialVersion);
     }
     return ok;
   }
 
   /// Call after sign-in. Never throws: notifications are optional for using the app.
-  Future<void> start(String uid) async {
-    if (_uid == uid) return;
+  Future<void> start(String uid, {String? credentialVersion}) async {
+    if (_uid == uid && _credentialVersion == credentialVersion) return;
     await stop();
     _uid = uid;
+    _credentialVersion = credentialVersion;
     // Web push needs a VAPID key and a service worker; the parent app targets phones.
     if (kIsWeb) return;
     try {
@@ -93,6 +94,7 @@ class ParentPushService {
     await _tokenDoc(uid, token).set({
       'token': token,
       'app': 'parent',
+      if (_credentialVersion != null) 'parentCredentialVersion': _credentialVersion,
       'platform': defaultTargetPlatform.name,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
     });
@@ -109,6 +111,7 @@ class ParentPushService {
     final uid = _uid, token = _token;
     _uid = null;
     _token = null;
+    _credentialVersion = null;
     if (uid == null || token == null) return;
     try {
       await _tokenDoc(uid, token).delete();

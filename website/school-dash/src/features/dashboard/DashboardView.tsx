@@ -1,67 +1,25 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowRight, Bus, Check, CheckCheck, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Download, MessageSquare, Rocket, TrendingUp, UserX, UserCheck, X, AlertTriangle } from "lucide-react";
+import { ArrowRight, Bus, CheckCheck, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Download, MessageSquare, TrendingUp, UserX, UserCheck, AlertTriangle } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, Checkbox, EmptyState, Field, Modal, ProgressBar, Select, Tabs, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { inr } from "@/lib/format";
 import { GROUPS, groupOfGrade } from "@/features/admissions/types";
-import { DashHeader, useSetupProgress } from "./DashHeader";
+import { DashHeader } from "./DashHeader";
 import { ReasonModal, useApprovalActions } from "./approvals-shared";
 import {
   catOf, downloadCsv, errMsg, useHydrated, eventsOn, fmtDay, fmtSubmitted, KIND_LABEL, KIND_ORDER, MON, MONTHS, monthGrid, parse, pctOf, TODAY, upcomingEvents, useApprovals, useEvents,
   type Alert, type Notif, type Staff, nowLocal } from "./data";
 import { dayAttendance, deriveAlerts, isOverdue, staffOnLeave, type AttRec, type BusLite, type InvoiceLite, type LeaveLite, type LiveAlert, type PeriodLite, type SubLite } from "./logic";
 
-type Prefs = { id: string; bannerDismissed: boolean };
 type Student = { id: string; status: string };
 type Payment = { id: string; amount: number; date: string };
 type Invoice = InvoiceLite;
 type Enq = { id: string };
 type App = { id: string; grade: string; status: string; testSlotId?: string; interviewSlotId?: string; panelStatus?: string | null };
 type Seat = { id: string; grade: string; capacity: number };
-
-/** dash_prefs/main may be missing for older schools: create it instead of failing the update */
-export function useDashPrefs() {
-  const c = useCollection<Prefs>("dash_prefs");
-  const save = (patch: Partial<Prefs>) => (c.rows.some((r) => r.id === "main") ? c.update("main", patch) : c.create({ id: "main", bannerDismissed: false, ...patch }));
-  return { ...c, prefs: c.rows.find((r) => r.id === "main"), save };
-}
-
-/* ---------------- onboarding banner ---------------- */
-function Banner() {
-  const { steps, done, total, pct } = useSetupProgress();
-  const { prefs, save, ready: r0 } = useDashPrefs();
-  const ready = useHydrated() && r0;
-  const toast = useToast();
-  if (!ready || prefs?.bannerDismissed || !steps.length || done === total) return null;
-  const current = steps.find((s) => !s.done);
-  return (
-    <Card className="mb-6 p-5">
-      <div className="flex flex-wrap items-start gap-4">
-        <span className="grid size-11 place-items-center rounded-lg bg-secondary text-on-secondary"><Rocket size={20} /></span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">Academic Year Onboarding Setup</h2>
-            <Badge tone="brand">Step {current?.no ?? total} of {total} Active</Badge><span className="text-sm text-outline">• {pct}% complete</span></div>
-          <p className="mt-1 text-on-surface-variant">{done} phase{done === 1 ? "" : "s"} completed. {current ? `Complete ${current.title} to continue.` : ""}</p>
-        </div>
-        <Link href="/setup"><Button size="sm">Resume <ArrowRight size={14} /></Button></Link>
-        <button aria-label="Dismiss setup banner" className="cursor-pointer rounded p-1 text-outline hover:bg-surface-container"
-          onClick={async () => { try { await save({ bannerDismissed: true }); toast("Setup banner dismissed — you can restore it from the Setup Wizard"); } catch (e) { toast(errMsg(e, "Could not dismiss"), "error"); } }}><X size={16} /></button>
-      </div>
-      <ProgressBar value={pct} className="mt-4" />
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
-        {steps.map((s) => {
-          const cur = s.id === current?.id;
-          return <Link key={s.id} href="/setup" className={cn("flex items-center justify-between gap-1 rounded border px-2.5 py-2 text-xs font-medium",
-            cur ? "border-secondary bg-info-container font-semibold text-secondary" : s.done ? "border-outline-variant/60 text-on-surface" : "border-outline-variant/40 text-outline")}>
-            <span className="truncate">{s.no}. {s.short}</span>{s.done ? <Check size={12} className="text-success" /> : cur ? <span className="size-2 rounded-full bg-secondary" /> : null}</Link>;
-        })}
-      </div>
-    </Card>
-  );
-}
 
 /* ---------------- KPI strip (all derived from live collections) ---------------- */
 const K = ({ label, icon, value, unit, tag, tone, href }: { label: string; icon: React.ReactNode; value: React.ReactNode; unit?: string; tag?: string; tone?: "danger" | "success" | "neutral" | "warning"; href?: string }) => {
@@ -313,7 +271,6 @@ export function DashboardView() {
   return (
     <>
       <DashHeader active="dashboard" />
-      <Banner />
       <Kpis />
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="min-w-0"><Pipeline /><ApprovalsInbox /></div>

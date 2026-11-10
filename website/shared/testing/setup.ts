@@ -23,7 +23,7 @@ vi.mock("next/link", async () => {
 vi.mock("next/image", async () => {
   const React = await import("react");
   return { default: ({ src, alt, ...p }: { src: string | { src: string }; alt: string } & Record<string, unknown>) => {
-    const rest = { ...p }; delete rest.priority; delete rest.fill;
+    const rest = { ...p }; delete rest.priority; delete rest.fill; delete rest.unoptimized;
     return React.createElement("img", { src: typeof src === "string" ? src : src.src, alt, ...rest });
   } };
 });

@@ -11,12 +11,12 @@ import { NavLinks, SchoolBadge } from "./Sidebar";
 
 type Me = { id: string; name: string; title: string; role: string };
 type Student = { id: string; name: string; grn: string; grade: string; section: string };
-type Notif = { id: string; read?: boolean };
+type Notif = { id: string; read?: boolean; recipientUid?: string };
 type School = { id: string; academicYear?: string };
 
 export function Topbar() {
   const router = useRouter();
-  const { logout } = useAuth();
+  const { user: sessionUser, logout } = useAuth();
   const { rows: me } = useCollection<Me>("me");
   const { rows: students } = useCollection<Student>("students");
   const { rows: notifs } = useCollection<Notif>("notifications");
@@ -28,7 +28,7 @@ export function Topbar() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const unread = notifs.filter((n) => !n.read).length;
+  const unread = notifs.filter((n) => !n.read && (!n.recipientUid || n.recipientUid === sessionUser?.id)).length;
 
   useEffect(() => {
     if (!menu) return;

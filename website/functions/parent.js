@@ -12,6 +12,7 @@ const { getMessaging } = require("firebase-admin/messaging");
 const { logger } = require("firebase-functions/v2");
 const { onDocumentCreated, onDocumentDeleted, onDocumentUpdated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { labelToClassId, audienceClassTest } = require("./classIdentity");
 
 // `shared` (optional) receives the helpers other codebases reuse (transport.js: notifyParents, guardiansOf, istToday, safe).
 module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
@@ -19,11 +20,10 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   const nowIso = () => new Date().toISOString();
   /** today's date in India time, YYYY-MM-DD */
   const istToday = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
-  const uniq = (a) => [...new Set((a ?? []).filter((x) => typeof x === "string" && x))];
+  const uniq = (a) => [...new Set((Array.isArray(a) ? a : []).filter((x) => typeof x === "string" && x))];
   const sameSet = (a, b) => { const x = uniq(a).sort(), y = uniq(b).sort(); return x.length === y.length && x.every((v, i) => v === y[i]); };
   /** drops undefined values (Firestore rejects them) */
   const clean = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
-  const labelToClassId = (label) => `cls_${String(label ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase()}`;
   /** ISO string / Timestamp / Date / millis -> millis (0 if unknown) */
   const ms = (v) => (v == null ? 0 : typeof v.toMillis === "function" ? v.toMillis() : typeof v === "number" ? v : +new Date(v) || 0);
 
@@ -42,7 +42,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
       const m = /^cls_(\d+)([A-Z])$/.exec(classId);
       if (m) snap = await S(sid).collection("students").where("grade", "==", m[1]).where("section", "==", m[2]).get();
     }
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter(activeStudent);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((student) => activeStudent(student) && (!student.classId || student.classId === classId));
   }
 
   async function studentDoc(sid, studentId) {
@@ -89,8 +89,12 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
     const byUid = new Map();
     for (const r of sent) (byUid.get(r.uid) ?? byUid.set(r.uid, []).get(r.uid)).push(r);
     for (const [uid, list] of byUid) {
-      const snap = await db.collection("users").doc(uid).collection("fcm_tokens").get();
-      const tokens = snap.docs.filter((d) => (d.get("app") ?? "parent") === "parent").map((d) => ({ token: d.id, ref: d.ref }));
+      const ref = db.collection("users").doc(uid);
+      const [profile, snap] = await Promise.all([ref.get(), ref.collection("fcm_tokens").get()]);
+      const version = profile.get("parentCredentialVersion");
+      const tokens = snap.docs
+        .filter((d) => (d.get("app") ?? "parent") === "parent" && (!version || d.get("parentCredentialVersion") === version))
+        .map((d) => ({ token: d.id, ref: d.ref }));
       if (!tokens.length) continue;
       for (const r of list) {
         for (const part of chunk(tokens, 500)) {
@@ -124,37 +128,43 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
 
   async function syncParentUser(sid, uid) {
     const ref = db.collection("users").doc(uid);
-    const u = await ref.get();
-    if (!u.exists || u.get("schoolId") !== sid || u.get("role") !== "parent") { logger.info("guardian uid has no parent login in this school", { sid, uid }); return; }
-    const snap = await S(sid).collection("students").where("guardianUids", "array-contains", uid).get();
-    const kids = snap.docs.filter((d) => d.get("deleted") !== true);
-    const next = {
-      studentIds: uniq(kids.map((d) => d.id)).sort(),
-      classIds: uniq(kids.map((d) => d.get("classId"))).sort(),
-      grns: uniq(kids.map((d) => (d.get("grn") == null ? null : String(d.get("grn"))))).sort(),
-    };
-    if (["studentIds", "classIds", "grns"].every((k) => JSON.stringify(u.get(k) ?? []) === JSON.stringify(next[k]))) return;
-    await ref.update({ ...next, updatedAt: nowIso(), updatedBy: "functions" });
+    await db.runTransaction(async (tx) => {
+      const u = await tx.get(ref);
+      if (!u.exists || u.get("schoolId") !== sid || u.get("role") !== "parent") return;
+      const snap = await tx.get(S(sid).collection("students").where("guardianUids", "array-contains", uid));
+      const kids = snap.docs.filter((d) => d.get("deleted") !== true);
+      const next = {
+        studentIds: uniq(kids.map((d) => d.id)).sort(),
+        classIds: uniq(kids.map((d) => d.get("classId"))).sort(),
+        grns: uniq(kids.map((d) => (d.get("grn") == null ? null : String(d.get("grn"))))).sort(),
+      };
+      if (["studentIds", "classIds", "grns"].every((k) => JSON.stringify(u.get(k) ?? []) === JSON.stringify(next[k]))) return;
+      tx.update(ref, { ...next, updatedAt: nowIso(), updatedBy: "functions" });
+    });
   }
 
   const linkedUids = (s) => (s && s.deleted !== true ? uniq(s.guardianUids) : []);
 
-  const onStudentWritten = onDocumentWritten("schools/{sid}/students/{id}", safe("onStudentWritten", async (e) => {
+  const onStudentWritten = onDocumentWritten({ document: "schools/{sid}/students/{id}", retry: true }, async (e) => {
     const sid = e.params.sid, id = e.params.id;
     const before = e.data?.before?.data(), after = e.data?.after?.data();
     const bU = linkedUids(before), aU = linkedUids(after);
     const relevant = !before || !after || !sameSet(bU, aU) || before.classId !== after.classId || before.grn !== after.grn
       || (before.deleted === true) !== (after.deleted === true) || !sameSet(before.guardianUids, after.guardianUids);
     if (!relevant) return;
-    for (const uid of uniq([...(before?.guardianUids ?? []), ...(after?.guardianUids ?? [])])) await syncParentUser(sid, uid);
+    for (const uid of uniq([...uniq(before?.guardianUids), ...uniq(after?.guardianUids)])) {
+      if (!uid.includes("/")) await syncParentUser(sid, uid);
+    }
 
-    const name = after?.name ?? before?.name ?? id;
-    const actor = (await userName(after?.updatedBy ?? before?.updatedBy)) ?? "System";
-    if (!before && after) await audit(sid, "Student record created", `${name} (${id})`, actor);
-    if (before && !after) await audit(sid, "Student record deleted", `${name} (${id})`, actor);
-    for (const uid of aU.filter((u) => !bU.includes(u))) await audit(sid, "Parent login linked", `${(await userName(uid)) ?? uid} linked to ${name} (${id})`, actor);
-    for (const uid of bU.filter((u) => !aU.includes(u))) await audit(sid, "Parent login unlinked", `${(await userName(uid)) ?? uid} unlinked from ${name} (${id})`, actor);
-  }));
+    await safe("onStudentWritten audit", async () => {
+      const name = after?.name ?? before?.name ?? id;
+      const actor = (await userName(after?.updatedBy ?? before?.updatedBy)) ?? "System";
+      if (!before && after) await audit(sid, "Student record created", `${name} (${id})`, actor);
+      if (before && !after) await audit(sid, "Student record deleted", `${name} (${id})`, actor);
+      for (const uid of aU.filter((u) => !bU.includes(u))) await audit(sid, "Parent login linked", `${(await userName(uid)) ?? uid} linked to ${name} (${id})`, actor);
+      for (const uid of bU.filter((u) => !aU.includes(u))) await audit(sid, "Parent login unlinked", `${(await userName(uid)) ?? uid} unlinked from ${name} (${id})`, actor);
+    })(e);
+  });
 
   // ---------------------------------------------------------------------------
   // classes.classTeacher (name) follows classTeacherId; a staff rename updates their classes
@@ -391,11 +401,8 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   /** parent users of the school; with grades (["Grade 8-A", "Grade 9"]) only those with a child in a matching class */
   async function schoolParents(sid, grades) {
     const snap = await db.collection("users").where("schoolId", "==", sid).where("role", "==", "parent").get();
-    const tests = uniq(grades).map((g) => {
-      const m = /(\d+)\s*-?\s*([A-Z])?\b/i.exec(g);
-      return m ? new RegExp(`^cls_${m[1]}${m[2] ? m[2].toUpperCase() : "[A-Z]"}$`) : null;
-    }).filter(Boolean);
-    return snap.docs.filter((d) => !tests.length || (d.get("classIds") ?? []).some((c) => tests.some((t) => t.test(c))));
+    const tests = uniq(grades).map(audienceClassTest).filter(Boolean);
+    return snap.docs.filter((d) => !uniq(grades).length || (d.get("classIds") ?? []).some((c) => tests.some((t) => t.test(c))));
   }
 
   const onNoticeForParents = onDocumentWritten("schools/{sid}/com_notices/{id}", safe("onNoticeForParents", async (e) => {

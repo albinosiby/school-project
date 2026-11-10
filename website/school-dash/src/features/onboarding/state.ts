@@ -2,17 +2,6 @@
 import { useCollection } from "@/lib/useCollection";
 import { firstOpenStep, markCompleted } from "./logic";
 
-export const STEPS = [
-  { no: 1, title: "School Profile", blurb: "Who you are: name, board and affiliation." },
-  { no: 2, title: "Academic Year & Terms", blurb: "Set the year and the terms that structure it." },
-  { no: 3, title: "Classes & Sections", blurb: "Choose grades, sections and seat capacity." },
-  { no: 4, title: "Bell Schedule", blurb: "Define the school day and its periods." },
-  { no: 5, title: "Fee Structure", blurb: "Set fees per grade band and payment rules." },
-  { no: 6, title: "Staff Allocations", blurb: "Assign roles and class teachers." },
-  { no: 7, title: "Data Import", blurb: "Bring in students and guardians." },
-  { no: 8, title: "Parent Invite", blurb: "Open the parent app and send invitations." },
-] as const;
-
 export type OnbState = { id: string; complete: boolean; completed?: number[] };
 export type OnbData = { id: string; values: Record<string, unknown> };
 

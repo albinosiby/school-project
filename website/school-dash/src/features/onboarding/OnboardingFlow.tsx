@@ -4,6 +4,7 @@ import { useState } from "react";
 import { BellRing, GraduationCap, LayoutDashboard, ShieldCheck, Wallet } from "lucide-react";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
+import { STEPS } from "./logic";
 
 const SLIDES = [
   {
@@ -21,8 +22,8 @@ const SLIDES = [
   {
     icon: GraduationCap,
     title: "Start your academic year",
-    body: "Finish the setup wizard, import student data and invite parents. Your school will be ready before the first bell.",
-    points: [{ icon: GraduationCap, text: "8-step setup" }, { icon: LayoutDashboard, text: "CBSE ready" }],
+    body: "Set up your school profile, classes, timetable and fees so your school can start using the dashboard.",
+    points: [{ icon: GraduationCap, text: `${STEPS.length}-step setup` }, { icon: LayoutDashboard, text: "CBSE ready" }],
   },
 ] as const;
 

@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { CheckCircle2, AlertCircle } from "lucide-react";
 
 type T = { id: number; msg: string; tone: "success" | "error" };
@@ -8,10 +8,22 @@ export const useToast = () => useContext(Ctx);
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<T[]>([]);
+  const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const active = timers.current;
+    return () => {
+      active.forEach(clearTimeout);
+      active.clear();
+    };
+  }, []);
   const push = useCallback((msg: string, tone: T["tone"] = "success") => {
     const id = Date.now() + Math.random();
     setItems((x) => [...x, { id, msg, tone }]);
-    setTimeout(() => setItems((x) => x.filter((i) => i.id !== id)), 3500);
+    const timer = setTimeout(() => {
+      timers.current.delete(timer);
+      setItems((x) => x.filter((i) => i.id !== id));
+    }, 3500);
+    timers.current.add(timer);
   }, []);
   return (
     <Ctx.Provider value={push}>

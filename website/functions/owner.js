@@ -27,6 +27,9 @@ exports.ownerSetPassword = onCall(async (req) => {
   if ((await db().doc(`platform_admins/${uid}`).get()).exists) throw new HttpsError("permission-denied", "Owner passwords are not changed from the console.");
   const user = await db().doc(`users/${uid}`).get();
   if (!user.exists) throw new HttpsError("not-found", "This login does not belong to any school.");
+  if (user.get("parentCredentialVersion")) {
+    throw new HttpsError("failed-precondition", "The school manages this parent's password from Student Details.");
+  }
   try { await getAuth().updateUser(uid, { password }); }
   catch (e) { if (e?.code === "auth/user-not-found") throw new HttpsError("not-found", "This login no longer exists."); throw e; }
   logger.info("owner set a password", { caller, uid, schoolId: user.get("schoolId") });
@@ -50,6 +53,9 @@ exports.ownerDeleteSchool = onCall({ timeoutSeconds: 540, memory: "512MiB" }, as
     r.errors.forEach((e) => logger.warn("login not deleted", { uid: uids[i + e.index], error: e.error?.message }));
   }
   for (const u of users) await db().recursiveDelete(u.ref);
+  const credentials = await db().collection("parent_credentials").where("schoolId", "==", schoolId).get();
+  const credentialDeletes = db().bulkWriter();
+  await Promise.all([...credentials.docs.map((entry) => credentialDeletes.delete(entry.ref)), credentialDeletes.close()]);
   await db().recursiveDelete(db().doc(`schools/${schoolId}`));
   await db().doc(`platform_schools/${schoolId}`).delete();
   // demo requests that became this school keep their history but no longer point at it

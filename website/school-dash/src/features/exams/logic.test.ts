@@ -5,6 +5,21 @@ import {
 } from "./logic";
 import { cbseGrade, evaluate, type Eval } from "./types";
 
+describe("senior stream candidates", () => {
+  it("keeps Science A and Commerce A separate when allocating rolls and filtering a paper", () => {
+    const rows = candidatesFor([
+      { id: "s1", name: "Science student", grade: "11", section: "A", classId: "cls_11_science_A", roll: 8 },
+      { id: "s2", name: "Commerce student", grade: "11", section: "A", classId: "cls_11_commerce_A" },
+    ]);
+    expect(rows.find((row) => row.studentId === "s2")).toMatchObject({ cls: "11-Commerce-A", roll: "#11A-01" });
+    expect(rows.find((row) => row.studentId === "s1")?.cls).toBe("11-Science-A");
+    const paper = { grade: "11", classIds: ["cls_11_science_A"] };
+    expect(paperCoversClass(paper, "11-Science-A")).toBe(true);
+    expect(paperCoversClass(paper, "11-Commerce-A")).toBe(false);
+    expect(labelToClassId("12-Humanities-A")).toBe("cls_12_humanities_A");
+  });
+});
+
 describe("grades and totals", () => {
   it("maps percentages to CBSE bands at the edges", () => {
     expect([100, 91, 90.99, 81, 71, 61, 51, 41, 33, 32.99, 0].map(cbseGrade)).toEqual(["A1", "A1", "A2", "A2", "B1", "B2", "C1", "C2", "D", "E", "E"]);

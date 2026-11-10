@@ -137,16 +137,6 @@ void main() {
       expect(await getIt<IAuthRepository>().currentGuardian(), isNull);
     });
 
-    test('forgot password validates the email', () async {
-      await setUpTestApp();
-      final bloc = getIt<AuthBloc>()..add(const PasswordResetRequested('bad'));
-      expect(
-        (await _next(bloc, (s) => s.reset == ResetStatus.failed)).resetError,
-        isNotNull,
-      );
-      bloc.add(const PasswordResetRequested(DemoData.demoEmail));
-      await _next(bloc, (s) => s.reset == ResetStatus.sent);
-    });
   });
 
   test('an expired passcode is refused', () async {
@@ -253,7 +243,6 @@ void main() {
         RoutePaths.welcome,
         RoutePaths.login,
         RoutePaths.loginOtp,
-        RoutePaths.forgotPassword,
         RoutePaths.register,
       ]) {
         expect(RoutePaths.isPublic(p), isTrue, reason: p);
@@ -340,7 +329,7 @@ void main() {
     });
 
     testWidgets(
-      'login validates both tabs and shows errors; forgot password works',
+      'login validates both tabs and shows errors',
       (t) async {
         await setUpTestApp();
         await pumpApp(t, location: RoutePaths.login);
@@ -372,15 +361,6 @@ void main() {
         await t.pumpAndSettle();
         expect(find.text('Incorrect email or password.'), findsOneWidget);
 
-        await t.tap(find.text('Forgot password?'));
-        await t.pumpAndSettle();
-        await t.enterText(
-          find.widgetWithText(TextFormField, 'you@example.com'),
-          DemoData.demoEmail,
-        );
-        await t.tap(find.text('Send reset link'));
-        await t.pumpAndSettle();
-        expect(find.text('Check your email'), findsOneWidget);
       },
     );
 

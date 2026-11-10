@@ -1,3 +1,5 @@
-import { Reports } from "@/features/admissions/Reports";
+import { redirect } from "next/navigation";
 
-export default function Page() { return <Reports />; }
+export default function Page() {
+  redirect("/admissions");
+}

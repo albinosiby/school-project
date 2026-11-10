@@ -3,8 +3,9 @@ import { useMemo, useState } from "react";
 import { BookText, CheckCircle2, Clock, Plus, Trash2 } from "lucide-react";
 import { Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, ProgressBar, Select, Stat, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
+import { classStream, isSeniorGrade, streamFromClassId, streamsForGrade, type AcademicClass } from "@/lib/academicStreams";
 import { useCollection } from "@/lib/useCollection";
-import { GRADES, SECTIONS, SUBJECTS, activeStudent, classIdOf, studentClassId, teachingStaff, todayIso, type StaffRef } from "./shared";
+import { GRADES, SECTIONS, SUBJECTS, activeStudent, classIdOf, clsLabel, studentClassId, teachingStaff, todayIso, type StaffRef } from "./shared";
 import { hasSubmissions, hwClassId, hwCounts, hwState, hwVisible, validateHomework, type HW, type HWState } from "./logic";
 
 const STATE_LABEL: Record<HWState, string> = { open: "Open", overdue: "Overdue", closed: "Completed", draft: "Draft" };
@@ -20,6 +21,7 @@ export function AcademicsView() {
   const toast = useToast();
   const { rows: all, ready, create, update, remove } = useCollection<HW>("ops_homework");
   const students = useCollection<Stu>("students").rows;
+  const classes = useCollection<AcademicClass>("classes").rows;
   const staff = useCollection<StaffRef>("staff").rows;
   const teachers = useMemo(() => teachingStaff(staff), [staff]);
   const [tab, setTab] = useState("all"); const [grade, setGrade] = useState(""); const [section, setSection] = useState(""); const [subject, setSubject] = useState("");
@@ -37,7 +39,7 @@ export function AcademicsView() {
 
   const cols: Column<HW>[] = [
     { key: "title", header: "Assignment", sortValue: (h) => h.title, render: (h) => <div><div className="font-semibold">{h.title}</div><div className="t-caption text-outline">{h.teacher}</div></div> },
-    { key: "class", header: "Class", sortValue: (h) => +h.grade, render: (h) => <span className="rounded bg-surface-container px-2 py-1 text-xs font-medium">Grade {h.grade}-{h.section}</span> },
+    { key: "class", header: "Class", sortValue: (h) => +h.grade, render: (h) => <span className="rounded bg-surface-container px-2 py-1 text-xs font-medium">{clsLabel(hwClassId(h))}</span> },
     { key: "subject", header: "Subject", sortValue: (h) => h.subject, render: (h) => h.subject },
     { key: "due", header: "Due", sortValue: (h) => h.due ?? "", render: (h) => (h.due ? fmtDate(h.due) : "—") },
     { key: "sub", header: "Submissions", sortValue: (h) => { const c = hwCounts(h); return c.submitted / (c.total || 1); }, render: (h) => { const c = hwCounts(h); return <div className="w-36"><div className="mb-1 font-mono text-xs">{c.submitted}/{c.total}</div><ProgressBar value={(c.submitted / (c.total || 1)) * 100} tone={state(h) === "overdue" ? "danger" : "brand"} /></div>; } },
@@ -65,7 +67,7 @@ export function AcademicsView() {
         {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading homework…</p> : <DataTable rows={view} columns={cols} onRowClick={(h) => setForm({ edit: h })}
           empty={<EmptyState title={rows.length ? "No homework matches" : "No homework yet"} hint={rows.length ? "Try another tab or filter." : "Create homework, or wait for teachers to post it from the app."} />} />}
       </Card>
-      {form && <HWForm key={form.edit?.id ?? "new"} edit={form.edit} teachers={teachers} staff={staff}
+      {form && <HWForm classes={classes} key={form.edit?.id ?? "new"} edit={form.edit} teachers={teachers} staff={staff}
         classSize={(cid) => students.filter((x) => activeStudent(x) && studentClassId(x) === cid).length} onClose={() => setForm(null)}
         onDelete={form.edit ? async () => { if (!window.confirm(`Delete "${form.edit!.title}"? Teachers and students lose it too.`)) return; try { await remove(form.edit!.id); toast("Assignment deleted"); setForm(null); } catch { toast("Could not delete", "error"); } } : undefined}
         onSave={async (v) => { try { if (form.edit) await update(form.edit.id, v); else await create(v as never); toast(form.edit ? "Assignment updated" : "Homework created"); setForm(null); } catch { toast("Save failed", "error"); } }} />}
@@ -73,13 +75,17 @@ export function AcademicsView() {
   );
 }
 
-function HWForm({ edit, teachers, staff, classSize, onClose, onSave, onDelete }: { edit?: HW; teachers: StaffRef[]; staff: StaffRef[]; classSize: (classId: string) => number; onClose: () => void; onSave: (v: Partial<HW>) => Promise<void>; onDelete?: () => Promise<void> }) {
-  const [f, setF] = useState({ title: edit?.title ?? "", grade: edit?.grade ?? "8", section: edit?.section ?? "A", subject: edit?.subject ?? "", due: edit?.due ?? "", teacherId: edit?.teacherId ?? staff.find((s) => s.name === edit?.teacher)?.id ?? "",
+function HWForm({ classes, edit, teachers, staff, classSize, onClose, onSave, onDelete }: { classes: AcademicClass[]; edit?: HW; teachers: StaffRef[]; staff: StaffRef[]; classSize: (classId: string) => number; onClose: () => void; onSave: (v: Partial<HW>) => Promise<void>; onDelete?: () => Promise<void> }) {
+  const [f, setF] = useState({ stream: streamFromClassId(edit?.classId), title: edit?.title ?? "", grade: edit?.grade ?? "8", section: edit?.section ?? "A", subject: edit?.subject ?? "", due: edit?.due ?? "", teacherId: edit?.teacherId ?? staff.find((s) => s.name === edit?.teacher)?.id ?? "",
     description: edit?.description ?? "", maxMarks: String(edit?.maxMarks ?? 20), submitted: String(edit ? hwCounts(edit).submitted : 0) });
   const [err, setErr] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const set = (k: string, v: string) => { setF((p) => ({ ...p, [k]: v })); setErr((e) => ({ ...e, [k]: "", ...(k === "section" ? { grade: "" } : {}) })); };
-  const classId = classIdOf(f.grade, f.section);
+  const streams = streamsForGrade(classes, f.grade);
+  const configured = classes.filter((row) => row.grade === f.grade && classStream(row) === f.stream);
+  const sections = f.stream ? configured.map((row) => row.section).sort() : SECTIONS;
+  const classId = classIdOf(f.grade, f.section, f.stream);
+  const subjects = configured.find((row) => row.section === f.section)?.subjects ?? SUBJECTS;
   const classChanged = !edit || hwClassId(edit) !== classId;
   // the teacher app owns per-student submissions: their counts are read-only here and the class cannot move
   const locked = !!edit && hasSubmissions(edit);
@@ -105,11 +111,16 @@ function HWForm({ edit, teachers, staff, classSize, onClose, onSave, onDelete }:
       footer={<>{onDelete && <Button variant="danger" className="mr-auto" disabled={saving} onClick={onDelete}><Trash2 size={14} />Delete</Button>}<Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={saving}>{saving ? "Saving…" : edit ? "Save" : "Create"}</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Title" required error={err.title} className="sm:col-span-2"><Input value={f.title} onChange={(e) => set("title", e.target.value)} /></Field>
-        <Field label="Grade" required error={err.grade}><Select value={f.grade} disabled={locked} onChange={(e) => set("grade", e.target.value)}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
-        <Field label="Section" required><Select value={f.section} disabled={locked} onChange={(e) => set("section", e.target.value)}>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select></Field>
+        <Field label="Grade" required error={err.grade}><Select value={f.grade} disabled={locked} onChange={(e) => setF((prev) => ({ ...prev, grade: e.target.value, stream: "", section: "A" }))}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
+        {isSeniorGrade(f.grade) && streams.length > 0 && <Field label="Stream"><Select value={f.stream} disabled={locked} onChange={(e) => {
+          const id = streamFromClassId(classIdOf(f.grade, "A", e.target.value));
+          const first = classes.filter((row) => row.grade === f.grade && classStream(row) === id).map((row) => row.section).sort()[0] ?? "A";
+          setF((prev) => ({ ...prev, stream: id, section: first, subject: "" }));
+        }}><option value="">No stream</option>{streams.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</Select></Field>}
+        <Field label="Section" required><Select value={f.section} disabled={locked} onChange={(e) => set("section", e.target.value)}>{sections.map((g) => <option key={g}>{g}</option>)}</Select></Field>
         <Field label="Subject" required error={err.subject}><Select value={f.subject} onChange={(e) => set("subject", e.target.value)}>
           {!f.subject && <option value="">Select a subject…</option>}
-          {[...new Set([...(f.subject ? [f.subject] : []), ...SUBJECTS])].map((g) => <option key={g}>{g}</option>)}</Select></Field>
+          {[...new Set([...(f.subject ? [f.subject] : []), ...subjects])].map((g) => <option key={g}>{g}</option>)}</Select></Field>
         <Field label="Teacher" required error={err.teacherId}><Select value={f.teacherId} onChange={(e) => set("teacherId", e.target.value)}>
           {!f.teacherId && <option value="">Select a teacher…</option>}
           {f.teacherId && !teachers.some((t) => t.id === f.teacherId) && <option value={f.teacherId}>{staff.find((s) => s.id === f.teacherId)?.name ?? edit?.teacher ?? f.teacherId}</option>}

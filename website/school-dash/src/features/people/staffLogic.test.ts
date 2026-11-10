@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveStatus, emailTaken, empIdTaken, nextEmpId, nextStaffId, staffBody, validPhone, validateStaff, type StaffDraft } from "./staffLogic";
+import { effectiveStatus, emailTaken, empIdTaken, nextEmpId, staffBody, validPhone, validateStaff, type StaffDraft } from "./staffLogic";
 
 const rows = [
   { id: "stf_001", empId: "EMP-1000", email: "a@school.test", status: "Active" },
@@ -8,11 +8,6 @@ const rows = [
 const draft = (p: Partial<StaffDraft> = {}): StaffDraft => ({ name: "Ravi Kumar", empId: "", department: "Science", role: "TGT", phone: "+91 98100 00001", email: "ravi@school.test", designation: "", subjects: "", joined: "", ...p });
 
 describe("staff ids", () => {
-  it("nextStaffId takes the highest stf_NNN + 1, zero-padded, ignoring other ids", () => {
-    expect(nextStaffId([])).toBe("stf_001");
-    expect(nextStaffId(rows)).toBe("stf_010");
-    expect(nextStaffId([{ id: "stf_999" }, { id: "legacy" }])).toBe("stf_1000");
-  });
   it("nextEmpId skips employee ids already in use", () => {
     expect(nextEmpId([])).toBe("EMP-1000");
     expect(nextEmpId(rows)).toBe("EMP-1003"); // EMP-1002 is taken
@@ -34,9 +29,9 @@ describe("validPhone", () => {
 describe("validateStaff", () => {
   const today = "2026-11-04";
   it("accepts a complete draft", () => { expect(validateStaff(draft(), rows, undefined, today)).toEqual({}); });
-  it("requires name, phone and a valid email", () => {
+  it("requires name and a valid email, and permits a blank phone", () => {
     expect(validateStaff(draft({ name: " ", phone: "", email: "x@y" }), rows, undefined, today)).toEqual({
-      name: "Name is required", phone: "Enter a valid phone number", email: "A valid email is required (it is the teacher's login)",
+      name: "Name is required", email: "A valid email is required (it is the teacher's login)",
     });
   });
   it("flags a one-letter name, a duplicate email/employee id and a malformed employee id", () => {

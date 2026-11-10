@@ -29,7 +29,7 @@ export type CalEvent = {
   parentVisible?: boolean;
 };
 /** schools/{sid}/notifications: the admin bell. Rows from Cloud Functions carry `source: "teacher"` (contract 10, 12.1, 14.5). */
-export type Notif = { id: string; category: string; title: string; body: string; createdAt: string; read: boolean; href?: string; source?: string };
+export type Notif = { id: string; category: string; title: string; body: string; createdAt: string; read: boolean; href?: string; source?: string; recipientUid?: string };
 export type SetupStep = { id: string; no: number; title: string; short: string; desc: string; done: boolean; doneAt: string };
 export type SetupExc = { id: string; name: string; guardian: string; grade: string; grn: string; status: string; tone: Approval["tone"]; kind: string; issue: string; action: string; resolved: boolean };
 export type Stats = {

@@ -15,8 +15,16 @@ service cloud.firestore {
     // ---------- helpers ----------
     function signedIn() { return request.auth != null; }
     function userPath(uid) { return /databases/$(database)/documents/users/$(uid); }
-    function hasUser() { return signedIn() && exists(userPath(request.auth.uid)); }
     function me() { return get(userPath(request.auth.uid)).data; }
+    // A migrated parent must use a custom sign-in session for the current password.
+    // Only the server can write users/{uid}.parentCredentialVersion.
+    function validSession(profile) {
+      return profile.get('role', '') != 'parent' || !profile.keys().hasAny(['parentCredentialVersion'])
+        || (request.auth.token.firebase.sign_in_provider == 'custom'
+          && request.auth.token.get('parentCredentialVersion', '') == profile.parentCredentialVersion
+          && profile.get('studentIds', []).size() > 0);
+    }
+    function hasUser() { return signedIn() && exists(userPath(request.auth.uid)) && validSession(me()); }
     // contract 16: a suspended school is locked for all of its members (admin, staff, parents, crew)
     // get() of a missing doc is an error in rules, not null: most schools have no platform_schools doc, so test exists() first
     function schoolActive(sid) {
@@ -152,22 +160,44 @@ service cloud.firestore {
         && !d.keys().hasAny(['decidedBy', 'decidedAt', 'decisionNote']);
     }
 
+    // Staff roles managed by the provisioning function live on users/{uid}. Legacy teacher,
+    // parent, and transport provisioning may still create profiles without a managed role.
+    function validUserAccess(data) {
+      return data.schoolId is string && data.schoolId.size() > 0
+        && data.role in ['admin', 'staff', 'teacher', 'parent', 'driver', 'attendant'];
+    }
+    function legacyUserCreate(data) {
+      return validUserAccess(data)
+        && !data.keys().hasAny(['staffRole', 'invitedBy', 'invitationId', 'parentCredentialVersion'])
+        && (data.role == 'parent'
+          || (data.role == 'teacher' && data.get('staffId', '') is string && data.get('staffId', '') != '')
+          || (data.role in ['driver', 'attendant'] && data.get('crewId', '') is string && data.get('crewId', '') != ''));
+    }
+
     // ---------- users ----------
     match /users/{uid} {
-      // a user reads their own doc; an admin reads the docs of their school (to see staff accounts)
-      allow read: if signedIn() && (request.auth.uid == uid || isAdmin(resource.data.schoolId) || isOwner());
-      // Admin sign-up (and first login of a pre-existing school): a user may create ONLY their own admin doc for the
-      // school whose id is their own uid. That grants nothing beyond their own namespace schools/{uid}.
-      // The owner console creates the admin logins of the schools it adds (contract 16).
+      allow read: if signedIn() && ((request.auth.uid == uid && validSession(resource.data)) || isAdmin(resource.data.schoolId) || isOwner());
       allow create: if signedIn() && (
-        (request.auth.uid == uid && request.resource.data.schoolId == uid && request.resource.data.role == 'admin')
-        || isAdmin(request.resource.data.schoolId) || isOwner());
-      allow update: if (isAdmin(resource.data.schoolId) && request.resource.data.schoolId == resource.data.schoolId) || isOwner();
-      allow delete: if isAdmin(resource.data.schoolId) || isOwner();
+        (isOwner() && validUserAccess(request.resource.data) && request.resource.data.role in ['admin', 'parent']
+          && !request.resource.data.keys().hasAny(['staffRole', 'invitedBy', 'invitationId', 'parentCredentialVersion']))
+        || (isAdmin(request.resource.data.schoolId) && !isOwner() && legacyUserCreate(request.resource.data))
+      );
+      allow update: if validUserAccess(request.resource.data)
+        && (isAdmin(resource.data.schoolId) || isOwner())
+        && onlyKeys(['name', 'email', 'createdAt', 'updatedAt', 'updatedBy', 'schoolId'])
+        && (request.resource.data.schoolId == resource.data.schoolId
+          || (isOwner() && resource.data.role == 'admin'));
+      allow delete: if isOwner() || (isAdmin(resource.data.schoolId) && resource.data.role != 'admin')
+        || (signedIn() && !exists(userPath(uid)));
 
       // push notification device tokens (one doc per token); the Cloud Functions read them with admin access
       match /fcm_tokens/{token} {
-        allow read, write: if signedIn() && request.auth.uid == uid;
+        function validTokenRegistration() {
+          return !me().keys().hasAny(['parentCredentialVersion'])
+            || request.resource.data.get('parentCredentialVersion', '') == me().parentCredentialVersion;
+        }
+        allow read, delete: if hasUser() && request.auth.uid == uid;
+        allow create, update: if hasUser() && request.auth.uid == uid && validTokenRegistration();
       }
     }
 

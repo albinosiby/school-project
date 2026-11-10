@@ -136,9 +136,10 @@ export function stopsError(stops: Pick<BusStop, "name" | "pickupTime" | "dropTim
   return "";
 }
 
-export type BusInput = { number: string; regNo: string; capacity: string; routeName: string; pickupStart: string; dropStart: string };
-/** Add / edit bus: errors keyed by field ("stops" for the stop list); `onBus` = students currently on the edited bus */
-export function validateBus(f: BusInput, stops: Pick<BusStop, "name" | "pickupTime" | "dropTime">[], existing: { id: string; number?: string; regNo?: string }[], editId?: string, onBus = 0) {
+type BusIdentity = { number: string; regNo: string; capacity: string };
+export type BusInput = BusIdentity & { routeName: string; pickupStart: string; dropStart: string; monthlyFee?: string };
+type ExistingBus = { id: string; number?: string; regNo?: string };
+export function validateBusIdentity(f: BusIdentity, existing: ExistingBus[], editId?: string, onBus = 0) {
   const e: Record<string, string> = {};
   const others = existing.filter((b) => b.id !== editId);
   const num = f.number.trim();
@@ -151,7 +152,17 @@ export function validateBus(f: BusInput, stops: Pick<BusStop, "name" | "pickupTi
   const cap = f.capacity.trim();
   if (!/^\d+$/.test(cap) || Number(cap) < 1 || Number(cap) > 120) e.capacity = "Enter the seat count (a whole number, 1 to 120)";
   else if (Number(cap) < onBus) e.capacity = `${onBus} students are on this bus; capacity cannot be lower`;
+  return e;
+}
+
+/** Route operations can be added after a bus is registered. */
+export function validateBus(f: BusInput, stops: Pick<BusStop, "name" | "pickupTime" | "dropTime">[], existing: ExistingBus[], editId?: string, onBus = 0, allowUnscheduled = false) {
+  const e = validateBusIdentity(f, existing, editId, onBus);
+  const fee = f.monthlyFee?.trim() ?? "";
+  const amount = Number(fee);
+  if (fee && (!Number.isFinite(amount) || amount < 0 || amount > 10_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001)) e.monthlyFee = "Enter an amount from ₹0 to ₹1,00,00,000, with at most two decimal places";
   if (!f.routeName.trim()) e.routeName = "Route name is required";
+  if (allowUnscheduled && !stops.length && !f.pickupStart && !f.dropStart) return e;
   if (!isHHmm(f.pickupStart)) e.pickupStart = "Enter a time as HH:mm";
   if (!isHHmm(f.dropStart)) e.dropStart = "Enter a time as HH:mm";
   else if (isHHmm(f.pickupStart) && toMinutes(f.dropStart)! <= toMinutes(f.pickupStart)!) e.dropStart = "The drop must start after the pickup";

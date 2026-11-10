@@ -2,7 +2,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../di/injection.dart';
 import '../../../modules/auth/bloc/registration_bloc.dart';
-import '../../../modules/auth/screens/forgot_password_screen.dart';
 import '../../../modules/auth/screens/login_screen.dart';
 import '../../../modules/auth/screens/otp_screen.dart';
 import '../../../modules/auth/screens/register_screen.dart';
@@ -16,10 +15,6 @@ final List<RouteBase> authRoutes = [
   GoRoute(path: RoutePaths.welcome, builder: (_, _) => const WelcomeScreen()),
   GoRoute(path: RoutePaths.login, builder: (_, _) => const LoginScreen()),
   GoRoute(path: RoutePaths.loginOtp, builder: (_, _) => const OtpScreen()),
-  GoRoute(
-    path: RoutePaths.forgotPassword,
-    builder: (_, _) => const ForgotPasswordScreen(),
-  ),
   GoRoute(
     path: RoutePaths.register,
     builder: (_, _) => BlocProvider(

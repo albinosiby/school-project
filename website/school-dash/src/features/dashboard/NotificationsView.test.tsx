@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NotificationsView } from "./NotificationsView";
 import { addDays, TODAY } from "./data";
-import { getRow, renderUI, router, rowsOf, screen, seed, within, writesTo } from "@/test/render";
+import { ADMIN_UID, getRow, renderUI, router, rowsOf, screen, seed, within, writesTo } from "@/test/render";
 
 // rows as the Cloud Functions write them (functions/index.js notifyAdmin, functions/transport.js onCrewLeaveRequested)
 const fn = (id: string, o: Record<string, unknown>) => ({ id, read: false, source: "teacher", createdAt: `${TODAY}T09:00:00`, ...o });
@@ -43,6 +43,19 @@ describe("Notifications feed", () => {
     expect(await screen.findByText("All notifications marked as read")).toBeInTheDocument();
     expect(writesTo("notifications").map((w) => w.id).sort()).toEqual(["n_crew", "n_leave", "n_reg"]);
     expect(rowsOf<{ read: boolean }>("notifications").every((r) => r.read)).toBe(true);
+  });
+
+  it("shows expiry reminders only to the designated account and opens the bus", async () => {
+    seed({ notifications: [
+      fn("mine", { recipientUid: ADMIN_UID, category: "urgent", title: "Insurance expires in 30 days", body: "Bus 14", href: "/transport?bus=bus_01" }),
+      fn("other", { recipientUid: "another_admin", category: "urgent", title: "Other reminder", body: "Bus 15" }),
+    ] });
+    const { user } = renderUI(<NotificationsView />);
+    expect(screen.queryByText("Other reminder:")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mark all as read (1)" })).toBeEnabled();
+    await user.click(screen.getByText("Insurance expires in 30 days:"));
+    expect(router.push).toHaveBeenCalledWith("/transport?bus=bus_01");
+    expect(getRow("notifications", "other")).toMatchObject({ read: false });
   });
 
   it("delete removes the row", async () => {

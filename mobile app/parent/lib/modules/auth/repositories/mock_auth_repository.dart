@@ -98,14 +98,6 @@ class MockAuthRepository implements IAuthRepository {
   }
 
   @override
-  Future<void> sendPasswordReset(String email) async {
-    await MockLatency.wait();
-    if (!email.contains('@')) {
-      throw AppException(message: 'Enter a valid email address.');
-    }
-  }
-
-  @override
   Future<Guardian?> currentGuardian() async =>
       _storage.getString(AppConstants.sessionKey) == DemoData.guardian.id
       ? DemoData.guardian

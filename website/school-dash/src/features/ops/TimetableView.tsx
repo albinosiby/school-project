@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Plus } from "lucide-react";
 import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Tabs, useToast } from "@/components/ui";
+import { classStream, isSeniorGrade, streamsForGrade, type AcademicClass } from "@/lib/academicStreams";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { DAY_NAMES, GRADES, SECTIONS, SUBJECTS, classIdOf, clsLabel, teachingStaff, type StaffRef } from "./shared";
@@ -17,12 +18,18 @@ type Clash = (r: { id?: string; day: string; period: number; teacherId?: string;
 export function TimetableView() {
   const toast = useToast();
   const { rows, create, update, remove } = useCollection<Period>("ops_periods");
+  const classes = useCollection<AcademicClass>("classes").rows;
   const staff = useCollection<StaffRef>("staff").rows;
   const teachers = useMemo(() => teachingStaff(staff), [staff]);
   const [tab, setTab] = useState("grid");
   const [grade, setGrade] = useState("10"); const [section, setSection] = useState("B");
   const [edit, setEdit] = useState<{ day: string; period: number; rec?: Period } | null>(null);
-  const classId = classIdOf(grade, section);
+  const [stream, setStream] = useState("");
+  const streams = streamsForGrade(classes, grade);
+  const configured = classes.filter((row) => row.grade === grade && classStream(row) === stream);
+  const sections = stream ? configured.map((row) => row.section).sort() : SECTIONS;
+  const classId = classIdOf(grade, section, stream);
+  const subjectOptions = configured.find((row) => row.section === section)?.subjects ?? SUBJECTS;
   const nameOf = (r: Period) => staff.find((s) => s.id === r.teacherId)?.name ?? r.teacher;
 
   const mine = rows.filter((r) => periodClass(r) === classId);
@@ -34,8 +41,12 @@ export function TimetableView() {
     <div>
       <PageHeader title="Timetable" subtitle="Weekly period grid per class with teacher clash detection, and substitute cover."
         actions={tab === "grid" ? <>
-          <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-32">{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select>
-          <Select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)} className="w-28">{SECTIONS.map((g) => <option key={g} value={g}>Sec {g}</option>)}</Select></> : undefined} />
+          <Select aria-label="Grade" value={grade} onChange={(e) => { setGrade(e.target.value); setStream(""); setEdit(null); }} className="w-32">{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select>
+          {isSeniorGrade(grade) && streams.length > 0 && <Select aria-label="Stream" value={stream} onChange={(e) => {
+            const id = e.target.value; setStream(id); setEdit(null);
+            setSection(classes.filter((row) => row.grade === grade && classStream(row) === id).map((row) => row.section).sort()[0] ?? "A");
+          }} className="w-44"><option value="">No stream</option>{streams.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</Select>}
+          <Select aria-label="Section" value={section} onChange={(e) => { setSection(e.target.value); setEdit(null); }} className="w-28">{sections.map((g) => <option key={g} value={g}>Sec {g}</option>)}</Select></> : undefined} />
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ id: "grid", label: "Weekly grid" }, { id: "subs", label: "Substitutions" }]} />
       {tab === "subs" ? <SubstitutionsPanel staff={staff} periods={rows} /> : <>
       {conflicts > 0 && <div className="mb-4 flex items-center gap-2 rounded-lg bg-warning-container p-3 text-sm font-medium text-warning"><AlertTriangle size={16} />{conflicts} period{conflicts > 1 ? "s" : ""} in this class have a teacher double-booked with another class.</div>}
@@ -57,13 +68,13 @@ export function TimetableView() {
           </tbody>
         </table>
       </Card></>}
-      {edit && <PeriodModal key={`${edit.day}${edit.period}${grade}${section}`} ctx={edit} teachers={teachers} staff={staff} clash={clash} grade={grade} section={section} onClose={() => setEdit(null)}
+      {edit && <PeriodModal subjectOptions={subjectOptions} key={`${edit.day}${edit.period}${grade}${section}`} ctx={edit} teachers={teachers} staff={staff} clash={clash} grade={grade} section={section} onClose={() => setEdit(null)}
         taken={edit.rec ? undefined : findSlotTaken(rows, { classId, day: edit.day, period: edit.period })}
         onSave={async (v) => {
           try {
             const body = { ...v, classId, grade, section };
             if (edit.rec) await update(edit.rec.id, body);
-            else await create({ ...body, id: periodId(grade, section, edit.day, edit.period), day: edit.day, period: edit.period } as never);
+            else await create({ ...body, id: stream ? `per_${classId.slice(4)}_${edit.day}_${edit.period}` : periodId(grade, section, edit.day, edit.period), day: edit.day, period: edit.period } as never);
             toast("Period saved"); setEdit(null);
           } catch { toast("Save failed", "error"); }
         }}
@@ -72,8 +83,8 @@ export function TimetableView() {
   );
 }
 
-function PeriodModal({ ctx, teachers, staff, clash, taken, grade, section, onClose, onSave, onDelete }: {
-  ctx: { day: string; period: number; rec?: Period }; teachers: StaffRef[]; staff: StaffRef[]; clash: Clash; taken?: Period;
+function PeriodModal({ subjectOptions, ctx, teachers, staff, clash, taken, grade, section, onClose, onSave, onDelete }: {
+  subjectOptions: string[]; ctx: { day: string; period: number; rec?: Period }; teachers: StaffRef[]; staff: StaffRef[]; clash: Clash; taken?: Period;
   grade: string; section: string; onClose: () => void; onSave: (v: { subject: string; teacher: string; teacherId: string; room: string }) => Promise<void>; onDelete?: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -85,7 +96,7 @@ function PeriodModal({ ctx, teachers, staff, clash, taken, grade, section, onClo
   const [err, setErr] = useState<Record<string, string>>({});
   const name = staff.find((s) => s.id === teacherId)?.name ?? ctx.rec?.teacher ?? "";
   const other = teacherId ? clash({ id: ctx.rec?.id, day: ctx.day, period: ctx.period, teacherId, teacher: name }) : undefined;
-  const subjects = !subject || SUBJECTS.includes(subject) ? SUBJECTS : [subject, ...SUBJECTS];
+  const subjects = !subject || subjectOptions.includes(subject) ? subjectOptions : [subject, ...subjectOptions];
   const takenBy = taken ? `${taken.subject} (${staff.find((s) => s.id === taken.teacherId)?.name ?? taken.teacher})` : "";
   function save() {
     const e = validatePeriod({ day: ctx.day, period: ctx.period, subject, teacherId });

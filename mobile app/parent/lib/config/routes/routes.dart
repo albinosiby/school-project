@@ -6,7 +6,6 @@ class RoutePaths {
   static const welcome = '/welcome';
   static const login = '/login';
   static const loginOtp = '/login/otp';
-  static const forgotPassword = '/login/forgot';
   static const register = '/register';
   // Onboarding 4 (signed in, before the tabs)
   static const selectChild = '/select-child';
@@ -68,6 +67,6 @@ class RoutePaths {
   static const signedOutHome = welcome;
   static const signedInHome = selectChild;
 
-  static const _public = {welcome, login, loginOtp, forgotPassword, register};
+  static const _public = {welcome, login, loginOtp, register};
   static bool isPublic(String location) => _public.contains(location);
 }

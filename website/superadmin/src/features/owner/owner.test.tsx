@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authAccounts, authState, callableCalls, dialog, field, fieldError, getRow, renderUI, router, screen, seed, userEvent, within, writesTo } from "@/test/render";
+import { authAccounts, authState, callableCalls, dialog, field, fieldError, getRow, renderUI, router, screen, seed, sentInvites, userEvent, within, writesTo } from "@/test/render";
 import { NewSchoolForm } from "./NewSchoolForm";
 import { LeadsView } from "./LeadsView";
 import { SchoolDetail } from "./SchoolDetail";
@@ -102,6 +102,22 @@ describe("School page", () => {
     expect(screen.getByText("Aarav")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: /Staff/ }));
     expect(screen.getByText("Lakshmi")).toBeInTheDocument();
+  });
+
+  it("adds a School Admin by name and email with the role fixed", async () => {
+    owner(); school();
+    renderUI(<SchoolDetail sid="s1" />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Add admin" }))[0]!);
+    const modal = dialog("Add an admin login");
+    expect(modal.querySelectorAll("input, select")).toHaveLength(3);
+    expect(field("Role", modal)).toHaveValue("School Admin");
+    expect(field("Role", modal)).toHaveAttribute("readonly");
+    await userEvent.type(field("Name", modal), "New Admin");
+    await userEvent.type(field("Email (sign-in id)", modal), "new@one.test");
+    await userEvent.click(within(modal).getByRole("button", { name: "Create login" }));
+    const uid = authAccounts.get("new@one.test")!;
+    expect(getRow("users", uid)).toMatchObject({ schoolId: "s1", role: "admin", name: "New Admin" });
+    expect(sentInvites).toEqual(["new@one.test"]);
   });
 
   it("sets a new password for the admin through the server", async () => {

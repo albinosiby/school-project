@@ -70,6 +70,25 @@ Locally, run `NEXT_PUBLIC_EMULATOR=true npm run dev:superadmin` and `NEXT_PUBLIC
 from `website/`. The owner app uses http://localhost:3002 and admin uses http://localhost:3000. On the emulators, give a login owner rights with
 `FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 OWNER_PASSWORD='…' node tools/owner/grant-owner.mjs owner@edvio.test`.
 
+## Staff invitation email
+
+The managed staff creation and resend functions use Nodemailer with your SMTP provider.
+In `website/functions/.env.school-admin-tatos-2610`, set `STAFF_INVITE_FROM="Edvio <accounts@example.com>"`
+using a sender authorized by your provider. Store the authenticated SMTP URL in Secret Manager using the command below.
+Use your provider's TLS settings, typically `smtps://USER:PASSWORD@HOST:465` or `smtp://USER:PASSWORD@HOST:587`.
+URL-encode special characters in the username and password.
+
+From `website/`, set the secret and deploy the backend before the dashboard:
+
+```sh
+firebase functions:secrets:set STAFF_SMTP_URL --project school-admin-tatos-2610
+firebase deploy --only functions:notify:createSchoolStaff,functions:notify:resendSchoolStaffInvite --project school-admin-tatos-2610
+firebase deploy --only hosting:admin --project school-admin-tatos-2610
+```
+
+If the email fails, the staff account remains in the directory. Retry from the form or use **Resend invite**.
+A resend is available one minute after a successful send.
+
 ## (Old) free-plan limits — no longer apply now that billing is on
 - Cloud Functions, Firebase App Hosting (Next.js server hosting) need Blaze. The app is currently run locally
   (or host the Next app on Vercel's free tier and keep Firebase as the backend).
@@ -146,3 +165,10 @@ Android apps registered (4 Nov 2026): parent `tech.tatos.parent_app`, teacher `t
 
 Public landing is in `landing`, superadmin in `superadmin`, and common source in `shared`.
 See `README.md` for independent run/build/deploy commands and cross-app URL settings.
+
+## Admissions
+
+- The dashboard writes the student record, admission number reservation, private admission details, and document checklist in one Firestore transaction. The same transaction links the enquiry and records the direct submission ID so a retry returns the original student.
+- School admins configure the admission number format and starting number in **Settings → Admissions**. Automatic numbering uses a continuous school sequence. Manual numbers are unique without regard to case.
+- Class teachers allot rolls in the teacher app's class roster after a student joins a division. The `assignStudentRoll` callable checks the teacher assignment and enforces uniqueness for the division and academic year. Run its local integration check with `tools/emulator_exec.sh auth,firestore,functions,storage "node tools/admission_flow_test/rolls.mjs"`.
+- Document binaries use Cloud Storage under `schools/{schoolId}/admission-documents`. The school admin's authenticated browser reads them through the Storage SDK. Configure bucket CORS for the dashboard origin to enable downloads. The checklist metadata and sensitive admission fields live in separate admin collections. Include these collections and their Storage objects in school data backups.

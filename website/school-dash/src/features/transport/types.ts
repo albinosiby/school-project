@@ -2,15 +2,35 @@
 export type CrewRole = "driver" | "attendant";
 export type CrewStatus = "Active" | "On leave" | "Inactive";
 /** tr_crew/{crw_001} */
-export type Crew = { id: string; name: string; role: CrewRole; empId: string; phone: string; email: string; authUid?: string; status: CrewStatus; busId?: string; bus?: string;
+export type Crew = { id: string; name: string; role: CrewRole; empId: string; phone: string; email: string; authUid?: string; staffId?: string; status: CrewStatus; busId?: string; bus?: string;
   licenseNo?: string; licenseExpiry?: string; joined?: string; address?: string; emergencyName?: string; emergencyPhone?: string; photoUrl?: string; leaveFrom?: string; leaveTo?: string; leaveReason?: string };
 
 /** one entry of tr_buses.stops, in route order (the school is not a stop) */
 export type BusStop = { id: string; name: string; pickupTime: string; dropTime: string; landmark?: string };
+export const VEHICLE_TYPES = ["School Bus", "Mini Bus", "Van", "Traveller", "Other"] as const;
+export const FUEL_TYPES = ["Diesel", "Petrol", "CNG", "Electric", "Hybrid"] as const;
+export const PERMIT_TYPES = ["School transport", "Contract carriage", "Other"] as const;
+
+export type VehicleDetails = {
+  displayName?: string; vehicleType?: (typeof VEHICLE_TYPES)[number]; manufacturingYear?: number;
+  chassisNumber?: string; engineNumber?: string; fuelType?: (typeof FUEL_TYPES)[number];
+  endPoint?: string; totalSeats?: number;
+  registrationDate?: string; registrationValidUntil?: string;
+  fitnessCertificateNumber?: string; fitnessExpiryDate?: string;
+  insurancePolicyNumber?: string; insuranceProvider?: string; insuranceExpiryDate?: string;
+  permitNumber?: string; permitType?: string; permitExpiryDate?: string;
+  pollutionCertificateNumber?: string; pucExpiryDate?: string; roadTaxValidUntil?: string;
+  acAvailable?: boolean; gpsInstalled?: boolean; cctvInstalled?: boolean; firstAidKit?: boolean; fireExtinguisher?: boolean;
+  lastServiceDate?: string; nextServiceDate?: string; odometerKm?: number | null; serviceIntervalKm?: number | null;
+  lastInspectionDate?: string; maintenanceNotes?: string;
+};
+
 export type BusStatus = "Active" | "Maintenance" | "Inactive";
 /** tr_buses/{bus_01} */
-export type Bus = { id: string; number: string; regNo: string; capacity: number; model?: string; routeName: string; driverId?: string; driver?: string; attendantId?: string; attendant?: string;
-  stops: BusStop[]; pickupStart: string; dropStart: string; status: BusStatus; studentCount: number; note?: string };
+export type Bus = VehicleDetails & { id: string; number: string; regNo: string; capacity: number; model?: string; routeName: string; driverId?: string; driver?: string; attendantId?: string; attendant?: string;
+  stops: BusStop[]; pickupStart: string; dropStart: string; status: BusStatus; studentCount: number; note?: string;
+  /** Monthly amount per assigned student. Missing/null means not configured; 0 means free transport. */
+  monthlyFee?: number | null };
 
 export type TripKind = "pickup" | "drop";
 export type TripStatus = "scheduled" | "active" | "completed";

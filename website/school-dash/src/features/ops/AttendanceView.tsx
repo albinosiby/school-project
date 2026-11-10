@@ -2,9 +2,10 @@
 import { useMemo, useState } from "react";
 import { Check, Clock, Save, ShieldCheck, Users, X } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, Input, PageHeader, ProgressBar, Select, Stat, useToast } from "@/components/ui";
+import { classStream, isSeniorGrade, streamsForGrade, type AcademicClass } from "@/lib/academicStreams";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
-import { GRADES, SECTIONS, activeStudent, classIdOf, studentClassId, todayIso, type StaffRef } from "./shared";
+import { GRADES, SECTIONS, activeStudent, classIdOf, clsLabel, studentClassId, todayIso, type StaffRef } from "./shared";
 import { adminDayId, adminDayRecord, attPct, attendanceSaveError, dayRecords, derive, latestPerDate, latestRecord, type AttRec, type Mark } from "./logic";
 
 export { derive } from "./logic";
@@ -25,11 +26,15 @@ const OPTS: { v: Mark; label: string; icon: React.ReactNode; on: string }[] = [
 export function AttendanceView() {
   const toast = useToast();
   const students = useCollection<Stu>("students").rows;
+  const classes = useCollection<AcademicClass>("classes").rows;
   const staff = useCollection<StaffRef>("staff").rows;
   const att = useCollection<Rec>("ops_attendance");
   const [date, setDate] = useState(todayIso()); const [grade, setGrade] = useState("10"); const [section, setSection] = useState("B");
   const [pick, setPick] = useState<string | null>(null);
-  const classId = classIdOf(grade, section);
+  const [stream, setStream] = useState("");
+  const streams = streamsForGrade(classes, grade);
+  const sections = stream ? classes.filter((row) => row.grade === grade && classStream(row) === stream).map((row) => row.section).sort() : SECTIONS;
+  const classId = classIdOf(grade, section, stream);
   const adminId = adminDayId(date, classId);
   const roster = useMemo(() => students.filter((s) => activeStudent(s) && studentClassId(s) === classId).sort((a, b) => (Number(a.roll) || 0) - (Number(b.roll) || 0) || a.name.localeCompare(b.name)), [students, classId]);
 
@@ -65,7 +70,7 @@ export function AttendanceView() {
     if (why) { toast(why, "error"); return; }
     setSaving(true);
     try {
-      const body = adminDayRecord({ date, grade, section, rosterIds: roster.map((s) => s.id), marks });
+      const body = adminDayRecord({ date, grade, section, rosterIds: roster.map((s) => s.id), marks, classId });
       // the admin record may exist as a draft / soft-deleted doc: overwrite it so it counts again
       const exists = att.rows.some((r) => r.id === adminId);
       if (exists) await att.update(adminId, { ...body, deleted: false } as never); else await att.create({ id: adminId, ...body } as never);
@@ -83,8 +88,13 @@ export function AttendanceView() {
         actions={<Button onClick={save} disabled={!dirty || !roster.length || saving}><Save size={16} />{saved ? "Update Attendance" : "Save Attendance"}</Button>} />
       <Card className="mb-5 grid gap-4 p-4 sm:grid-cols-3">
         <Field label="Date"><Input type="date" value={date} max={todayIso()} onChange={(e) => { if (e.target.value && leave()) { setDate(e.target.value); setPick(null); } }} /></Field>
-        <Field label="Grade"><Select value={grade} onChange={(e) => { if (leave()) { setGrade(e.target.value); setPick(null); } }}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
-        <Field label="Section"><Select value={section} onChange={(e) => { if (leave()) { setSection(e.target.value); setPick(null); } }}>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select></Field>
+        <Field label="Grade"><Select value={grade} onChange={(e) => { if (leave()) { setGrade(e.target.value); setStream(""); setPick(null); } }}>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select></Field>
+        {isSeniorGrade(grade) && streams.length > 0 && <Field label="Stream"><Select value={stream} onChange={(e) => {
+          if (!leave()) return;
+          const id = e.target.value; setStream(id); setPick(null);
+          setSection(classes.filter((row) => row.grade === grade && classStream(row) === id).map((row) => row.section).sort()[0] ?? "A");
+        }}><option value="">No stream</option>{streams.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</Select></Field>}
+        <Field label="Section"><Select value={section} onChange={(e) => { if (leave()) { setSection(e.target.value); setPick(null); } }}>{sections.map((g) => <option key={g}>{g}</option>)}</Select></Field>
       </Card>
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Students" value={stat.total} icon={<Users size={16} />} />
@@ -94,7 +104,7 @@ export function AttendanceView() {
       </div>
       <div className="grid items-start gap-5 xl:grid-cols-[1fr_300px]">
         <Card>
-          <CardHeader title={`Grade ${grade}-${section} roll`}
+          <CardHeader title={`${clsLabel(classId)} roll`}
             subtitle={shown ? `${Number(shown.period) > 0 ? `Period ${shown.period}` : "Day record"} · ${teacherName(shown)}${dirty ? " · edited, not saved" : ""}${shown === latest ? " · latest submitted" : ""}` : `${marked} of ${roster.length} marked · no submitted record yet`}
             actions={<><Button size="sm" variant="outline" disabled={!roster.length} onClick={() => markAll("P")}>Mark all present</Button><Button size="sm" variant="ghost" disabled={!roster.length} onClick={() => markAll("A")}>All absent</Button></>} />
           {roster.length === 0 ? <EmptyState title="No students in this class" hint="Pick another grade or section, or add students in Students & Guardians." /> : (

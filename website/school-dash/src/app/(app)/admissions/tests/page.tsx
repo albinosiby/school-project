@@ -1,3 +1,5 @@
-import { Tests } from "@/features/admissions/Tests";
+import { redirect } from "next/navigation";
 
-export default function Page() { return <Tests />; }
+export default function Page() {
+  redirect("/admissions");
+}

@@ -6,7 +6,7 @@ import 'registration_repository_interface.dart';
 /// so self-registration points the guardian to the school office.
 class FirebaseRegistrationRepository implements IRegistrationRepository {
   static AppException get _office => AppException(
-        message: 'Parent logins are created by the school. Ask the school office to add your email to your child\'s record; you will get an invite to set your password.',
+        message: 'Parent logins are created by the school. Ask the school office to add your email to your child\'s record; the school will give you your password.',
       );
 
   @override

@@ -1,75 +1,114 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
+import { useState } from "react";
+import { Button, SlideOver } from "@/components/ui";
+import { useCollection } from "@/lib/useCollection";
+import { AddStaffFields } from "./AddStaffFields";
 import { StaffView } from "./StaffView";
-import { authAccounts, dialog, field, fieldError, getRow, renderUI, rowsOf, screen, seed, sentInvites, within, writes, writesTo } from "@/test/render";
+import * as staffInvitation from "@/lib/staffInvitation";
+import { authState, callableCalls, dialog, field, fieldError, getRow, renderUI, rowsOf, screen, seed, sentInvites, within, writes, writesTo } from "@/test/render";
 
 const anita = { id: "stf_025", name: "Mrs. Anita Sharma", empId: "EMP-1025", department: "Mathematics", role: "TGT", status: "Active", phone: "+91 98100 00025", email: "anita.sharma@greenfield.edu", authUid: "uid_anita" };
 
 async function openAdd() {
-  const r = renderUI(<StaffView />);
+  function LegacyInvite() {
+    const [open, setOpen] = useState(false);
+    const { rows } = useCollection<typeof anita>("staff");
+    return <><Button onClick={() => setOpen(true)}>Add Staff</Button>
+      <SlideOver open={open} title="Add Staff" onClose={() => setOpen(false)}>
+        <AddStaffFields rows={rows} onAdded={() => setOpen(false)} buttonLabel="Add Staff & Create Login" />
+      </SlideOver></>;
+  }
+  const r = renderUI(<LegacyInvite />);
   await r.user.click(screen.getByRole("button", { name: /Add Staff/ }));
   return r;
 }
 
+it("saves a driver profile before generating an optional app password", async () => {
+  const { user } = renderUI(<StaffView />);
+  await user.click(screen.getByRole("button", { name: "Add Staff" }));
+  const add = dialog("Add Staff");
+  await user.type(field("First name", add), "Ravi");
+  await user.type(field("Last name", add), "Kumar");
+  fireEvent.change(field("Date of birth", add), { target: { value: "1990-04-10" } });
+  await user.selectOptions(field("Gender", add), "Male");
+  await user.selectOptions(field("Nationality", add), "IN");
+  await user.type(field("Mobile number", add), "9000000001");
+  await user.selectOptions(field("Staff category", add), "Non-Teaching");
+  await user.selectOptions(field("Designation", add), "Driver");
+  await user.selectOptions(field("Department", add), "Transport");
+  fireEvent.change(field("Joining date", add), { target: { value: "2026-01-01" } });
+  await user.selectOptions(field("Employment type", add), "Permanent");
+  await user.type(field("Driving licence number", add), "TEST-0001");
+  await user.type(field("Contact person name", add), "Example Contact");
+  await user.type(field("Relationship", add), "Sibling");
+  await user.type(field("Emergency mobile number", add), "9000000002");
+  await user.click(within(add).getByRole("button", { name: "Save staff profile" }));
+  expect(callableCalls).toEqual([["saveStaffProfile", expect.objectContaining({ profile: expect.objectContaining({ contactEmail: "", licenseNumber: "TEST-0001", designation: "Driver" }) })]]);
+  await user.type(field("Login email", add), "driver@example.test");
+  await user.click(within(add).getByRole("button", { name: "Generate password" }));
+  expect(callableCalls.at(-1)).toEqual(["setStaffAppLogin", { staffId: "stf_new_profile", email: "driver@example.test", role: "driver" }]);
+  expect(within(add).getByLabelText("Generated password")).toHaveTextContent("ExamplePassword1!");
+});
+
 describe("Staff form validation", () => {
-  it("shows the required-field errors and writes nothing", async () => {
+  it("requires only name, email and role before provisioning", async () => {
     const { user } = await openAdd();
-    await user.click(screen.getByRole("button", { name: "Add Staff & Create Login" }));
-    expect(fieldError("Full name")).toBe("Name is required");
-    expect(fieldError("Phone")).toBe("Enter a valid phone number");
-    expect(fieldError("Email (teacher login)")).toBe("A valid email is required (it is the teacher's login)");
-    expect(writes).toHaveLength(0);
+    const add = dialog("Add Staff");
+    expect(add.querySelectorAll("input, select")).toHaveLength(3);
+    await user.click(within(add).getByRole("button", { name: "Add Staff & Create Login" }));
+    expect(fieldError("Name", add)).toBe("Enter a name from 2 to 120 characters.");
+    expect(fieldError("Email", add)).toBe("Enter a valid email address.");
+    expect(fieldError("Role", add)).toBe("Choose a role.");
+    expect(callableCalls).toHaveLength(0);
   });
 
-  it("rejects a malformed phone and email", async () => {
-    const { user } = await openAdd();
-    await user.type(field("Full name"), "Ravi Kumar");
-    await user.type(field("Phone"), "12ab");
-    await user.type(field("Email (teacher login)"), "ravi@school");
-    await user.click(screen.getByRole("button", { name: "Add Staff & Create Login" }));
-    expect(fieldError("Phone")).toBe("Enter a valid phone number");
-    expect(fieldError("Email (teacher login)")).toBe("A valid email is required (it is the teacher's login)");
-    expect(writes).toHaveLength(0);
-  });
-
-  it("rejects an email or employee ID another staff member uses (case-insensitive)", async () => {
+  it("checks for a directory email already in use", async () => {
     seed({ staff: [anita] });
     const { user } = await openAdd();
-    await user.type(field("Full name"), "Ravi Kumar");
-    await user.type(field("Employee ID"), "emp-1025");
-    await user.type(field("Phone"), "+91 98100 00099");
-    await user.type(field("Email (teacher login)"), "Anita.Sharma@greenfield.edu");
+    await user.type(field("Name"), "Ravi Kumar");
+    await user.type(field("Email"), "Anita.Sharma@greenfield.edu");
+    await user.selectOptions(field("Role"), "teacher");
     await user.click(screen.getByRole("button", { name: "Add Staff & Create Login" }));
-    expect(fieldError("Email (teacher login)")).toBe("Another staff member already uses this email");
-    expect(fieldError("Employee ID")).toBe("Another staff member has this employee ID");
-    expect(writes).toHaveLength(0);
+    expect(fieldError("Email")).toBe("Another staff member already uses this email.");
+    expect(callableCalls).toHaveLength(0);
   });
 
-  it("creates the staff doc, the teacher login and sends the invite when valid", async () => {
-    seed({ staff: [anita] });
+  it("provisions a Principal and reports the server's invitation result", async () => {
     const { user } = await openAdd();
-    await user.type(field("Full name"), "  Ravi Kumar ");
-    await user.type(field("Phone"), "+91 98100 00099");
-    await user.type(field("Email (teacher login)"), "ravi.kumar@greenfield.edu");
+    await user.type(field("Name"), "  Ravi Kumar ");
+    await user.type(field("Email"), "RAVI@greenfield.edu");
+    await user.selectOptions(field("Role"), "principal");
     await user.click(screen.getByRole("button", { name: "Add Staff & Create Login" }));
-    const s = getRow<Record<string, unknown>>("staff", "stf_026");
-    expect(s).toMatchObject({ name: "Ravi Kumar", email: "ravi.kumar@greenfield.edu", status: "Active", authUid: "uid_new_1" });
-    expect(s?.empId).toMatch(/^EMP-\d{4}$/);
-    expect(getRow("users", "uid_new_1")).toMatchObject({ schoolId: "sch_test", role: "teacher", staffId: "stf_026" });
-    expect(sentInvites).toEqual(["ravi.kumar@greenfield.edu"]);
-    expect(await screen.findByText("Login created. Password email sent to ravi.kumar@greenfield.edu")).toBeInTheDocument();
+    expect(callableCalls).toEqual([["createSchoolStaff", { name: "Ravi Kumar", email: "ravi@greenfield.edu", role: "principal", invitationId: expect.any(String) }]]);
+    expect(sentInvites).toEqual([]);
+    expect(await screen.findByText("Login created. Password email sent to ravi@greenfield.edu")).toBeInTheDocument();
   });
 
-  it("reports an email that already has a Firebase login and leaves nothing half-created", async () => {
-    authAccounts.set("taken@greenfield.edu", "uid_other");
+  it("resends a role-based staff invitation through the server using the staff ID", async () => {
+    seed({ staff: [{ ...anita, staffRole: "teacher" }] });
+    const { user } = renderUI(<StaffView />);
+    await user.click(screen.getByRole("button", { name: "Resend invite" }));
+    expect(callableCalls).toEqual([["resendSchoolStaffInvite", { staffId: anita.id }]]);
+    expect(sentInvites).toEqual([]);
+    expect(await screen.findByText(`Password email sent to ${anita.email}`)).toBeInTheDocument();
+  });
+
+  it("completes Add Staff when the account is created without an invitation email", async () => {
+    vi.spyOn(staffInvitation, "createStaffInvitation").mockResolvedValueOnce(false);
     const { user } = await openAdd();
-    await user.type(field("Full name"), "Ravi Kumar");
-    await user.type(field("Phone"), "9810000099");
-    await user.type(field("Email (teacher login)"), "taken@greenfield.edu");
+    await user.type(field("Name"), "Ravi Kumar");
+    await user.type(field("Email"), "ravi@greenfield.edu");
+    await user.selectOptions(field("Role"), "principal");
     await user.click(screen.getByRole("button", { name: "Add Staff & Create Login" }));
-    expect(await screen.findByText(/This email already has a login/)).toBeInTheDocument();
-    expect(writes).toHaveLength(0);
-    expect(dialog("Add Staff")).toBeInTheDocument();
+    expect(await screen.findByText("Staff account created.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Add Staff" })).not.toBeInTheDocument();
+  });
+
+  it("does not show Add Staff to the platform owner", () => {
+    authState.user = { ...authState.user!, role: "owner" };
+    renderUI(<StaffView />);
+    expect(screen.queryByRole("button", { name: "Add Staff" })).not.toBeInTheDocument();
   });
 
   it("locks the email of a staff member whose login exists", async () => {

@@ -1,9 +1,14 @@
 "use client";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { runTransaction } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { createStamp, schoolDoc, stamp } from "@/features/fees/logic";
+import { isCourseId, streamFromClassId } from "@/lib/academicStreams";
+import { nextStudentId } from "@/features/people/studentLogic";
 import { useCollection } from "@/lib/useCollection";
-import { type Application, type Config, type DocKey, type Enquiry, type EnqStage, type Message, type Offer, type Seat, type Slot, STAFF } from "./types";
+import { type Application, type AppStatus, type Config, type DocKey, type Enquiry, type EnqStage, type Message, type Offer, type Seat, type Slot, admissionCohorts, STAFF } from "./types";
 import {
-  type ClassRef, type SeatRow, type StudentRow, buildOffer, computeSeatRows, csvText, docPatch, enrolmentStudent, nextRef, offerBlocker, tokenFor,
+  type ClassRef, type SeatRow, type StudentRow, buildOffer, computeSeatRows, csvText, docsComplete, docPatch, enrolmentStudent, nextRef, offerBlocker, OFFERABLE, stageMoveError, tokenFor,
 } from "./logic";
 
 // local calendar date (toISOString is UTC: IST before 05:30 would be "yesterday")
@@ -57,11 +62,12 @@ export function useAdm() {
   const cfg = useCollection<Config>("adm_config");
   const students = useCollection<Student>("students");
   const classes = useCollection<ClassRef & { classTeacherId?: string; room?: string; wing?: string }>("classes");
-  const config = cfg.rows[0];
+  const config = cfg.rows.find((row) => row.id === "config");
 
-  const ready = enq.ready && apps.ready && offers.ready && slots.ready && seats.ready && cfg.ready;
+  const ready = enq.ready && apps.ready && offers.ready && slots.ready && seats.ready && cfg.ready && students.ready;
 
-  const seatRows: SeatRow[] = useMemo(() => computeSeatRows(seats.rows, apps.rows, offers.rows), [seats.rows, apps.rows, offers.rows]);
+  const cohorts = useMemo(() => admissionCohorts(seats.rows), [seats.rows]);
+  const seatRows: SeatRow[] = useMemo(() => computeSeatRows(seats.rows, apps.rows, offers.rows, students.rows), [seats.rows, apps.rows, offers.rows, students.rows]);
 
   const logMessage = useCallback((kind: string, to: string, text: string) =>
     msgs.create({ kind, to, text, at: new Date().toISOString() }), [msgs]);
@@ -73,80 +79,183 @@ export function useAdm() {
     } as Omit<Enquiry, "id">);
   }, [enq]);
 
+  const applicationDraft = useCallback((draft: Pick<Application, "name" | "grade" | "guardian" | "phone" | "email" | "dob">, enquiry?: Enquiry): Omit<Application, "id"> => ({
+    name: draft.name, grade: draft.grade, guardian: draft.guardian, phone: draft.phone, email: draft.email, dob: draft.dob,
+    ref: nextRef("APP", apps.rows, 1, new Date().getFullYear()), enquiryId: enquiry?.id ?? "", gender: enquiry?.gender || enquiry?.answers?.gender || "",
+    tag: enquiry?.sibling ? "sibling" : "general", status: "submitted", submittedAt: todayISO(), feePaid: false, feeMode: "",
+    docs: { birth: "pending", idProof: "pending", immunisation: "pending", tc: ["Nursery", "LKG", "UKG", "1"].includes(draft.grade) ? "na" : "pending" },
+    testSlotId: "", interviewSlotId: "", writtenScore: null, panelStatus: null, panelist: "", waitlistNo: 0, offerId: "", notes: "",
+  }), [apps.rows]);
+
+  const createApplication = useCallback((draft: Parameters<typeof applicationDraft>[0]) =>
+    apps.create(applicationDraft(draft)), [apps, applicationDraft]);
+
   const issueApplication = useCallback(async (e: Enquiry) => {
-    if (e.applicationId) return apps.rows.find((a) => a.id === e.applicationId);
-    const noTc = ["Nursery", "LKG", "UKG", "1"].includes(e.grade);
-    const app = await apps.create({
-      ref: nextRef("APP", apps.rows, 1, new Date().getFullYear()), enquiryId: e.id, name: e.name, gender: e.answers?.gender ?? "", dob: e.dob, guardian: e.guardian, phone: e.phone, email: e.email,
-      grade: e.grade, tag: e.sibling ? "sibling" : "general", status: "submitted", submittedAt: todayISO(), feePaid: false, feeMode: "",
-      docs: { birth: "pending", idProof: "pending", immunisation: "pending", tc: noTc ? "na" : "pending" },
-      testSlotId: "", interviewSlotId: "", writtenScore: null, panelStatus: null, panelist: "", waitlistNo: 0, offerId: "", notes: "",
+    const enquiryRef = schoolDoc("adm_enquiries", e.id);
+    const appRef = schoolDoc("adm_applications", `from_${e.id}`);
+    return runTransaction(db, async (tx) => {
+      const saved = await tx.get(enquiryRef);
+      if (!saved.exists()) throw new Error("The enquiry no longer exists");
+      const current = { ...saved.data(), id: saved.id } as Enquiry;
+      if (current.applicationId) return { id: current.applicationId };
+      if (current.stage === "lost") throw new Error("Reopen the enquiry before creating an application");
+      const draft = { ...applicationDraft(current, current), id: appRef.id };
+      tx.set(appRef, { ...draft, ...createStamp() });
+      tx.update(enquiryRef, { stage: "app_issued", applicationId: appRef.id, ...stamp() });
+      return draft;
     });
-    await enq.update(e.id, { stage: "app_issued", applicationId: app.id });
-    return app;
-  }, [apps, enq]);
+  }, [applicationDraft]);
 
   const moveEnquiry = useCallback(async (e: Enquiry, stage: EnqStage, lostReason = "") => {
     if (stage === "app_issued") return issueApplication(e);
     await enq.update(e.id, { stage, lostReason: stage === "lost" ? lostReason.trim() || "Closed by admissions desk" : "" });
   }, [enq, issueApplication]);
 
-  /** Generate an offer for an application if a seat is free in the grade. Throws a user-facing Error when not possible. */
+  const deleteEnquiry = useCallback(async (id: string) => {
+    const ref = schoolDoc("adm_enquiries", id);
+    await runTransaction(db, async (tx) => {
+      const saved = await tx.get(ref);
+      if (!saved.exists()) return;
+      const enquiry = saved.data() as Enquiry;
+      if (enquiry.applicationId) {
+        const appRef = schoolDoc("adm_applications", enquiry.applicationId);
+        const app = await tx.get(appRef);
+        if (app.get("enquiryId") === id) {
+          tx.update(appRef, {
+            enquiryId: "",
+            relation: app.get("relation") || enquiry.relation || "",
+            dob: app.get("dob") || enquiry.dob || "",
+            email: app.get("email") || enquiry.email || "",
+            gender: app.get("gender") || enquiry.gender || enquiry.answers?.gender || "",
+            ...stamp(),
+          });
+        }
+      }
+      tx.delete(ref);
+    });
+  }, []);
+
+  /** The cohort revision prevents two offer requests using the same seat snapshot. */
   const generateOffer = useCallback(async (a: Application) => {
     const why = offerBlocker(a, seatRows, offers.rows);
     if (why) throw new Error(why);
-    const o = await offers.create(buildOffer(a, offers.rows, todayISO(), config?.offerValidityDays));
-    await apps.update(a.id, { status: "offered", offerId: o.id, waitlistNo: 0 });
-    if (a.enquiryId) await enq.update(a.enquiryId, { stage: "offered" }).catch(() => {});
-    return o;
-  }, [seatRows, offers, apps, enq, config]);
-
-  const acceptOffer = useCallback(async (o: Offer) => {
-    if (o.status !== "pending") throw new Error("Only a pending offer can be accepted");
-    await offers.update(o.id, { status: "accepted", tokenPaid: tokenFor(config?.tokenAmount), tokenPaidAt: todayISO() });
-  }, [offers, config]);
-
-  const declineOffer = useCallback(async (o: Offer, reason = "Declined by parent") => {
-    await offers.update(o.id, { status: "declined", reason: reason.trim() || "Declined by parent" });
-    await apps.update(o.applicationId, { status: "withdrawn" });
-    const a = apps.rows.find((x) => x.id === o.applicationId);
-    if (a?.enquiryId) await enq.update(a.enquiryId, { stage: "lost", lostReason: "Offer declined" }).catch(() => {});
-  }, [offers, apps, enq]);
-
-  const lapseOffer = useCallback(async (o: Offer) => {
-    await offers.update(o.id, { status: "lapsed" });
-    await apps.update(o.applicationId, { status: "lapsed" });
-    const a = apps.rows.find((x) => x.id === o.applicationId);
-    if (a?.enquiryId) await enq.update(a.enquiryId, { stage: "lost", lostReason: "Offer lapsed" }).catch(() => {});
-  }, [offers, apps, enq]);
-
-  /**
-   * Enrolling creates the record in the shared `students` collection (contract section 3: `stu_NNN`, classId `cls_{grade}{SECTION}`,
-   * int roll, string grade/section, status "Active") and the class doc when that class does not exist yet. Re-running after a
-   * partial failure reuses the student already created for this offer.
-   */
-  const enrolOffer = useCallback(async (o: Offer) => {
-    if (o.status !== "accepted") throw new Error("Only an accepted offer can be enrolled");
-    const a = apps.rows.find((x) => x.id === o.applicationId);
-    const e = a?.enquiryId ? enq.rows.find((x) => x.id === a.enquiryId) : undefined;
-    let st = students.rows.find((s) => s.offerId === o.id) as (Student & { grn: string }) | undefined;
-    if (!st) {
-      const body = enrolmentStudent(o, a, e, students.rows, classes.rows, todayISO());
-      if (!classes.rows.some((c) => c.id === body.classId)) await classes.create({ id: body.classId, grade: body.grade, section: body.section, classTeacherId: "", room: "", wing: "" });
-      st = (await students.create(body as never)) as Student & { grn: string };
+    const seat = seatRows.find((row) => row.grade === a.grade)!;
+    if (seat.latestReservationId && !offers.rows.some((offer) => offer.id === seat.latestReservationId)) {
+      throw new Error("Seat availability changed. Try again.");
     }
-    await offers.update(o.id, { status: "enrolled", studentId: st.id });
-    await apps.update(o.applicationId, { status: "enrolled" });
-    if (a?.enquiryId) await enq.update(a.enquiryId, { stage: "enrolled" }).catch(() => {});
-    return st;
-  }, [apps, enq, students, classes, offers]);
+    const seatRef = schoolDoc("adm_seats", seat.id);
+    const appRef = schoolDoc("adm_applications", a.id);
+    const offerRef = schoolDoc("adm_offers", `for_${a.id}`);
+    const enquiryRef = a.enquiryId ? schoolDoc("adm_enquiries", a.enquiryId) : null;
+    const draft = { ...buildOffer(a, offers.rows, todayISO(), config?.offerValidityDays), id: offerRef.id };
+    return runTransaction(db, async (tx) => {
+      const [app, savedSeat, prior, enquiry, newStudent] = await Promise.all([
+        tx.get(appRef), tx.get(seatRef), tx.get(offerRef), enquiryRef ? tx.get(enquiryRef) : null,
+        tx.get(schoolDoc("students", nextStudentId(students.rows.map((row) => row.id)))),
+      ]);
+      if (!app.exists() || !OFFERABLE.includes(app.get("status")) || app.get("grade") !== a.grade || !docsComplete({ docs: app.get("docs") }) || app.get("offerId") || prior.exists()) {
+        throw new Error("This application is no longer eligible for a new offer");
+      }
+      const revision = seat.reservationRevision ?? 0;
+      if (newStudent.exists() || !savedSeat.exists() || savedSeat.get("capacity") !== seat.capacity || (savedSeat.get("reservationRevision") ?? 0) !== revision) {
+        throw new Error("Seat availability changed. Try again.");
+      }
+      tx.set(offerRef, { ...draft, ...createStamp() });
+      tx.update(appRef, { status: "offered", offerId: offerRef.id, waitlistNo: 0, ...stamp() });
+      tx.update(seatRef, { reservationRevision: revision + 1, latestReservationId: offerRef.id });
+      if (enquiryRef && enquiry?.exists()) tx.update(enquiryRef, { stage: "offered", ...stamp() });
+      return draft;
+    });
+  }, [seatRows, offers.rows, config, students.rows]);
+
+  const changeOffer = useCallback(async (offer: Offer, status: "accepted" | "declined" | "lapsed", extra: Partial<Offer> = {}) => {
+    const offerRef = schoolDoc("adm_offers", offer.id);
+    const appRef = schoolDoc("adm_applications", offer.applicationId);
+    const seat = seats.rows.find((row) => row.grade === offer.grade);
+    const seatRef = seat ? schoolDoc("adm_seats", seat.id) : null;
+    await runTransaction(db, async (tx) => {
+      const [saved, app, savedSeat] = await Promise.all([tx.get(offerRef), tx.get(appRef), seatRef ? tx.get(seatRef) : null]);
+      const currentStatus = saved.get("status");
+      if (saved.get("applicationId") !== offer.applicationId || (currentStatus !== "pending" && !(status === "declined" && currentStatus === "accepted"))) {
+        throw new Error("This offer has already changed. Refresh the application and try again.");
+      }
+      if (status === "accepted" && saved.get("expiresAt") && saved.get("expiresAt") < todayISO()) throw new Error("This offer has expired");
+      const enquiryId = app.get("enquiryId") as string | undefined;
+      const enquiryRef = status !== "accepted" && enquiryId ? schoolDoc("adm_enquiries", enquiryId) : null;
+      const enquiry = enquiryRef ? await tx.get(enquiryRef) : null;
+      tx.update(offerRef, { ...extra, status, ...stamp() });
+      if (status !== "accepted") {
+        if (app.exists()) tx.update(appRef, { status: status === "declined" ? "withdrawn" : "lapsed", ...stamp() });
+        if (enquiryRef && enquiry?.exists()) tx.update(enquiryRef, { stage: "lost", lostReason: status === "declined" ? "Offer declined" : "Offer lapsed", ...stamp() });
+        if (seatRef && savedSeat?.exists()) tx.update(seatRef, { reservationRevision: (savedSeat.get("reservationRevision") ?? 0) + 1 });
+      }
+    });
+  }, [seats.rows]);
+
+  const acceptOffer = useCallback((o: Offer, { recordToken = true } = {}) =>
+    changeOffer(o, "accepted", recordToken ? { tokenPaid: tokenFor(config?.tokenAmount), tokenPaidAt: todayISO() } : {}), [changeOffer, config]);
+  const declineOffer = useCallback((o: Offer, reason = "Declined by parent") =>
+    changeOffer(o, "declined", { reason: reason.trim() || "Declined by parent" }), [changeOffer]);
+  const lapseOffer = useCallback((o: Offer) => changeOffer(o, "lapsed"), [changeOffer]);
+
+  const enrolOffer = useCallback(async (o: Offer) => {
+    const offerRef = schoolDoc("adm_offers", o.id);
+    const appRef = schoolDoc("adm_applications", o.applicationId);
+    return runTransaction(db, async (tx) => {
+      const [saved, app] = await Promise.all([tx.get(offerRef), tx.get(appRef)]);
+      if (!app.exists() || saved.get("applicationId") !== o.applicationId || saved.get("status") !== "accepted") {
+        throw new Error("Only an accepted offer can be enrolled");
+      }
+      const application = { ...app.data(), id: app.id } as Application;
+      const enquiryRef = application.enquiryId ? schoolDoc("adm_enquiries", application.enquiryId) : null;
+      const enquiry = enquiryRef ? await tx.get(enquiryRef) : null;
+      const original = enquiry?.exists() ? { ...enquiry.data(), id: enquiry.id } as Enquiry : undefined;
+      const existing = students.rows.find((s) => s.offerId === o.id);
+      const body = existing ?? enrolmentStudent({ ...saved.data(), id: saved.id } as Offer, application, original, students.rows, classes.rows, todayISO());
+      const studentRef = schoolDoc("students", body.id);
+      const classRef = body.classId ? schoolDoc("classes", body.classId) : null;
+      const [student, cls] = await Promise.all([tx.get(studentRef), classRef ? tx.get(classRef) : null]);
+      if (student.exists() && student.get("offerId") !== o.id) throw new Error("Another student was just added. Try again.");
+      if (classRef && isCourseId(streamFromClassId(classRef.id)) && !student.exists() &&
+          (!cls?.exists() || cls.get("capacity") !== classes.rows.find((row) => row.id === classRef.id)?.capacity)) {
+        throw new Error("The course section changed. Refresh the application and try again.");
+      }
+      if (classRef && !cls?.exists()) tx.set(classRef, { id: classRef.id, grade: body.grade, section: body.section, classTeacherId: "", room: "", wing: "", ...createStamp() });
+      if (!student.exists()) tx.set(studentRef, { ...body, ...createStamp() });
+      tx.update(offerRef, { status: "enrolled", studentId: body.id, ...stamp() });
+      tx.update(appRef, { status: "enrolled", ...stamp() });
+      if (enquiryRef && enquiry?.exists()) tx.update(enquiryRef, { stage: "enrolled", ...stamp() });
+      return body as Student & { grn: string };
+    });
+  }, [students.rows, classes.rows]);
+
+  const moveApplication = useCallback(async (id: string, status: AppStatus) => {
+    const ref = schoolDoc("adm_applications", id);
+    await runTransaction(db, async (tx) => {
+      const saved = await tx.get(ref);
+      if (!saved.exists()) throw new Error("The application no longer exists");
+      const current = saved.data() as Application;
+      const error = stageMoveError(current, status);
+      if (error) throw new Error(error);
+      tx.update(ref, { status, ...stamp() });
+    });
+  }, []);
 
   const setDoc = useCallback(async (a: Application, key: DocKey, state: Application["docs"][DocKey]) => {
-    await apps.update(a.id, docPatch(a, key, state));
-  }, [apps]);
+    const ref = schoolDoc("adm_applications", a.id);
+    await runTransaction(db, async (tx) => {
+      const saved = await tx.get(ref);
+      if (!saved.exists()) throw new Error("The application no longer exists");
+      const current = saved.data() as Application;
+      if (["offered", "enrolled", "withdrawn", "lapsed"].includes(current.status)) {
+        throw new Error("The document checklist is locked at this stage.");
+      }
+      tx.update(ref, { ...docPatch(current, key, state), ...stamp() });
+    });
+  }, []);
 
-  return { enq, apps, offers, slots, seats, msgs, config, cfg, students, classes, ready, seatRows, logMessage, createEnquiry, issueApplication, moveEnquiry, generateOffer, acceptOffer, declineOffer, lapseOffer, enrolOffer, setDoc };
+  return { enq, apps, offers, slots, seats, msgs, config, cfg, students, classes, ready, cohorts, seatRows, logMessage, createEnquiry, createApplication, issueApplication, moveEnquiry, deleteEnquiry, generateOffer, acceptOffer, declineOffer, lapseOffer, enrolOffer, moveApplication, setDoc };
 }
 
 export const statusTone = (s: string) =>
-  (({ enrolled: "success", offered: "brand", shortlisted: "brand", verified: "success", docs_pending: "warning", submitted: "neutral", test_scheduled: "info", tested: "info", waitlisted: "neutral", rejected: "danger", withdrawn: "danger", lapsed: "danger" }) as Record<string, "success" | "brand" | "warning" | "neutral" | "info" | "danger">)[s] ?? "neutral";
+  (({ enrolled: "success", offered: "brand", shortlisted: "brand", verified: "success", approved: "success", docs_pending: "warning", submitted: "neutral", test_scheduled: "info", tested: "info", waitlisted: "neutral", rejected: "danger", withdrawn: "danger", lapsed: "danger" }) as Record<string, "success" | "brand" | "warning" | "neutral" | "info" | "danger">)[s] ?? "neutral";

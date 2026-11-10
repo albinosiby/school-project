@@ -12,7 +12,6 @@ enum AuthStatus {
   authenticated,
 }
 
-enum ResetStatus { idle, sending, sent, failed }
 
 class AuthState extends Equatable {
   const AuthState({
@@ -23,8 +22,6 @@ class AuthState extends Equatable {
     this.attempts = 0,
     this.resending = false,
     this.provider,
-    this.reset = ResetStatus.idle,
-    this.resetError,
   });
   final AuthStatus status;
   final Guardian? guardian;
@@ -39,8 +36,6 @@ class AuthState extends Equatable {
 
   /// Set when signed in with Google / Apple (null for passcode sign-in).
   final SocialProvider? provider;
-  final ResetStatus reset;
-  final String? resetError;
 
   bool get isAuthenticated => status == AuthStatus.authenticated;
   bool get busy =>
@@ -56,8 +51,6 @@ class AuthState extends Equatable {
     OtpChallenge? challenge,
     int? attempts,
     bool? resending,
-    ResetStatus? reset,
-    String? resetError,
     bool clearError = false,
     bool clearChallenge = false,
   }) => AuthState(
@@ -68,8 +61,6 @@ class AuthState extends Equatable {
     attempts: attempts ?? this.attempts,
     resending: resending ?? this.resending,
     provider: provider,
-    reset: reset ?? this.reset,
-    resetError: resetError,
   );
 
   @override
@@ -81,7 +72,5 @@ class AuthState extends Equatable {
     attempts,
     resending,
     provider,
-    reset,
-    resetError,
   ];
 }

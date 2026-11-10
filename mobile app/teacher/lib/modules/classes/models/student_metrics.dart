@@ -6,7 +6,7 @@ import 'classes_models.dart';
 
 String clsName(SchoolClass c) => '${c.grade}-${c.section}';
 String clsLong(SchoolClass c) => '${c.grade}–${c.section}';
-String rollTag(Student s) => '#${s.roll.toString().padLeft(2, '0')}';
+String rollTag(Student s) => s.roll <= 0 ? 'Unassigned' : '#${s.roll.toString().padLeft(2, '0')}';
 int _idx(Student s) => int.tryParse(s.id.replaceAll('stu_', '')) ?? 0;
 
 /// The class the teacher is class teacher of, else the first one.

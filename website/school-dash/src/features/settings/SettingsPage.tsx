@@ -1,14 +1,20 @@
 "use client";
 import { useState, useSyncExternalStore } from "react";
-import { AlertTriangle, BookOpen, Building2, CalendarClock, CalendarDays, Download, Globe, Lock, Plug, Plus, RefreshCw, Save, ShieldCheck, Users } from "lucide-react";
+import { AlertTriangle, BookOpen, Briefcase, Building2, CalendarClock, CalendarDays, Download, Globe, Lock, Plug, Plus, RefreshCw, Save, ShieldCheck, Users } from "lucide-react";
 import { Badge, Button, Card, Checkbox, Field, Input, Modal, PageHeader, ProgressBar, Select, Switch, Tabs, useToast } from "@/components/ui";
 import type { Tone } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate, inr } from "@/lib/format";
+import { classStream, isCourseId, streamFromClassId } from "@/lib/academicStreams";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "@/features/fees/csv";
 import { EMAIL_RE, validPhone } from "@/features/people/staffLogic";
 import { LeavePolicyEditor } from "./LeavePolicyEditor";
+import { AdmissionNumberSettings } from "./AdmissionNumberSettings";
+import { EmployeeNumberSettings } from "./EmployeeNumberSettings";
+import { AdmissionSeatSettings } from "./AdmissionSeatSettings";
+import { SeniorCourses } from "./SeniorCourses";
+import { SchoolLogoEditor } from "./SchoolLogoEditor";
 import { bandsError, schoolPatch, termError, termDays } from "./logic";
 
 type Profile = { id: string; name: string; affiliation: string; schoolCode: string; email: string; phone: string; address: string; seal: string; digitalKey: string };
@@ -16,17 +22,17 @@ type Regional = { id: string; language: string; dateFormat: string; timezone: st
 type Bell = { id: string; gates: string; classes: string; periods: string; recess: string };
 type Meta = { id: string; academicYear: string; rolledOver: boolean; rolloverStep: number };
 type Term = { id: string; name: string; start: string; end: string; days: number; status: string };
-type Sec = { id: string; grade: string; stream: string; sections: string[]; roster: number; cap: number };
+type Sec = { id: string; grade: string; stream: string; streamId?: string; sections: string[]; roster: number; cap: number };
 type Role = { id: string; name: string; tone: Tone; perms: string[] };
 type Integ = { id: string; name: string; desc: string; enabled: boolean };
 type Band = { id: string; grade: string; min: number; point: number };
 type Exc = { id: string; kind: string; text: string; resolved: boolean };
 type Audit = { id: string; at: string; actor: string; action: string; detail: string };
 type Me = { id: string; name: string; title?: string };
-type Stu = { id: string; grade: string; status: string };
+type Stu = { id: string; grade: string; status: string; streamId?: string; stream?: string; classId?: string; deleted?: boolean };
 type Inv = { id: string; balance: number };
 /** school/school (contract 3): the master doc the teacher, parent and driver apps read */
-type School = { id: string; name?: string; short?: string; affiliation?: string; academicYear?: string; term?: string };
+type School = { id: string; name?: string; short?: string; affiliation?: string; academicYear?: string; term?: string; logoUrl?: string };
 
 /** fallbacks when a set_config doc is missing (saved on first Save All) */
 const DEF_PROFILE: Profile = { id: "profile", name: "", affiliation: "", schoolCode: "", email: "", phone: "", address: "", seal: "", digitalKey: "" };
@@ -37,7 +43,7 @@ const nextAy = (ay?: string) => { const y = Number(ay?.slice(0, 4)); return y ? 
 const errText = (e: unknown) => (e instanceof Error && e.message ? e.message.replace(/^Firebase:\s*/, "") : "Unknown error");
 
 const SECTIONS = [
-  { id: "profile", label: "School Profile" }, { id: "year", label: "Academic Year" }, { id: "capacity", label: "Classes & Sections" }, { id: "grading", label: "Grading" }, { id: "leave", label: "Leave Policy" },
+  { id: "profile", label: "School Profile" }, { id: "year", label: "Academic Year" }, { id: "capacity", label: "Classes & Sections" }, { id: "admissions", label: "Admissions" }, { id: "staff-numbering", label: "Employee IDs" }, { id: "grading", label: "Grading" }, { id: "leave", label: "Leave Policy" },
   { id: "roles", label: "Roles & Permissions" }, { id: "integrations", label: "Integrations" }, { id: "regional", label: "Localization" }, { id: "rollover", label: "Year-End Rollover" },
 ];
 const ALL_PERMS = ["Full System Root", "Year-End Rollover", "Fee Write-Off", "Compliance Lock", "Curriculum & Syllabus", "Master Timetable", "Exam Moderation", "Marks & Grades Entry", "Daily Attendance", "Homework Broadcast", "Fee Collection POS", "Invoicing & Dues", "Cheque Clearance"];
@@ -132,7 +138,7 @@ export function SettingsPage() {
   const jump = (id: string) => { setActive(id); document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" }); };
 
   const openExc = excs.rows.filter((x) => !x.resolved);
-  const activeStu = students.filter((x) => x.status === "Active");
+  const activeStu = students.filter((x) => x.status === "Active" && !x.deleted);
   const graduating = activeStu.filter((x) => x.grade === "12").length;
   const dues = invoices.filter((i) => (Number(i.balance) || 0) > 0);
   const duesAmt = dues.reduce((a, i) => a + (Number(i.balance) || 0), 0);
@@ -142,7 +148,11 @@ export function SettingsPage() {
   const canRoll = signed && openExc.length === 0 && !rolled;
 
   if (!p || !r || !b) return <p className="text-on-surface-variant">Loading settings…</p>;
-  const seatsUsed = secs.rows.reduce((a, x) => a + (Number(x.roster) || 0), 0), seatsCap = secs.rows.reduce((a, x) => a + (Number(x.cap) || 0), 0);
+  const sectionRows = secs.rows.map((row) => isCourseId(row.streamId ?? "") ? {
+    ...row, roster: activeStu.filter((student) => `Grade ${student.grade}` === row.grade &&
+      (classStream(student) || streamFromClassId(student.classId)) === row.streamId).length,
+  } : row);
+  const seatsUsed = sectionRows.reduce((a, x) => a + (Number(x.roster) || 0), 0), seatsCap = sectionRows.reduce((a, x) => a + (Number(x.cap) || 0), 0);
   const sortedBands = [...bands.rows].sort((a, c) => c.min - a.min);
 
   return (
@@ -157,6 +167,7 @@ export function SettingsPage() {
       <div className="grid items-start gap-6 xl:grid-cols-[1fr_440px]">
         <div className="space-y-6">
           <Section id="profile" icon={<Building2 size={20} />} title="School Profile, Affiliation & Official Seal" desc="Statutory credentials printed on report cards, bonafides, and CBSE manifests" badge={<Badge tone={profile?.affiliation ? "success" : "warning"}>{profile?.affiliation ? "Affiliation on file" : "Affiliation missing"}</Badge>}>
+            <SchoolLogoEditor logoUrl={school?.logoUrl} disabled={!schoolCol.ready} />
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="OFFICIAL INSTITUTION NAME" required error={errs.name} className="md:col-span-2"><Input value={p.name} onChange={(e) => setP({ ...p, name: e.target.value })} /></Field>
               <Field label="CBSE AFFILIATION NO." required error={errs.affiliation}><Input value={p.affiliation} onChange={(e) => setP({ ...p, affiliation: e.target.value })} /></Field>
@@ -174,6 +185,12 @@ export function SettingsPage() {
             </div>
           </Section>
 
+          <Section id="admissions" icon={<Users size={20} />} title="Admission numbering" desc="Configure the number assigned to future admissions.">
+            <AdmissionNumberSettings />
+          </Section>
+          <Section id="staff-numbering" icon={<Briefcase size={20} />} title="Employee ID numbering" desc="Set the pattern for automatically generated employee IDs.">
+            <EmployeeNumberSettings />
+          </Section>
           <Section id="year" icon={<CalendarDays size={20} />} title="Academic Year & Term Configuration" desc="Active academic calendar timeline & operational bell schedule" badge={<Badge tone="info">Current: AY {academicYear || "—"}{school?.term ? ` · ${school.term}` : ""}</Badge>}
             actions={<Button size="sm" variant="outline" onClick={() => setTermEdit({ id: "", name: `Term ${terms.rows.length + 1}`, start: "", end: "", days: 0, status: "In Progress" })}><Plus size={14} />New Term</Button>}>
             <div className="overflow-x-auto rounded-lg border border-outline-variant/60"><table className="w-full text-left">
@@ -196,15 +213,17 @@ export function SettingsPage() {
 
           <Section id="capacity" icon={<Users size={20} />} title="Class & Section Capacity Matrix" desc={`Campus occupancy: ${seatsUsed} / ${seatsCap} seats occupied (${((seatsUsed / Math.max(1, seatsCap)) * 100).toFixed(1)}%)`}
             actions={<Button size="sm" variant="outline" onClick={() => setSecEdit("new")}><Plus size={14} />New Section</Button>}>
+            <SeniorCourses />
+            <AdmissionSeatSettings />
             <div className="overflow-x-auto rounded-lg border border-outline-variant/60"><table className="w-full text-left">
               <thead className="bg-surface-container-low t-label-caps !text-[11px] text-on-surface-variant"><tr><th className="p-3">Grade level</th><th className="p-3">Sections</th><th className="p-3">Roster / Cap</th><th className="p-3">Utilization</th><th className="p-3" /></tr></thead>
               <tbody>{secs.rows.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-on-surface-variant">No classes configured yet. Add one with New Section.</td></tr>}
-                {secs.rows.map((s) => { const u = s.cap > 0 ? (s.roster / s.cap) * 100 : 0; return (
+                {sectionRows.map((s) => { const u = s.cap > 0 ? (s.roster / s.cap) * 100 : 0; return (
                 <tr key={s.id} className="border-t border-outline-variant/50"><td className="p-3"><b>{s.grade}</b><div className="text-xs text-outline">{s.stream}</div></td>
                   <td className="p-3"><div className="flex flex-wrap gap-1">{(s.sections ?? []).map((x) => <span key={x} className="rounded border border-outline-variant/60 bg-surface-container-low px-2 py-0.5 text-xs">{x}</span>)}</div></td>
                   <td className="p-3 font-mono">{s.roster} / {s.cap}</td>
                   <td className="p-3 w-40"><ProgressBar value={u} tone={u > 96 ? "success" : "brand"} /><span className="text-xs text-on-surface-variant">{u.toFixed(1)}%</span></td>
-                  <td className="p-3 text-right"><Button size="sm" variant="ghost" onClick={() => setSecEdit(s)}>Edit Matrix</Button></td></tr>); })}</tbody></table></div>
+                  <td className="p-3 text-right">{!s.streamId?.startsWith("course_") && <Button size="sm" variant="ghost" onClick={() => setSecEdit(s)}>Edit Matrix</Button>}</td></tr>); })}</tbody></table></div>
           </Section>
 
           <Section id="grading" icon={<BookOpen size={20} />} title="Grading Scheme" desc="CBSE 9-point scale. Minimum percentage for each grade band (used by Exams & Results)" badge={<Badge tone="info">CBSE 9-POINT</Badge>}>

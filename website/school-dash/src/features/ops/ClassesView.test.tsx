@@ -20,6 +20,20 @@ function setup() {
 const rowOf = (classId: string) => screen.getByText(classId).closest("tr") as HTMLElement;
 
 describe("Add class", () => {
+  it("requires a senior stream and creates Commerce A independently from Science A", async () => {
+    seed({ classes: [{ id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }] });
+    const { user } = renderUI(<ClassesView />);
+    await user.click(screen.getByRole("button", { name: "Add class" }));
+    const dlg = dialog("Add class");
+    await user.selectOptions(field("Grade", dlg), "11");
+    await user.click(within(dlg).getByRole("button", { name: "Add class" }));
+    expect(fieldError("Stream", dlg)).toBe("Choose a stream");
+    await user.selectOptions(field("Stream", dlg), "commerce");
+    await user.click(within(dlg).getByRole("button", { name: "Add class" }));
+    expect(getRow("classes", "cls_11_commerce_A")).toMatchObject({ grade: "11", section: "A", streamId: "commerce", stream: "Commerce" });
+    expect(getRow("classes", "cls_11_science_A")).toBeDefined();
+  });
+
   async function openAdd() {
     const r = setup();
     await r.user.click(screen.getByRole("button", { name: "Add class" }));

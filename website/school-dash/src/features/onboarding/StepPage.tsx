@@ -6,7 +6,8 @@ import { Check } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { Card, ProgressBar, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { STEPS, useOnboarding } from "./state";
+import { canOpenStep, progressPct, STEPS } from "./logic";
+import { useOnboarding } from "./state";
 import { STEP_FORMS } from "./steps";
 
 export function StepPage({ no }: { no: number }) {
@@ -14,17 +15,21 @@ export function StepPage({ no }: { no: number }) {
   const toast = useToast();
   const ob = useOnboarding();
   const [busy, setBusy] = useState(false);
-  const meta = STEPS[no - 1]!;
-  const Form = STEP_FORMS[no - 1]!;
+  const stepIndex = STEPS.findIndex((step) => step.no === no);
+  const meta = STEPS[stepIndex];
+  const next = STEPS[stepIndex + 1];
+  const previous = STEPS[stepIndex - 1];
+  const reachable = canOpenStep(no, ob.completed);
 
   // can't skip ahead of the first unfinished step
   useEffect(() => {
     if (!ob.ready) return;
     if (ob.state?.complete) router.replace("/dashboard");
-    else if (no > ob.firstOpen) router.replace(`/onboarding/setup/${ob.firstOpen}`);
-  }, [ob.ready, ob.state, ob.firstOpen, no, router]);
+    else if (!reachable) router.replace(`/onboarding/setup/${ob.firstOpen}`);
+  }, [ob.ready, ob.state, ob.firstOpen, reachable, router]);
 
-  if (!ob.ready || no > ob.firstOpen) return <div className="grid min-h-screen place-items-center text-outline">Loading…</div>;
+  if (!ob.ready || ob.state?.complete || !meta || !reachable) return <div className="grid min-h-screen place-items-center text-outline">Loading…</div>;
+  const Form = STEP_FORMS[meta.no];
 
   const submit = async (values: Record<string, unknown>, persist?: () => Promise<unknown>) => {
     if (busy) return;
@@ -32,13 +37,13 @@ export function StepPage({ no }: { no: number }) {
     try {
       await persist?.();
       await ob.complete(no, values);
-      if (no === 8) {
+      if (!next) {
         await ob.finish();
         toast("Setup complete — welcome to your dashboard");
         router.push("/dashboard");
       } else {
         toast(`${meta.title} saved`);
-        router.push(`/onboarding/setup/${no + 1}`);
+        router.push(`/onboarding/setup/${next.no}`);
       }
     } catch (e) { toast(`Could not save, please try again${e instanceof Error && e.message ? ` (${e.message.replace(/^Firebase:\s*/, "")})` : ""}`, "error"); }
     setBusy(false);
@@ -52,23 +57,22 @@ export function StepPage({ no }: { no: number }) {
             <Logo size={36} />
             <span className="font-semibold">School setup</span>
           </div>
-          <div className="hidden w-64 sm:block"><ProgressBar value={(ob.completed.length / 8) * 100} /></div>
+          <div className="hidden w-64 sm:block"><ProgressBar value={progressPct(ob.completed)} /></div>
           <span className="flex items-center gap-4 text-sm text-on-surface-variant">
-            <Link href="/profile" className="text-secondary hover:underline">My profile &amp; password</Link>
-            <span>Step {no} of 8</span>
+            <span>Step {stepIndex + 1} of {STEPS.length}</span>
           </span>
         </div>
       </header>
 
       <div className="mx-auto grid max-w-6xl gap-6 px-6 py-8 lg:grid-cols-[260px_1fr]">
-        <nav aria-label="Setup steps" className="hidden lg:block">
+        <nav aria-label="Setup steps" className="hidden lg:sticky lg:top-8 lg:block lg:max-h-[calc(100svh-4rem)] lg:self-start lg:overflow-y-auto">
           <ol className="space-y-1">
-            {STEPS.map((s) => {
+            {STEPS.map((s, index) => {
               const done = ob.completed.includes(s.no), on = s.no === no, reachable = s.no <= ob.firstOpen;
               const row = (
                 <span className={cn("flex items-center gap-3 rounded-md px-3 py-2.5 text-sm", on ? "bg-info-container font-semibold text-secondary" : reachable ? "text-on-surface hover:bg-surface-container" : "text-outline")}>
                   <span className={cn("grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold", done ? "bg-success text-white" : on ? "bg-secondary text-on-secondary" : "bg-surface-container-high text-on-surface-variant")}>
-                    {done ? <Check size={13} /> : s.no}
+                    {done ? <Check size={13} /> : index + 1}
                   </span>{s.title}
                 </span>
               );
@@ -78,12 +82,12 @@ export function StepPage({ no }: { no: number }) {
         </nav>
 
         <Card className="p-6 sm:p-8">
-          <p className="t-label-caps text-secondary">Step {no} of 8</p>
+          <p className="t-label-caps text-secondary">Step {stepIndex + 1} of {STEPS.length}</p>
           <h1 className="t-headline-lg mt-1">{meta.title}</h1>
           <p className="mt-1 text-on-surface-variant">{meta.blurb}</p>
           <div className="mt-6">
             <Form initial={ob.saved(no)} busy={busy} onSubmit={submit}
-              back={no > 1 ? () => router.push(`/onboarding/setup/${no - 1}`) : undefined} />
+              back={previous ? () => router.push(`/onboarding/setup/${previous.no}`) : undefined} />
           </div>
         </Card>
       </div>

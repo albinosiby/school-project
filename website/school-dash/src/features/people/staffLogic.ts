@@ -14,12 +14,6 @@ export function nextEmpId(rows: StaffLike[]) {
   return `EMP-${k}`;
 }
 
-/** next stf_NNN after the highest existing one (contract 2: ids are stable, never reused, zero-padded to 3) */
-export function nextStaffId(rows: { id: string }[]) {
-  const n = Math.max(0, ...rows.map((r) => Number(/^stf_(\d+)$/.exec(r.id)?.[1] ?? 0))) + 1;
-  return `stf_${String(n).padStart(3, "0")}`;
-}
-
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 /** Indian / international phone: digits with optional +, spaces and dashes; 10 to 13 digits. */
 export const validPhone = (p: string) => /^\+?[\d\s-]+$/.test(p.trim()) && (() => { const n = p.replace(/\D/g, "").length; return n >= 10 && n <= 13; })();
@@ -31,7 +25,7 @@ export function validateStaff(f: StaffDraft, rows: StaffLike[], editId: string |
   const e: Record<string, string> = {};
   if (!f.name.trim()) e.name = "Name is required";
   else if (f.name.trim().length < 2) e.name = "Enter the full name";
-  if (!validPhone(f.phone)) e.phone = "Enter a valid phone number";
+  if (f.phone.trim() && !validPhone(f.phone)) e.phone = "Enter a valid phone number";
   if (!EMAIL_RE.test(f.email.trim())) e.email = "A valid email is required (it is the teacher's login)";
   else if (emailTaken(rows, f.email, editId)) e.email = "Another staff member already uses this email";
   const emp = f.empId.trim();

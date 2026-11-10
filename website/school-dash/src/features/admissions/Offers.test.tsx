@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Offers } from "./Offers";
-import { Seats } from "./Seats";
+import { AdmissionSeatSettings } from "@/features/settings/AdmissionSeatSettings";
 import { dialog, field, getRow, renderUI, rowsOf, screen, seed, within, writes, writesTo } from "@/test/render";
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-03T10:00:00")); });
@@ -86,33 +86,32 @@ describe("Offer acceptance and enrolment", () => {
   });
 });
 
-describe("Seat capacity editor", () => {
+describe("Admissions seat capacity in Settings", () => {
   async function openEditor() {
     seed({ adm_seats: [seat3, { id: "adm_seat_5", grade: "5", group: "primary", capacity: 30, rteSeats: 5, block: "B" }], adm_applications: [app({ status: "enrolled" }), app({ id: "a2", status: "offered" })], adm_offers: [offer({ applicationId: "a2" })] });
-    const r = renderUI(<Seats />);
-    await r.user.click(screen.getByRole("button", { name: /Edit capacity/ }));
-    return { ...r, d: dialog("Edit seat capacity") };
+    const r = renderUI(<AdmissionSeatSettings />);
+    await r.user.click(screen.getByRole("button", { name: "Edit admissions seats" }));
+    const d = dialog("Edit admissions seats");
+    await r.user.selectOptions(field("Grade or stream", d), "3");
+    return { ...r, d };
   }
-  it("refuses capacity below enrolled + live offers and RTE seats above capacity", async () => {
+
+  it("refuses to reduce capacity below filled plus reserved seats", async () => {
     const { user, d } = await openEditor();
-    const cap = within(d).getByLabelText("Grade 3 capacity"), rte = within(d).getByLabelText("Grade 3 RTE seats");
-    await user.clear(cap); await user.type(cap, "1");
-    expect(within(d).getByText("Capacity cannot be below 2 (enrolled + live offers)")).toBeInTheDocument();
-    expect(within(d).getByRole("button", { name: "Save" })).toBeDisabled();
-    await user.clear(cap); await user.type(cap, "4");
-    await user.clear(rte); await user.type(rte, "5");
-    expect(within(d).getByText("RTE seats cannot exceed capacity")).toBeInTheDocument();
-    await user.clear(rte); await user.type(rte, "-1");
-    expect(within(d).getByText("RTE seats must be a whole number")).toBeInTheDocument();
-    await user.clear(cap);
-    expect(within(d).getByText("Capacity must be a whole number")).toBeInTheDocument();
+    const capacity = field("Capacity", d);
+    await user.clear(capacity);
+    await user.type(capacity, "1");
+    await user.click(within(d).getByRole("button", { name: "Save capacity" }));
+    expect(within(d).getByText("Capacity cannot be below 2 occupied or reserved seats.")).toBeInTheDocument();
     expect(writes).toHaveLength(0);
   });
-  it("saves whole-number capacities", async () => {
+
+  it("saves the chosen grade's capacity without overwriting other seat data", async () => {
     const { user, d } = await openEditor();
-    const cap = within(d).getByLabelText("Grade 3 capacity");
-    await user.clear(cap); await user.type(cap, "6");
-    await user.click(within(d).getByRole("button", { name: "Save" }));
+    const capacity = field("Capacity", d);
+    await user.clear(capacity);
+    await user.type(capacity, "6");
+    await user.click(within(d).getByRole("button", { name: "Save capacity" }));
     expect(getRow("adm_seats", "adm_seat_3")).toMatchObject({ capacity: 6, rteSeats: 1 });
     expect(getRow("adm_seats", "adm_seat_5")).toMatchObject({ capacity: 30, rteSeats: 5 });
   });

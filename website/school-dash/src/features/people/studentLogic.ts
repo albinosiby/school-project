@@ -1,16 +1,20 @@
 // Pure logic of Students & Guardians (students, student_leaves, ptm_slots, certificates). No React, no Firebase, so it is
 // unit tested directly (studentLogic.test.ts). Data contract sections 2, 3, 13.1, 13.3 and 13.7.
+import type { AdmissionDetails } from "@/features/admissions/admissionDetails";
 import { classIdOf, nextId } from "@/features/ops/shared";
 import { normEmail, validEmail, type SchoolUser } from "@/lib/parentAccount";
+import { classStream, isCourseId, isSeniorGrade, streamIdOf, streamName, type AcademicClass } from "@/lib/academicStreams";
 
 // ---- students (contract 2, 3) ----------------------------------------------------------------------------------
+
+export const studentProfileHref = (id: string) => `/students/${encodeURIComponent(id)}`;
 
 /** Next free student id: `stu_` + the highest numeric suffix + 1, zero-padded to 3+ digits (`stu_001`, `stu_1000`). */
 export const nextStudentId = (ids: string[]) => nextId("stu", ids);
 
-type ClassRef = { classId?: string; grade?: string | number; section?: string };
+type ClassRef = { classId?: string; grade?: string | number; section?: string; streamId?: string };
 /** The student's class id: the stored `classId`, else derived from grade/section (`cls_10B`) for rows written before it existed. */
-export const studentClassId = (s: ClassRef) => s.classId || classIdOf(String(s.grade ?? ""), String(s.section ?? "").toUpperCase());
+export const studentClassId = (s: ClassRef) => s.classId || (s.section ? classIdOf(String(s.grade ?? ""), String(s.section).toUpperCase(), s.streamId) : "");
 
 type RollRow = ClassRef & { id: string; roll?: unknown; deleted?: boolean };
 /** Next free roll in a class (highest roll + 1), ignoring `excludeId` (the student being edited) and soft-deleted rows. */
@@ -31,18 +35,18 @@ export function nextGrn(existing: { id: string; grn?: string }[], excludeId?: st
 }
 
 export type StudentFormValues = { name: string; grn: string; grade: string; section: string; roll: string; guardian: string; relation: string; phone: string;
-  email: string; guardianEmail: string; dob: string; address: string; status: string; attendance: string | number };
-export type StudentRow = RollRow & { name?: string; grn?: string };
+  email: string; guardianEmail: string; dob: string; address: string; status: string; attendance: string | number; streamId?: string; firstName?: string; lastName?: string; gender?: string };
+export type StudentRow = RollRow & { status?: string; name?: string; grn?: string };
 /** The fields the Add/Edit Student form owns. Everything else on the doc (guardianUids, bus*, perfGrade…) is never written back. */
 export type StudentDoc = { name: string; grn: string; grade: string; section: string; classId: string; roll: number; guardian: string; relation: string;
-  phone: string; email: string; guardianEmail: string; dob: string; address: string; status: string; attendance: number };
+  phone: string; email: string; guardianEmail: string; dob: string; address: string; status: string; attendance: number; streamId?: string; stream?: string; admissionDetails?: AdmissionDetails; requestedAdmissionNumber?: string; pendingParentLoginEmail?: string };
 
 /**
  * Validates the Add/Edit Student form. Returns field errors, or the doc fields to write (contract: string grade/section,
  * classId `cls_{grade}{SECTION}`, int roll). A blank roll keeps the student's roll when the class is unchanged, else takes the
  * next free roll of the class. `existing` = every student row (soft-deleted included). `today` is YYYY-MM-DD.
  */
-export function validateStudent(f: StudentFormValues, ctx: { existing: StudentRow[]; edit?: StudentRow; users?: SchoolUser[]; today: string }):
+export function validateStudent(f: StudentFormValues, ctx: { existing: StudentRow[]; edit?: StudentRow; users?: SchoolUser[]; today: string; classes?: AcademicClass[]; deferRoll?: boolean; optionalSection?: boolean }):
   { errors: Record<string, string>; doc?: StudentDoc } {
   const { existing, edit, users = [], today } = ctx;
   const e: Record<string, string> = {};
@@ -66,10 +70,23 @@ export function validateStudent(f: StudentFormValues, ctx: { existing: StudentRo
   else if (grnTaken(grn)) e.grn = "GRN already exists";
 
   const grade = String(f.grade), section = String(f.section).toUpperCase();
-  const classId = classIdOf(grade, section);
+  if (!grade) e.grade = "Choose a grade";
+  if (!section && !ctx.optionalSection) e.section = "Choose a section";
+  const streamId = isSeniorGrade(grade) ? streamIdOf(f.streamId) : "";
+  const configured = ctx.classes?.find((row) => row.grade === grade && row.section === section && (!isSeniorGrade(grade) || classStream(row) === streamId));
+  if (isSeniorGrade(grade) && !streamId) e.streamId = "Choose a stream for this class";
+  if (section && isSeniorGrade(grade) && ctx.classes && !configured) e.section = "Choose a configured section for this stream";
+  const classId = configured?.id ?? (section ? classIdOf(grade, section, streamId) : "");
+  if (configured?.capacity && isCourseId(streamId) && f.status === "Active" &&
+      (!edit || studentClassId(edit) !== classId || (edit.status && edit.status !== "Active")) &&
+      others.filter((student) => (!student.status || student.status === "Active") && studentClassId(student) === classId).length >= configured.capacity) {
+    e.section = "This section has no available seats.";
+  }
   const rollRaw = String(f.roll ?? "").trim();
   let roll: number;
-  if (rollRaw) {
+  if (ctx.deferRoll) {
+    roll = edit && studentClassId(edit) === classId ? Number(edit.roll) || 0 : 0;
+  } else if (rollRaw) {
     roll = Number(rollRaw);
     if (!/^\d+$/.test(rollRaw) || roll < 1 || roll > 999) e.roll = "Enter a whole number from 1 to 999";
     else if (others.some((s) => studentClassId(s) === classId && Number(s.roll) === roll)) e.roll = `Roll ${roll} is already used in ${grade}-${section}`;
@@ -78,7 +95,7 @@ export function validateStudent(f: StudentFormValues, ctx: { existing: StudentRo
     roll = Number.isInteger(kept) && kept > 0 && !others.some((s) => studentClassId(s) === classId && Number(s.roll) === kept) ? kept : nextRoll(existing, classId, edit?.id);
   }
   if (Object.keys(e).length) return { errors: e };
-  return { errors: {}, doc: { name: f.name.trim(), grn, grade, section, classId, roll, guardian: f.guardian.trim(), relation: f.relation, phone: f.phone.trim(),
+  return { errors: {}, doc: { name: f.name.trim(), grn, grade, section, classId, ...(streamId ? { streamId, stream: configured?.stream || streamName(streamId) } : edit?.streamId ? { streamId: "", stream: "" } : {}), roll, guardian: f.guardian.trim(), relation: f.relation, phone: f.phone.trim(),
     email: f.email.trim(), guardianEmail: gEmail, dob: f.dob, address: f.address.trim(), status: f.status, attendance: att } };
 }
 

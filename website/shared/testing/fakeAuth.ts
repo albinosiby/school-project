@@ -40,7 +40,24 @@ export const callableCalls: [string, unknown][] = [];
 export const functionsModule = {
   getFunctions: () => ({}),
   connectFunctionsEmulator: () => {},
-  httpsCallable: (_f: unknown, name: string) => async (data: unknown) => { callableCalls.push([name, data]); return { data: { ok: true, logins: 1, files: 0 } }; },
+  httpsCallable: (_f: unknown, name: string) => async (data: unknown) => {
+    callableCalls.push([name, data]);
+    if (name === "setParentAppAccess") {
+      const access = data as { enabled: boolean; email?: string };
+      return { data: access.enabled ? { state: "issued", email: access.email, password: "024681" } : { state: "off" } };
+    }
+    if (name === "revealParentPassword") {
+      const { version } = data as { version: string };
+      return { data: version === "hash-only" ? { state: "replacement-required" } : { state: "revealed", password: "024681" } };
+    }
+    if (name === "createSchoolStaff" || name === "resendSchoolStaffInvite") return { data: { created: true, emailSent: true } };
+    if (name === "saveStaffProfile") return { data: { staffId: "stf_new_profile", empId: "EMP-1001" } };
+    if (name === "setStaffAppLogin") {
+      const { email } = data as { email: string };
+      return { data: { email, password: "ExamplePassword1!" } };
+    }
+    return { data: { ok: true, logins: 1, files: 0 } };
+  },
 };
 
 // ---- firebase/storage ---------------------------------------------------------------------------------------
@@ -69,7 +86,7 @@ export const libFirebaseModule = {
 
 // ---- @/lib/authContext --------------------------------------------------------------------------------------
 export const authState = {
-  user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" },
+  user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" | "staff"; staffRole?: string },
   isLoading: false,
   actAs: vi.fn<(sid: string | null) => void>(),
   blockedMessage: "",
@@ -86,6 +103,6 @@ export function resetAuthState() {
 }
 export const authContextModule = {
   useAuth: () => authState,
-  homeFor: (u: { role: string; schoolId?: string } | null) => (u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard"),
+  homeFor: (u: { role: string; schoolId?: string } | null) => (u?.role === "staff" ? "/staff-access" : u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard"),
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 };

@@ -1,3 +1,5 @@
-import { PublicFormPortal } from "@/features/admissions/PublicFormPortal";
+import { redirect } from "next/navigation";
 
-export default function Page() { return <PublicFormPortal />; }
+export default function Page() {
+  redirect("/admissions");
+}

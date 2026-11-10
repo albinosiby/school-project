@@ -8,7 +8,10 @@ abstract class IAuthRepository {
 
   /// Checks email + password, then sends a passcode to the guardian's registered mobile.
   /// Throws [AppException] on bad credentials.
-  Future<OtpChallenge> requestOtpWithPassword(String email, String password);
+  Future<OtpChallenge> requestOtpWithPassword(
+    String email,
+    String password,
+  );
 
   /// Sends a new passcode for the same sign-in over [channel].
   Future<OtpChallenge> resendOtp(OtpChallenge challenge, OtpChannel channel);
@@ -18,8 +21,6 @@ abstract class IAuthRepository {
 
   /// Google / Apple sign-in (simulated: signs in the demo guardian).
   Future<Guardian> signInWithProvider(SocialProvider provider);
-
-  Future<void> sendPasswordReset(String email);
 
   /// The guardian of the saved session, or null when signed out.
   Future<Guardian?> currentGuardian();

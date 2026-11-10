@@ -1,17 +1,19 @@
 // Pure exam logic (unit tested in logic.test.ts): candidates, marks bounds, clash checks, publish labels, cycle validation.
 import type { Candidate, Eval, Paper } from "./types";
+import { sectionLabel, streamFromClassId } from "@/lib/academicStreams";
 
 // ---- classes, candidates ---------------------------------------------------------------------------------------
 /** "10" + "B" → "10-B" (the label exm_papers.published and exm_candidates.cls use) */
-export const classLabel = (grade: string, section: string) => `${grade}-${section}`;
+export const classLabel = sectionLabel;
 /** "10" + "B" → "cls_10B" (contract 2) */
-export const classIdOf = (grade: string, section: string) => `cls_${grade}${String(section).toUpperCase()}`;
+export { classIdOf } from "@/lib/academicStreams";
 /** "10-B" → "cls_10B" */
-export const labelToClassId = (label: string) => `cls_${label.replace("-", "")}`;
+import { labelToClassId } from "@/lib/academicStreams";
+export { labelToClassId };
 /** "#8A-01": the admin display roll of a candidate (contract 9); the integer roll lives on students.roll */
 export const rollLabel = (grade: string, section: string, roll: number) => `#${grade}${section}-${String(roll).padStart(2, "0")}`;
 
-export type StudentRow = { id: string; name: string; grn?: string; grade?: string; section?: string; classId?: string; roll?: number | string; status?: string; deleted?: boolean };
+export type StudentRow = { id: string; name: string; grn?: string; grade?: string; section?: string; classId?: string; streamId?: string; roll?: number | string; status?: string; deleted?: boolean };
 export const isActiveStudent = (s: StudentRow) => !s.deleted && (s.status ?? "Active") === "Active";
 
 /**
@@ -23,7 +25,7 @@ export function candidatesFor(students: StudentRow[], grades?: string[]): Candid
   for (const s of students) {
     const grade = String(s.grade ?? "").trim(), section = String(s.section ?? "").trim().toUpperCase();
     if (!grade || !section || !isActiveStudent(s) || (grades && !grades.includes(grade))) continue;
-    const k = classLabel(grade, section);
+    const k = classLabel(grade, section, s.streamId || streamFromClassId(s.classId));
     byClass.set(k, [...(byClass.get(k) ?? []), { ...s, grade, section }]);
   }
   const out: Candidate[] = [];
@@ -33,7 +35,7 @@ export function candidatesFor(students: StudentRow[], grades?: string[]): Candid
     const sorted = [...list].sort((a, b) => (rollOf(a) ?? Infinity) - (rollOf(b) ?? Infinity) || a.name.localeCompare(b.name));
     for (const s of sorted) {
       const roll = rollOf(s) ?? ++next;
-      out.push({ id: `cand_${s.id}`, studentId: s.id, name: s.name, roll: rollLabel(s.grade!, s.section!, roll), grn: s.grn ?? "", cls: classLabel(s.grade!, s.section!), grade: s.grade!, section: s.section! });
+      out.push({ id: `cand_${s.id}`, studentId: s.id, name: s.name, roll: rollLabel(s.grade!, s.section!, roll), grn: s.grn ?? "", cls: classLabel(s.grade!, s.section!, s.streamId || streamFromClassId(s.classId)), grade: s.grade!, section: s.section! });
     }
   }
   return out.sort((a, b) => a.cls.localeCompare(b.cls, "en", { numeric: true }) || a.roll.localeCompare(b.roll, "en", { numeric: true }));

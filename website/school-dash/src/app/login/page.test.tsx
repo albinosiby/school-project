@@ -29,12 +29,10 @@ describe("Login page validation", () => {
     expect(authState.login).toHaveBeenCalledWith("principal@school.edu", "secret12");
   });
 
-  it("keeps school registration available from the redesigned login", async () => {
+  it("keeps School Admin creation in the platform console", () => {
     authState.user = null;
-    const { user } = renderUI(<LoginPage />);
-    await user.click(screen.getByRole("button", { name: "Create Account" }));
-    expect(router.push).toHaveBeenCalledWith("/signup");
-    expect(authState.login).not.toHaveBeenCalled();
+    renderUI(<LoginPage />);
+    expect(screen.queryByRole("button", { name: "Create Account" })).not.toBeInTheDocument();
   });
 
   it("sends a signed-in admin to the dashboard and a product owner to the owner console", () => {

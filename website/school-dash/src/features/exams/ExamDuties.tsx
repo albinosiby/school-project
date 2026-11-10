@@ -1,4 +1,5 @@
 "use client";
+import { teachingStaff } from "@/features/ops/shared";
 // Exams > Exam duties: invigilation allocation per paper (exm_duties, data contract section 12.3).
 // The paper's chief invigilator (exm_papers.invigilatorId) is shown as its Chief row; editing it updates the paper.
 import { useMemo, useState } from "react";
@@ -6,7 +7,7 @@ import { AlertTriangle, Plus, Trash2, UserPlus } from "lucide-react";
 import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Select, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { fmtDate } from "@/lib/format";
-import { classIdOf, fromMin, paperEnd, rosterOf, staffClashes, toMin, type Slot, type StudentRow } from "./logic";
+import { labelToClassId, fromMin, paperEnd, rosterOf, staffClashes, toMin, type Slot, type StudentRow } from "./logic";
 import type { Candidate, Cycle, Paper } from "./types";
 
 export type DutyRole = "Chief Invigilator" | "Invigilator" | "Reliever";
@@ -14,14 +15,14 @@ export type Duty = {
   id: string; paperId: string; cycleId: string; staffId: string; role: DutyRole; hall: string; venue: string; date: string; start: string; end: string;
   grade: string; subject: string; code: string; classIds: string[]; candidates: number; status: "upcoming" | "completed"; reportBy: string; note?: string; createdAt: string;
 };
-type StaffRow = { id: string; name: string; department: string; status?: string };
+type StaffRow = { id: string; name: string; department: string; staffRole?: string; status?: string };
 const ROLES: DutyRole[] = ["Chief Invigilator", "Invigilator", "Reliever"];
 
 const t12 = (t?: string) => { if (!t || !t.includes(":")) return "--:--"; const [h, m] = t.split(":").map(Number); return `${String(h % 12 || 12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`; };
 /** draft papers may have no date yet */
 const dateLabel = (d?: string) => (d ? fmtDate(d) : "Date TBD");
 const dutyId = (paperId: string) => `dut_${paperId}_${Date.now().toString(36)}`;
-const classOf = (c: Candidate) => classIdOf(c.grade, c.section);
+const classOf = (c: Candidate) => labelToClassId(c.cls);
 
 export function ExamDuties({ cycles, papers, defaultCycleId }: { cycles: Cycle[]; papers: Paper[]; defaultCycleId: string }) {
   const toast = useToast();
@@ -30,7 +31,7 @@ export function ExamDuties({ cycles, papers, defaultCycleId }: { cycles: Cycle[]
   const candRows = useCollection<Candidate>("exm_candidates").rows;
   const students = useCollection<StudentRow>("students").rows;
   const cands = useMemo(() => rosterOf(candRows, students), [candRows, students]);
-  const staff = useCollection<StaffRow>("staff").rows.filter((s) => s.department !== "Administration").sort((a, b) => a.name.localeCompare(b.name));
+  const staff = teachingStaff(useCollection<StaffRow>("staff").rows);
   const [cycleId, setCycleId] = useState("");
   const [grade, setGrade] = useState("all");
   const [form, setForm] = useState<{ paper: Paper; edit?: Duty } | null>(null);

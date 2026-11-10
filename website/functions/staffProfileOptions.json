@@ -1,0 +1,14 @@
+{
+  "employmentTypes": ["Permanent", "Contract", "Temporary", "Part-time", "Visiting", "Intern"],
+  "employmentStatuses": ["Active", "Probation", "On leave", "Suspended", "Resigned", "Terminated", "Retired"],
+  "teachingLevels": ["Pre-Primary", "Primary", "Upper Primary", "Secondary", "Higher Secondary"],
+  "genders": ["Female", "Male", "Non-binary", "Other", "Prefer not to say"],
+  "bloodGroups": ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"],
+  "maritalStatuses": ["Single", "Married", "Separated", "Divorced", "Widowed", "Prefer not to say"],
+  "workShifts": ["Morning", "Day", "Evening", "Night", "Rotating"],
+  "qualificationLevels": ["Secondary", "Higher Secondary", "Certificate", "Diploma", "Bachelor's", "Master's", "Doctorate", "Other"],
+  "teachingQualifications": ["B.Ed", "D.El.Ed", "Both", "Other"],
+  "teachingDesignations": ["Teacher", "Head of Department", "PGT", "TGT", "PRT", "Pre-Primary Teacher", "Physical Education Teacher", "Other"],
+  "nonTeachingDesignations": ["Principal", "Vice Principal", "Administrator", "Office Manager", "Clerk", "Receptionist", "Office Assistant", "Accountant", "Cashier", "Driver", "Bus Attendant", "Librarian", "Assistant Librarian", "Lab Assistant", "Lab Technician", "IT Administrator", "Technical Support", "Security Guard", "Electrician", "Plumber", "Maintenance Staff", "Cleaner", "Housekeeping Staff", "Nurse", "Medical Assistant", "Coach", "Physical Education Assistant", "Other"],
+  "departments": ["Academics", "Accounts", "Administration", "English", "Healthcare", "Hindi", "Housekeeping", "IT", "Laboratory", "Library", "Maintenance", "Mathematics", "Office", "Physical Education", "Science", "Security", "Social Science", "Sports", "Transport"]
+}

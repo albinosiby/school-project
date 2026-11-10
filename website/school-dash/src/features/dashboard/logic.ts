@@ -179,7 +179,7 @@ export const EXC_KIND_LABEL: Record<string, string> = {
   contact: "Guardian Contact", guardian: "Missing Guardian", class: "Class Placement", grn: "GRN Issues",
 };
 /**
- * Records of active students that would break the roll-forward / parent invite, computed from `students` (replaces the
+ * Record issues for active students, computed from `students` (replaces the
  * seed-only `setup_exceptions`): missing or duplicate GRN, no class, no guardian, no valid 10-digit guardian phone.
  * Each one is fixed in the student record itself, so it disappears on its own once corrected.
  */
@@ -202,5 +202,3 @@ export function dataExceptions(students: StuLite[]): DataException[] {
   }
   return out;
 }
-/** the setup phase gated by the flagged exceptions ("Data Sync & Ingestion", phase 7) */
-export const isIngestionPhase = (s: { no: number; title?: string }) => /ingestion|import/i.test(s.title ?? "") || s.no === 7;

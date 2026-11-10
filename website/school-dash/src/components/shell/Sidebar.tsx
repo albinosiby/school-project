@@ -2,12 +2,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSyncExternalStore } from "react";
-import { Logo } from "@/components/Logo";
+import { SchoolLogo } from "@/components/SchoolLogo";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { NAV } from "./nav";
 
-type School = { id: string; name: string; short: string; board: string; affiliation: string; city: string };
+type School = { id: string; name: string; short: string; board: string; affiliation: string; city: string; logoUrl?: string };
 
 /** browser connectivity (Firestore keeps working from cache while offline) */
 const useOnline = () => useSyncExternalStore((cb) => { window.addEventListener("online", cb); window.addEventListener("offline", cb); return () => { window.removeEventListener("online", cb); window.removeEventListener("offline", cb); }; },
@@ -34,11 +34,11 @@ export function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 export function SchoolBadge() {
   const { rows } = useCollection<School>("school");
-  const s = rows[0];
+  const s = rows.find((row) => row.id === "school");
   const sub = [s?.affiliation && `Affiliation ${s.affiliation}`, s?.city].filter(Boolean).join(" • ");
   return (
     <div className="flex items-center gap-3 p-5">
-      <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-surface-container-lowest shadow-card"><Logo size={38} /></span>
+      <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-surface-container-lowest shadow-card"><SchoolLogo src={s?.logoUrl} size={38} alt="" /></span>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate font-semibold">{s?.short || s?.name || "…"}</span>

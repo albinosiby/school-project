@@ -6,6 +6,8 @@
 //
 // Loop safety: nothing here writes back into tr_attendance or tr_crew_leaves.
 const { logger } = require("firebase-functions/v2");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { sendExpiryReminders } = require("./transportExpiry");
 const { onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 
 module.exports = ({ db, notifyParents, guardiansOf, istToday, notifyAdmin, safe }) => {
@@ -203,9 +205,15 @@ module.exports = ({ db, notifyParents, guardiansOf, istToday, notifyAdmin, safe 
     await rebuildTransport(e.params.sid, changed);
   }));
 
+  const transportExpiryReminders = onSchedule({ schedule: "every day 09:00", timeZone: "Asia/Kolkata" }, async () => {
+    const today = istToday();
+    const sent = await sendExpiryReminders(db, today);
+    logger.info("Transport expiry reminders", { today, sent });
+  });
+
   onTransportProjectionBus.rebuild = rebuildTransport;
   return {
-    onTransportAttendanceWritten, onCrewLeaveRequested,
+    onTransportAttendanceWritten, onCrewLeaveRequested, transportExpiryReminders,
     onTransportProjectionStudent, onTransportProjectionBus, onTransportProjectionCrew, onTransportProjectionTrip, onTransportProjectionMarks,
   };
 };

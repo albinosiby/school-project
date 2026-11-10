@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SetupView } from "./SetupView";
 import { TODAY } from "./data";
-import { getRow, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
+import { getRow, renderUI, screen, seed, within, writesTo } from "@/test/render";
 
 const titles = ["School Profile", "Terms & Semesters", "Classes & Sections", "Bell Schedule", "Fee Structure", "Staff Allocations", "Data Sync & Ingestion", "Portal & App Gateway"];
 const steps = (doneUpTo: number) => titles.map((title, i) => ({ id: `step_${i + 1}`, no: i + 1, title, short: title, desc: "", done: i < doneUpTo, doneAt: i < doneUpTo ? "2026-10-01" : "" }));
@@ -40,21 +40,15 @@ describe("Setup wizard: completing phases", () => {
     expect(writesTo("notifications")[0]!.data).toMatchObject({ category: "statutory", href: "/setup", read: false });
   });
 
-  it("the ingestion phase (07) stays locked while records are flagged", async () => {
-    seed({ setup_steps: steps(6), students: [bad], setup_exceptions: [legacy] });
+  it("finishes at staff allocations even with flagged records and retired steps stored", async () => {
+    seed({ setup_steps: steps(5), students: [bad], setup_exceptions: [legacy] });
     const { user } = renderUI(<SetupView />);
-    await user.click(within(card(7)).getByRole("button", { name: "Mark complete" }));
-    expect(screen.getByText("Resolve all 2 flagged exceptions before completing this phase")).toBeInTheDocument();
-    expect(writes).toHaveLength(0);
-  });
-
-  it("with a clean roster phase 07 completes and Reopen undoes it", async () => {
-    seed({ setup_steps: steps(6), students: [good] });
-    const { user } = renderUI(<SetupView />);
-    await user.click(within(card(7)).getByRole("button", { name: "Mark complete" }));
-    expect(await screen.findByText("Phase 7 marked complete")).toBeInTheDocument();
-    await user.click(within(card(7)).getByRole("button", { name: /Reopen/ }));
-    expect(await screen.findByText("Phase 7 reopened")).toBeInTheDocument();
-    expect(getRow("setup_steps", "step_7")).toMatchObject({ done: false, doneAt: "" });
+    expect(screen.queryByText("Data Sync & Ingestion")).not.toBeInTheDocument();
+    expect(screen.queryByText("Portal & App Gateway")).not.toBeInTheDocument();
+    await user.click(within(card(6)).getByRole("button", { name: "Mark complete" }));
+    expect(await screen.findByText("6 of 6 phases complete · 100%")).toBeInTheDocument();
+    await user.click(within(card(6)).getByRole("button", { name: /Reopen/ }));
+    expect(await screen.findByText("Phase 6 reopened")).toBeInTheDocument();
+    expect(getRow("setup_steps", "step_6")).toMatchObject({ done: false, doneAt: "" });
   });
 });

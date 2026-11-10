@@ -1,0 +1,5 @@
+{
+  "id": "staff_numbering",
+  "template": "EMP-{SEQ:4}",
+  "start": 1
+}

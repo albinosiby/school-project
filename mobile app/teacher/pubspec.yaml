@@ -61,6 +61,7 @@ dependencies:
   # Firebase (optional backend, see config/app_config.dart)
   firebase_core: ^3.8.0
   firebase_auth: ^5.3.4
+  cloud_functions: ^5.6.2
   cloud_firestore: ^5.6.0
   firebase_storage: ^12.4.0
 

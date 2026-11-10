@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  avg, ayOf, dataExceptions, dayAttendance, dayName, deriveAlerts, eventClashes, filterNotifs, fmtHrs, groupNotifs, isIngestionPhase, isOverdue,
+  avg, ayOf, dataExceptions, dayAttendance, dayName, deriveAlerts, eventClashes, filterNotifs, fmtHrs, groupNotifs, isOverdue,
   latestDayRecords, leaveDecisionPatch, notifAt, notifGroup, pendingOnly, sortNotifs, spanDays, staffOnLeave, termOf, timeRange, tsOf, turnaround,
   unreadCount, validateEvent, workingDaysIn, type AttRec, type EventForm,
 } from "./logic";
@@ -231,10 +231,5 @@ describe("setup data exceptions", () => {
     expect(out[0]).toMatchObject({ status: "GRN Missing", kind: "grn", href: "/students?q=Asha", resolved: false, derived: true, action: "Fix in Students" });
     expect(out[1]!.issue).toBe("GRN grn-7 is used by 2 active students");
     expect(out[5]).toMatchObject({ status: "Invalid Phone", issue: "Guardian phone has only 5 digits" });
-  });
-  it("only the ingestion phase is gated", () => {
-    expect(isIngestionPhase({ no: 7, title: "Data Sync & Ingestion" })).toBe(true);
-    expect(isIngestionPhase({ no: 3, title: "Data Import" })).toBe(true);
-    expect(isIngestionPhase({ no: 1, title: "School Profile" })).toBe(false);
   });
 });

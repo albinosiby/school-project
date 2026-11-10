@@ -51,11 +51,27 @@ String remoteClassId(String localId) {
 String localClassId(String remoteId) => remoteId;
 
 ({String grade, String section}) gradeSectionOf(String classId) {
-  final m = RegExp(r'^cls_(\d+)([A-Za-z]+)$').firstMatch(remoteClassId(classId));
+  final id = remoteClassId(classId);
+  final senior = _seniorClassPattern.firstMatch(id);
+  if (senior != null) return (grade: senior.group(1)!, section: senior.group(3)!);
+  final m = RegExp(r'^cls_(\d+)([A-Za-z]+)$').firstMatch(id);
   return (grade: m?.group(1) ?? '', section: m?.group(2) ?? '');
 }
 
+final _seniorClassPattern = RegExp(
+  r'^cls_(11|12)_(science|commerce|humanities|course_[a-z0-9]+(?:_[a-z0-9]+)*)_([A-H])$',
+);
+
 String classLabelOf(String classId) {
+  final senior = _seniorClassPattern.firstMatch(remoteClassId(classId));
+  if (senior != null) {
+    final stream = senior.group(2)!.replaceFirst('course_', '');
+    final name = stream
+        .split('_')
+        .map((word) => word[0].toUpperCase() + word.substring(1))
+        .join(' ');
+    return '${senior.group(1)}-$name-${senior.group(3)}';
+  }
   final g = gradeSectionOf(classId);
   return g.grade.isEmpty ? classId : '${g.grade}-${g.section}';
 }
@@ -323,7 +339,7 @@ class StudentsAdapter extends StoreAdapter {
     final rows = [
       for (final s in _docs(remote, 'students'))
         {
-          'id': s['id'], 'name': s['name'], 'roll': s['roll'], 'classId': localClassId('${s['classId']}'), 'adm': s['grn'] ?? '', 'guardian': s['guardian'] ?? '',
+          'id': s['id'], 'name': s['name'], 'roll': s['roll'], 'classId': localClassId('${s['classId']}'), 'adm': s['admissionNumber'] ?? s['grn'] ?? '', 'guardian': s['guardian'] ?? '',
           'phone': s['phone'] ?? '', 'attendance': (s['attendance'] as num?)?.toInt() ?? 0, 'grade': s['perfGrade'] ?? '',
           // linked parent logins (§13.1): a guardian without one cannot be messaged
           'guardianUids': MessagesAdapter.guardianUids(s),

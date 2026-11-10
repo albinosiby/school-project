@@ -6,16 +6,18 @@ Demo tenant: **Greenfield International School**, AY 2026-27, Term 2.
 ## 1. Tenancy and accounts
 
 - Every school's data lives at `schools/{schoolId}/{collection}/{id}`. `schoolId` is an opaque id (for the existing demo school it equals the admin's auth uid; new schools may use any id). Multiple schools share one backend.
-- `users/{authUid}` maps a login to a school: `{schoolId, role: "admin"|"teacher"|"parent", staffId?, studentIds?: string[], email, name, createdAt}`. Rules and both apps read only this to find the school; no school code is typed.
-- Admin signs up → `users/{uid} = {schoolId: uid, role: "admin"}`.
-- Admin adds a staff member with a required unique **email** → the admin web creates an Auth account for that email (secondary Firebase app instance, random password), sends a password-reset email so the teacher sets a password, writes `users/{newUid} = {schoolId, role: "teacher", staffId}` and stores `authUid` on the staff doc. Staff login = that email only.
+- `users/{authUid}` maps a login to its school. Its application role is `admin`, `staff`, `teacher`, `parent`, `driver`, or `attendant`. The managed staff title is stored separately in `staffRole`; `staffId` links to the staff directory and `crewId` links transport logins to their crew record.
+- Super Admin provisions School Admin logins. Public signup links open the school sign-in page.
+- Staff & HR saves a profile through `saveStaffProfile` with `{ requestId, profile, staffId?, photo? }`. It returns `{ staffId, empId }`. A new directory ID is based on the request UUID, and the employee ID can be generated or entered manually. `staff_employee_ids` reserves employee IDs per school. The directory keeps the fields used by the apps. `staff_hr` holds private profile details, and `staff_hr_photos` holds the optional resized photo. `getStaffProfile` reads those records for school admins. `deleteStaffProfile` removes those records and a linked login when the member can be deleted from Staff & HR.
+- `setStaffAppLogin` takes `{ staffId, email, role }` to create a login or `{ staffId, replace: true }` to replace its password. It returns `{ email, password }` to the requesting school admin. The dashboard displays the generated password once. Firebase Auth manages the credential, and the directory keeps the login email and linked UID. Teacher and HOD accounts use the Teacher app. Driver and Helper accounts use the Driver app, where Helper maps to `attendant`. Other staff use the `staff` application role.
+- The setup wizard and `/staff-access` keep using `createSchoolStaff` to send a password setup link through Nodemailer. `resendSchoolStaffInvite` checks the caller’s school and invitation role before resending. The invitation path uses `stf_{authUid}` and `crw_{authUid}`. Older numeric IDs remain valid.
 - An email belongs to exactly one school (Firebase Auth emails are global).
 
 ## 2. Ids and conventions
 
 - Ids are stable and never names: `stf_001`, `stu_001`, `cls_10B`, `asg_001`, `per_10B_Mon_3`.
 - Student ids are zero-padded to 3+ digits (`stu_001`…); roster students are `stu_101` onward.
-- Class id = `cls_{grade}{SECTION}` (grade `"10"`, section `"B"` → `cls_10B`). Both `grade` and `section` are strings, as in the admin web.
+- LKG–10 class id = `cls_{grade}{SECTION}` (grade `"10"`, section `"B"` → `cls_10B`). Grades 11–12 use `cls_{grade}_{streamId}_{SECTION}`, e.g. `cls_11_science_A` and `cls_11_commerce_A`. Canonical `streamId` values are `science`, `commerce`, `humanities`; `stream` stores the display name. Section letters restart within each stream. Both `grade` and `section` stay strings.
 - Day names `Mon…Sat`; teacher app numbers them 1..6 locally. Period numbers 1..8; teacher app shows `P1..P8`.
 - Dates `YYYY-MM-DD`, times `HH:mm`.
 - Every doc written by an app carries `updatedAt` (ISO string or server timestamp), `updatedBy` (auth uid). Soft delete with `deleted: true` is allowed; hard delete only by admin.
@@ -23,13 +25,36 @@ Demo tenant: **Greenfield International School**, AY 2026-27, Term 2.
 
 ## 3. Shared master collections (admin writes, teacher + parent read)
 
+Senior school setup: `onb_data/s3.values.cfg` stores `{grade, sections, cap, streams:[{id, sections, cap}]}` for
+Grades 11–12. Each stream creates its own `set_sections/sec_grade11_science` row, e.g.
+`{grade:"Grade 11", streamId:"science", stream:"Science", sections:["11-Science-A"], roster:0, cap:30}`.
+Grade-level `cap`/`sections` remain for older setup answers; stream entries are authoritative for new senior setup.
+Existing occupied classes are retained when settings change. Unassigned senior students must be explicitly assigned
+to a configured stream through Students & Guardians; billing never infers a stream from a section letter.
+
+Fee scope keys are ordinary grades for LKG–10 and `{grade}:{streamId}` for 11–12 (`11:science`). Both
+`onb_data/s5.values.grades` and each fee item's `grades` array use these scope keys. A structured
+`fee_structure/fs_11_science` has `{grade:"11", streamId:"science", stream:"Science", schemaVersion:2,
+academicYear, termsPerYear, items:[{id,name,amount,grades:["11:science"],frequency,dueDate,mandatory,newStudentsOnly}]}`.
+`dueDate` can be an empty string. Existing lower-grade document ids remain unchanged. Saving senior fees replaces
+the old class-wide senior rate with stream records in the same batch; issued invoices remain unchanged. A saved
+class-wide senior fee is expanded to its configured streams for review in the editor. Different rates need distinct
+fee items scoped to their class and stream. Payment preferences remain in `set_config/fee_policy`.
+
+Batch billing requires an explicit senior stream and matches the student's linked class, canonical stream metadata,
+or stream-bearing class id. Missing assignments are excluded with a visible warning. Invoice records copy
+`streamId` and `stream`; the billing-period key deliberately excludes stream to prevent charging a transferred student
+twice for the same period. Optional parent payment messages target only newly created invoices in the selected batch.
+CSV student import appends `stream` as its sixth column; older five-column files remain valid for LKG–10.
+No new API endpoints, indexes, or broader permissions are needed for these school-scoped document writes.
+
 | Collection | Shape (new fields in **bold**) |
 |---|---|
 | `school` (doc `school`) | `name, short, board, affiliation, city, academicYear, term` (**term** `"Term 2"`) |
 | `staff` | `name, empId, department, role, status, phone, **email**, **authUid?**, **designation?**, **subjects?**, **joined?**` |
-| `classes` | `id=cls_10B, grade, section, **classTeacherId**, **room**, **wing**, **studentCount?**` |
+| `classes` | `id, grade, section, streamId?, stream?, **classTeacherId**, **room**, **wing**, **studentCount?**` |
 | `assignments` | `classId, subject, teacherId, **topic?**, **periodsPerWeek?**` (who teaches what to which class) |
-| `students` | `name, grn, grade, section, **classId**, **roll** (int), guardian, **guardianId?**, phone, status, attendance` (**`perfGrade?`** is the optional letter grade; the teacher app must not store a letter grade in `grade`) |
+| `students` | `name, grn, grade, section, streamId?, stream?, **classId**, **roll** (int), guardian, **guardianId?**, phone, status, attendance` (**`perfGrade?`** is the optional letter grade; the teacher app must not store a letter grade in `grade`) |
 | `ops_periods` (the timetable) | `classId, grade, section, day:"Mon", period:1..8, subject, teacher (name), teacherId, room` |
 | `ops_substitutions` (new) | `date, day, period, classId, subject, absentTeacherId, substituteTeacherId, status: "Assigned"|"Accepted"|"Declined", topic?, note?` |
 | `exm_cycles`, `exm_papers`, `exm_candidates` | existing; `exm_candidates` become one per student of rostered classes: `id=cand_{studentId}, studentId, name, roll, grn, cls("8-A"), grade, section`; `exm_papers` gain `classIds?: string[]`, `invigilatorId?` |
@@ -186,14 +211,10 @@ that only that child's guardians can read. Everything a parent writes is either 
 acknowledgement, consent) or nothing.
 
 ### 13.1 Accounts
-- `students` gain `guardianEmail?` and `guardianUids: string[]` (auth uids of linked parent logins; siblings share a uid).
-- Admin web > Students > student > **Parent login**: enter the guardian email → if a parent login with that email already
-  exists in this school it is linked (uid added to `guardianUids`), else the admin web creates the Auth account the same way as
-  staff (§1: secondary app, random password, password-reset invite), writes `users/{uid} = {schoolId, role:"parent", email,
-  name, studentIds:[], classIds:[], grns:[]}` and links it. Unlink removes the uid.
-- Function `onStudentWritten` keeps every linked parent's `users/{uid}.studentIds / classIds / grns` equal to the students
-  whose `guardianUids` contain the uid (recomputed from a query, so moves between classes and unlinks are covered). Rules read
-  only these arrays. Parents sign in with that email (password set from the invite) or Google with the same email.
+- In Admissions or Student Details, a school admin calls `setParentAppAccess` with the student's ID and parent login email. It links a same-school parent in `guardianUids` and records the primary login in `emailGuardianUid`. Accounts assigned to a different school or role cannot be linked.
+- `onStudentWritten` keeps each parent's `users/{uid}.studentIds / classIds / grns` in sync. Siblings share a parent account when the school uses the same login email.
+- `setParentAppAccess` issues a password on first setup and replaces it only on an explicit school-admin request. The private `parent_credentials/{emailDigest}` stores its salted hash, account UID, school, credential version, and throttling state. The response shows the generated password once.
+- `signInParent` checks the password and returns a Firebase custom token carrying the credential version. Firestore and Storage require the current version on managed accounts. Changing it invalidates the previous password and session; credentials from accounts awaiting migration are managed by the school once it issues a password for them.
 - Classes carry `classTeacher` (name) next to `classTeacherId`; the function keeps it in sync so parents never read `staff`.
 
 ### 13.2 What a parent reads (all under `schools/{sid}`)
@@ -355,7 +376,18 @@ transport record. Everything is under `schools/{sid}`; ids and stamps follow §2
 - `tr_buses/{id}` (id `bus_01`…): `{number ("14"), regNo ("DL-01-AB-4092"), capacity (int), model? ("42-seater AC"),
   routeName ("Route 4B"), driverId?, driver? (name), attendantId?, attendant? (name), stops: [{id: "stp_01", name,
   pickupTime: "06:45", dropTime: "15:40", landmark?}] (in route order; the school is not a stop), pickupStart "06:45",
-  dropStart "15:30", status: "Active"|"Maintenance"|"Inactive", studentCount (int, kept by the admin web), note?}`.
+  dropStart "15:30", status: "Active"|"Maintenance"|"Inactive", studentCount (int, kept by the admin web), note?,
+  monthlyFee? (number|null, rupees per assigned student per month; null/missing = not configured, 0 = free)}`.
+  Transport rates are edited only on the bus. Student assignments reference `busId`; rates are not copied to students
+  or general grade fee plans. Updating a bus rate does not rewrite existing invoices.
+- Add Bus records the route as `endPoint` and initializes `routeName` with that value for existing consumers. Stops and
+  timings can be configured later in Edit bus. `capacity` is the number of seats available to students, and `totalSeats`
+  is total vehicle seating. Vehicle identity, safety equipment, compliance dates and maintenance are edited through
+  Transport > Buses > bus > Edit vehicle details.
+- Transport > Buses > Expiry reminders stores the designated school administrator's UID in
+  `tr_settings/expiry_notifications.recipientUid`. The `transportExpiryReminders` function runs daily at 09:00 India
+  time. It writes an in-app notification for each registration, fitness, insurance, permit, PUC or road tax date within
+  30 days. A receipt in `tr_expiry_receipts` prevents repeat delivery for the same bus, document and expiry date.
 - `students` gain `busId?`, `bus?` (display "Bus 14"), `busStopId?`, `busStop?` (stop name). The admin web assigns students to a
   bus and stop in Transport > Buses > bus > Students (and clears them on removal). `tr_buses.studentCount` = students with
   that `busId`.
@@ -459,8 +491,7 @@ owner site has no landing page or self sign-up and turns school admins away.
   doc until the owner saves their plan; the console lists them from their admin `users` docs. The rules test `exists()`
   before `get()` on this doc: most schools have none, and `get()` of a missing doc fails the whole rule.
 - **Add school**: the console creates the admin's Auth login with the email and password the owner chose on a secondary
-  Firebase app, bootstraps the school as that admin (`bootstrapSchool`, the same starter data as a sign-up, school id =
-  the admin's uid), then writes `platform_schools/{uid}`. From a demo request it also sets the lead to `converted` with
+  Firebase app, bootstraps the school with the owner session (school id = the admin's uid), then writes `platform_schools/{uid}`. From a demo request it also sets the lead to `converted` with
   `schoolId`. More admin logins for a school: `users/{newUid} = {schoolId, role: "admin", email, name}` written by the owner.
 - **Inside a school**: "Open school console" links to the admin app with `?school=<schoolId>`. The admin app independently
   authenticates the account and verifies owner membership before storing the selection in

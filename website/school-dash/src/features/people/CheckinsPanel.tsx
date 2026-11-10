@@ -1,4 +1,5 @@
 "use client";
+import { teachingStaff } from "@/features/ops/shared";
 // Staff > Check-ins: teacher app punches (staff_attendance) for one day, admin corrections, regularization requests.
 // Data contract section 12.1.
 import { useMemo, useState } from "react";
@@ -27,7 +28,7 @@ export function CheckinsPanel({ staff }: { staff: S[] }) {
   const [deciding, setDeciding] = useState<{ r: Regularization; to: "Approved" | "Rejected" } | null>(null);
   const [regTab, setRegTab] = useState("Pending");
 
-  const teaching = useMemo(() => staff.filter((s) => s.department !== "Administration").sort((a, b) => a.name.localeCompare(b.name)), [staff]);
+  const teaching = useMemo(() => teachingStaff(staff), [staff]);
 
   const rows: Row[] = useMemo(() => teaching.map((s) => {
     const rec = att.rows.find((a) => a.id === attId(date, s.id)) ?? att.rows.find((a) => a.staffId === s.id && a.date === date);

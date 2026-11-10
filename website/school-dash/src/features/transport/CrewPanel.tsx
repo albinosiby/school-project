@@ -2,10 +2,11 @@
 // Transport > Drivers / Bus staff: tr_crew CRUD with driver-app logins (contract 14.1; provisioning mirrors Staff & HR).
 import { useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
-import { deleteDoc, deleteField, doc, writeBatch } from "firebase/firestore";
+import { deleteField, doc, writeBatch } from "firebase/firestore";
 import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, SearchBox, Select, SlideOver, useToast, type Column, type Tone } from "@/components/ui";
 import { currentSchoolId, useCollection } from "@/lib/useCollection";
 import { db } from "@/lib/firebase";
+import { useAuth } from "@/lib/authContext";
 import { accountError, createAccount, sendInvite } from "@/lib/staffAccount";
 import { fmtDate } from "@/lib/format";
 import { nextId, todayIso } from "@/features/ops/shared";
@@ -17,6 +18,7 @@ const statusTone: Record<CrewStatus, Tone> = { Active: "success", "On leave": "w
 
 export function CrewPanel({ role }: { role: CrewRole }) {
   const toast = useToast();
+  const canAddCrew = useAuth().user?.role === "admin";
   const { rows: all, ready, update } = useCollection<Crew>("tr_crew");
   const buses = useCollection<Bus>("tr_buses").rows;
   const rows = useMemo(() => all.filter((c) => c.role === role), [all, role]);
@@ -79,8 +81,9 @@ export function CrewPanel({ role }: { role: CrewRole }) {
       batch.delete(schoolDoc("tr_crew", c.id));
       const idKey = role === "driver" ? "driverId" : "attendantId", nameKey = role === "driver" ? "driver" : "attendant";
       for (const b of buses.filter((x) => x[idKey] === c.id)) batch.update(schoolDoc("tr_buses", b.id), { [idKey]: deleteField(), [nameKey]: deleteField(), ...stamp() });
+      if (c.staffId) batch.delete(schoolDoc("staff", c.staffId));
+      if (c.authUid) batch.delete(doc(db, "users", c.authUid));
       await batch.commit();
-      if (c.authUid) await deleteDoc(doc(db, "users", c.authUid)).catch(() => {}); // revoke app access (the Auth user itself needs the Firebase console)
       toast(`${label} removed`); setDel(null);
     } catch { toast(`Could not delete the ${label.toLowerCase()}`, "error"); } finally { setBusy(null); }
   }
@@ -107,7 +110,7 @@ export function CrewPanel({ role }: { role: CrewRole }) {
     { key: "actions", header: "", className: "text-right", render: (c) => (
       <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
         {c.authUid ? <Button size="sm" variant="ghost" disabled={busy === c.id} onClick={() => resend(c)}>Resend invite</Button>
-          : <Button size="sm" variant="ghost" disabled={busy === c.id} onClick={() => createLogin(c)}>Create login</Button>}
+          : canAddCrew && <Button size="sm" variant="ghost" disabled={busy === c.id} onClick={() => createLogin(c)}>Create login</Button>}
         {c.status === "On leave" && <Button size="sm" variant="outline" disabled={busy === c.id} onClick={() => markReturned(c)}>Mark returned</Button>}
         <Button size="sm" variant="ghost" aria-label={`Edit ${c.name}`} onClick={() => setForm({ edit: c })}><Pencil size={14} /></Button>
         <Button size="sm" variant="ghost" aria-label={`Delete ${c.name}`} onClick={() => setDel(c)}><Trash2 size={14} className="text-error" /></Button>
@@ -121,7 +124,7 @@ export function CrewPanel({ role }: { role: CrewRole }) {
           <SearchBox value={q} onChange={setQ} placeholder="Search by name, ID, phone…" className="w-full max-w-xs" />
           <Select aria-label="Bus" value={busF} onChange={(e) => setBusF(e.target.value)} className="w-44"><option value="">All buses</option><option value="none">Unassigned</option>{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)}</option>)}</Select>
           <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} className="w-40"><option value="">All statuses</option><option>Active</option><option>On leave</option><option>Inactive</option></Select>
-          <Button className="ml-auto" onClick={() => setForm({})}><Plus size={16} />Add {label}</Button>
+          {canAddCrew && <Button className="ml-auto" onClick={() => setForm({})}><Plus size={16} />Add {label}</Button>}
         </div>
         {ready ? <DataTable rows={view} columns={cols} pageSize={10}
           empty={<EmptyState title={rows.length ? `No ${label.toLowerCase()} match` : `No ${label.toLowerCase()} yet`} hint={rows.length ? "Try changing your search or filters." : `Add a ${label.toLowerCase()} to create their driver-app login.`} />} />

@@ -11,8 +11,12 @@ import { qrSvg } from "./qr";
 import { gradeIdFromLabel, type FormDoc } from "./types";
 
 export function PublicFormPortal() {
-  const { enq, apps, config, cfg, createEnquiry, logMessage, ready } = useAdm();
+  const { enq, apps, config, cfg, createEnquiry, logMessage, ready, cohorts } = useAdm();
   const form = useCollection<FormDoc>("adm_form").rows[0];
+  const courseOptions = cohorts.filter((cohort) => cohort.id.includes("-course_")).map((cohort) => cohort.label);
+  const sections = form?.published.map((section) => ({ ...section, fields: section.fields.map((field) =>
+    field.key === "grade" && field.type === "select" ? { ...field, options: [...new Set([...(field.options ?? []), ...courseOptions])] } : field,
+  ) }));
   const school = useCollection<{ id: string; name?: string; short?: string; city?: string; academicYear?: string }>("school").rows[0];
   const toast = useToast();
   const today = useToday();
@@ -151,7 +155,7 @@ export function PublicFormPortal() {
         {done ? (
           <div className="py-6 text-center"><div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-success-container text-success">✓</div><p className="t-headline-md">Thank you!</p><p className="mt-1 text-on-surface-variant">Your enquiry reference is <b className="font-mono text-secondary">{done}</b>. An admissions counsellor will contact you shortly{sg?.razorpay ? ` to collect the ${inrFull(config?.appFee ?? 2500)} application fee` : ""}.</p>
             <div className="mt-4 flex justify-center gap-2"><Button variant="outline" onClick={() => setDone(null)}>Submit another</Button><Button onClick={() => setFillOpen(false)}>Close</Button></div></div>
-        ) : !ready || !form ? <p>Loading…</p> : <DynamicForm sections={form.published} onSubmit={onSubmit} />}
+        ) : !ready || !form ? <p>Loading…</p> : <DynamicForm sections={sections ?? []} onSubmit={onSubmit} />}
       </Modal>
     </div>
   );

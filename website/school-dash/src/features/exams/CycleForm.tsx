@@ -1,4 +1,5 @@
 "use client";
+import { teachingStaff } from "@/features/ops/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -58,7 +59,7 @@ function CycleFormInner({ cycleId, initF, initSlots, initStatus }: { cycleId?: s
   const toast = useToast();
   const cycles = useCollection<Cycle>("exm_cycles");
   const papers = useCollection<Paper>("exm_papers");
-  const staff = useCollection<{ id: string; name: string; department: string; status: string }>("staff").rows.filter((s) => s.department !== "Administration");
+  const staff = teachingStaff(useCollection<{ id: string; name: string; department: string; status: string; staffRole?: string }>("staff").rows);
   const [f, setF] = useState(initF);
   const [slots, setSlots] = useState<Slot[]>(initSlots);
   const [errors, setErrors] = useState<Record<string, string>>({});

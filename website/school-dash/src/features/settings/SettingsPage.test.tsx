@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { SettingsPage } from "./SettingsPage";
-import { dialog, field, fieldError, getRow, renderUI, rowsOf, screen, seed, within, writes, writesTo } from "@/test/render";
+import { SchoolBadge } from "@/components/shell/Sidebar";
+import { dialog, field, fieldError, getRow, renderUI, rowsOf, screen, seed, uploads, within, writes, writesTo } from "@/test/render";
 
 const profile = { id: "profile", name: "Greenfield International School", affiliation: "1930281", schoolCode: "", email: "office@greenfield.edu", phone: "+91 11 2345 6789", address: "Sector 12, New Delhi", seal: "", digitalKey: "" };
 const base = {
@@ -12,7 +13,34 @@ const base = {
 };
 const saveAll = () => screen.getByRole("button", { name: /Save All Settings/ });
 
+it("saves a new employee ID pattern without resetting the issued sequence", async () => {
+  seed({ ...base, set_config: [...base.set_config, { id: "staff_numbering", template: "EMP-{SEQ:4}", start: 1, next: 28 }] });
+  const { user } = renderUI(<SettingsPage />);
+  fireEvent.change(field("Employee ID pattern"), { target: { value: "FC{YEAR}{SEQ:4}" } });
+  fireEvent.change(field("Employee ID starting number"), { target: { value: "10" } });
+  expect(screen.getByText(/Preview · FC\d{4}0028/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Save employee ID numbering" }));
+  expect(getRow("set_config", "staff_numbering")).toMatchObject({ template: "FC{YEAR}{SEQ:4}", start: 10, next: 28 });
+});
+
 describe("School profile", () => {
+  it("publishes a school logo to the sidebar as soon as the upload finishes", async () => {
+    seed(base);
+    renderUI(<><aside><SchoolBadge /></aside><SettingsPage /></>);
+    const control = field("Upload school logo");
+    fireEvent.change(control, { target: { files: [new File(["logo"], "logo.svg", { type: "image/svg+xml" })] } });
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose a PNG or JPEG image up to 2 MB.");
+    expect(uploads).toHaveLength(0);
+
+    fireEvent.change(control, { target: { files: [new File(["logo"], "crest.png", { type: "image/png" })] } });
+    expect(await screen.findByText("School logo updated")).toBeInTheDocument();
+    expect(uploads).toEqual([expect.objectContaining({ path: expect.stringMatching(/^schools\/sch_test\/branding\/logo-/), type: "image/png" })]);
+    expect(getRow("school", "school")).toMatchObject({ name: base.school[0].name, logoUrl: expect.stringContaining(uploads[0].path) });
+    expect(within(screen.getByRole("complementary")).getByAltText("")).toHaveAttribute("src", expect.stringContaining(uploads[0].path));
+    expect(screen.getByAltText("School logo preview")).toBeInTheDocument();
+    expect(field("Replace school logo")).toBeEnabled();
+  });
+
   it("shows the field errors and writes nothing when invalid", async () => {
     seed(base);
     const { user } = renderUI(<SettingsPage />);
