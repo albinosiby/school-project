@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  avg, ayOf, dataExceptions, dayAttendance, dayName, deriveAlerts, eventClashes, filterNotifs, fmtHrs, groupNotifs, isOverdue,
+  admittedStudents, checkedInStaff, openAdmissionEnquiries, avg, ayOf, dataExceptions, dayAttendance, dayName, deriveAlerts, eventClashes, filterNotifs, fmtHrs, groupNotifs, isOverdue,
   latestDayRecords, leaveDecisionPatch, notifAt, notifGroup, pendingOnly, sortNotifs, spanDays, staffOnLeave, termOf, timeRange, tsOf, turnaround,
   unreadCount, validateEvent, workingDaysIn, type AttRec, type EventForm,
 } from "./logic";
@@ -88,7 +88,7 @@ describe("deriveAlerts", () => {
   it("flags uncovered periods of a teacher on leave today, in period order", () => {
     const [a, ...rest] = deriveAlerts(base);
     expect(rest).toHaveLength(0);
-    expect(a).toMatchObject({ id: "sub_stf_1", kind: "substitute", title: "SUBSTITUTE REQUIRED", tag: "P1, P3", href: "/timetable", status: "open", derived: true });
+    expect(a).toMatchObject({ id: "sub_stf_1", kind: "substitute", title: "SUBSTITUTE REQUIRED", tag: "P1, P3", href: "/classes/cls_9A?tab=timetable&date=2026-11-03", status: "open", derived: true });
     expect(a!.body).toBe("Mr. Verma is on leave: Gr 9-A Physics, Gr 8-C Science need cover.");
   });
   it("a substitution (not declined) covers the period", () => {
@@ -232,4 +232,17 @@ describe("setup data exceptions", () => {
     expect(out[1]!.issue).toBe("GRN grn-7 is used by 2 active students");
     expect(out[5]).toMatchObject({ status: "Invalid Phone", issue: "Guardian phone has only 5 digits" });
   });
+});
+
+
+describe("dashboard operational counts", () => {
+ it("counts saved admissions including direct admissions, excluding deleted records", () => {
+  expect(admittedStudents([{id:"direct",admissionNumber:"FC20260001"},{id:"converted",admissionDate:"2026-11-11"},{id:"legacy"},{id:"deleted",admissionNumber:"X",deleted:true}]).map(x=>x.id)).toEqual(["direct","converted"]);
+ });
+ it("excludes converted enquiries and does not count closed check-ins as on duty", () => {
+  expect(openAdmissionEnquiries([{id:"open",stage:"New"},{id:"old",stage:"enrolled"},{id:"linked"}], [{id:"app",enquiryId:"linked",status:"enrolled"}]).map(x=>x.id)).toEqual(["open"]);
+  const staff=[{id:"a",status:"Active"},{id:"b",status:"Active"},{id:"c",status:"Resigned"}];
+  const rows=[{staffId:"a",date:"2026-11-11",in:"09:00"},{staffId:"a",date:"2026-11-11",in:"09:00"},{staffId:"b",date:"2026-11-11",in:"09:00",out:"16:00"},{staffId:"c",date:"2026-11-11",in:"09:00"}];
+  expect(checkedInStaff(staff,rows,"2026-11-11")).toBe(1);
+ });
 });

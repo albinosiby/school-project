@@ -19,6 +19,8 @@ import { db } from "@/lib/firebase";
 import { consentMap, useSchoolUsers, type Consent } from "@/lib/parentAccount";
 import { useCollection } from "@/lib/useCollection";
 import { ParentLoginSection } from "./ParentLoginSection";
+import { StudentTransportCard } from "./StudentTransportCard";
+import { StudentDivisionAssignment } from "./StudentDivisionPicker";
 import { StudentForm } from "./StudentForm";
 import { studentClassId } from "./studentLogic";
 import { recordedAttendance, type StudentAttendanceMonth } from "./studentAttendance";
@@ -138,7 +140,8 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
           </div>
         </div>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        <StudentDivisionAssignment key={student.id} student={student} students={students.rows} />
         <Button variant="danger" onClick={() => setConfirmingDelete(true)}><Trash2 size={14} />Delete</Button>
         <Button onClick={() => setEditing(true)}><Pencil size={14} />Edit</Button>
       </div>
@@ -163,10 +166,7 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
         {!details && student.gender && <DetailsCard title="Student information" fields={[["Gender", student.gender]]} />}
         {address && <DetailsCard title="Student address" fields={[["Address", address]]} />}
         <DetailsCard title="Guardian" fields={guardianFields} />
-        <Card className="p-5">
-          <h2 className="t-label-caps mb-2 text-on-surface-variant">Transport</h2>
-          <p className="text-sm">{student.bus ? `${student.bus} · ${student.busStop || "No stop set"}` : "No bus"}</p>
-        </Card>
+        <StudentTransportCard key={student.id} student={student} students={students.rows} />
         {(details || student.admissionNumber || student.admissionDate || student.academicYear) && <DetailsCard title="Admission" fields={[
           ["Admission number", student.admissionNumber], ["Admission date", student.admissionDate || details?.admissionDate],
           ["Academic year", student.academicYear || details?.academicYear], ["Student type", details?.studentType], ["Admission type", details?.admissionType],

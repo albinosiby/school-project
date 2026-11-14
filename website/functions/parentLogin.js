@@ -1,3 +1,4 @@
+const { requireAdminSession } = require("./adminSession");
 const { createCipheriv, createDecipheriv, createHash, randomBytes, randomInt, scrypt, timingSafeEqual } = require("node:crypto");
 const { promisify } = require("node:util");
 const { getAuth } = require("firebase-admin/auth");
@@ -111,6 +112,7 @@ function requireAvailable(profile, owner, saved, uid, sid, email) {
 }
 
 exports.setParentAppAccess = onCall({ timeoutSeconds: 60, secrets: [parentPasswordKey] }, async (req) => {
+  await requireAdminSession(req);
   const actorUid = req.auth?.uid;
   if (!actorUid) throw new HttpsError("unauthenticated", "Sign in to manage parent app access.");
   const { studentId, enabled, email: submittedEmail, regenerate = false, unlinkUid } = req.data ?? {};
@@ -211,6 +213,7 @@ exports.setParentAppAccess = onCall({ timeoutSeconds: 60, secrets: [parentPasswo
 });
 
 exports.revealParentPassword = onCall({ timeoutSeconds: 30, secrets: [parentPasswordKey] }, async (req) => {
+  await requireAdminSession(req);
   const actorUid = req.auth?.uid;
   if (!actorUid) throw new HttpsError("unauthenticated", "Sign in to view the parent password.");
   const { studentId, version } = req.data ?? {};

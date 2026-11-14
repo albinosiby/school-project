@@ -417,6 +417,10 @@ describe("6 · Staff allocations", () => {
       staff: [{ id: "stf_001", name: "Anita Sharma", email: "a@s.in", role: "TGT", department: "Science" }, { id: "stf_002", name: "Ravi", email: "r@s.in", role: "PRT", department: "Maths" }],
       classes: [{ id: "cls_5A", grade: "5", section: "A", classTeacherId: "" }, { id: "cls_5B", grade: "5", section: "B", classTeacherId: "stf_002", classTeacher: "Ravi" }],
     });
+    const roles = screen.getByRole("combobox", { name: "Role for Anita Sharma" });
+    expect(roles).toHaveValue("TGT");
+    expect(within(roles).getByRole("option", { name: "Teacher" })).toBeInTheDocument();
+    expect(within(roles).queryByRole("option", { name: /^(PGT|PRT)$/ })).not.toBeInTheDocument();
     // the existing class teacher is pre-selected from the class doc
     expect(screen.getByLabelText("Class for Ravi")).toHaveValue("5-B");
     await user.selectOptions(screen.getByLabelText("Class for Ravi"), "");

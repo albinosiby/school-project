@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { TimetableView } from "./TimetableView";
-import { ADMIN_UID, dialog, field, fieldError, getRow, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
+import { ADMIN_UID, dialog, field, fieldError, getRow, renderUI, screen, seed, setUrl, within, writes, writesTo } from "@/test/render";
 
 const staff = [
-  { id: "stf_025", name: "Mrs. Anita Sharma", department: "Mathematics" },
-  { id: "stf_003", name: "Ravi Kumar", department: "Science" },
+  { id: "stf_025", name: "Mrs. Anita Sharma", department: "Academics", subjectNames: [" Mathematics ", "Mathematics"], subjects: "Old subject" },
+  { id: "stf_003", name: "Ravi Kumar", department: "Academics", subjects: "Science, Biology" },
   { id: "stf_100", name: "Office Clerk", department: "Administration" },
 ];
 const p = (id: string, classId: string, day: string, period: number, subject: string, teacherId: string, teacher: string) => {
@@ -22,13 +22,27 @@ function setup(extra: Record<string, unknown>[] = []) {
 const slot = (name: string) => screen.getByRole("button", { name });
 
 describe("Timetable grid", () => {
+  it("opens a pre-primary class from its configuration link and saves a period for that class", async () => {
+    setUrl("/settings?section=timetable&grade=UKG&division=A");
+    const { user } = setup();
+    expect(screen.getByRole("combobox", { name: "Grade" })).toHaveValue("UKG");
+    expect(screen.getByRole("combobox", { name: "Section" })).toHaveValue("A");
+    expect(screen.getByRole("option", { name: "LKG" })).toBeInTheDocument();
+    await user.click(slot("Tue period 1 empty"));
+    const form = dialog("Add period");
+    expect(form).toHaveTextContent("UKG-A · Tue · Period 1");
+    await user.selectOptions(field("Subject", form), "English");
+    await user.selectOptions(field("Teacher", form), "stf_025");
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    expect(getRow("ops_periods", "per_UKGA_Tue_1")).toMatchObject({ classId: "cls_UKGA", grade: "UKG", section: "A", day: "Tue", period: 1, subject: "English" });
+  });
   it("shows Mon–Sat × periods 1–8 with the shared bell times", () => {
     setup();
     expect(screen.getAllByRole("button", { name: /^(Mon|Tue|Wed|Thu|Fri|Sat) period [1-8] / })).toHaveLength(48);
     expect(screen.queryByRole("button", { name: /^Sun / })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /period 9/ })).not.toBeInTheDocument();
-    expect(screen.getByText("08:30")).toBeInTheDocument();
-    expect(screen.getByText("14:45")).toBeInTheDocument();
+    expect(screen.getByText("08:30–09:15")).toBeInTheDocument();
+    expect(screen.getByText("14:45–15:30")).toBeInTheDocument();
     expect(slot("Wed period 4 English")).toBeInTheDocument();
   });
 });
@@ -48,7 +62,7 @@ describe("Period add / edit", () => {
     const { user } = setup();
     await user.click(slot("Mon period 1 empty"));
     const opts = [...field("Teacher", dialog("Add period")).querySelectorAll("option")].map((o) => o.textContent);
-    expect(opts).toEqual(["Select a teacher…", "Mrs. Anita Sharma (Mathematics)", "Ravi Kumar (Science)"]);
+    expect(opts).toEqual(["Select a teacher…", "Mrs. Anita Sharma (Mathematics)", "Ravi Kumar (Science, Biology)"]);
   });
 
   it("creates per_10B_Tue_3 with class, day, period, subject, teacher id + name and room", async () => {

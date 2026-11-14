@@ -43,7 +43,7 @@ export function NoticesView() {
       for (const n of dueScheduled(rows)) {
         if (done.current.has(n.id)) continue;
         done.current.add(n.id);
-        update(n.id, { status: "Published", delivered: Number(n.recipients) || 0, read: 0, acked: 0 })
+        update(n.id, { status: "Published", delivered: 0, read: 0, acked: 0 })
           .then(() => log.create({ noticeId: n.id, action: "Sent (scheduled)", audience: n.audience, channels: n.channels ?? [], recipients: Number(n.recipients) || 0, at: new Date().toISOString() }))
           .catch(() => done.current.delete(n.id));
       }
@@ -73,7 +73,7 @@ export function NoticesView() {
     try {
       if (what === "delete") { await remove(n.id); toast("Notice deleted"); }
       else if (what === "pin") { await update(n.id, { pinned: !n.pinned }); toast(n.pinned ? "Notice unpinned" : "Notice pinned"); }
-      else { await update(n.id, { status: "Published", sentAt: new Date().toISOString(), delivered: Number(n.recipients) || 0, read: 0, acked: 0 });
+      else { await update(n.id, { status: "Published", sentAt: new Date().toISOString(), delivered: 0, read: 0, acked: 0 });
         await log.create({ noticeId: n.id, action: "Sent", audience: n.audience, channels: n.channels, recipients: n.recipients, at: new Date().toISOString() }); toast("Notice published (simulated send)"); }
     } catch { toast("Action failed", "error"); }
   }
@@ -113,9 +113,9 @@ export function NoticesView() {
       {composer.open && <Composer key={composer.notice?.id ?? "new"} open onClose={() => setComposer({ open: false })} notice={composer.notice} />}
       <Modal open={!!ack} onClose={() => setAck(null)} title="Acknowledgements" subtitle={ack?.title}
         footer={ack && <Button variant="outline" onClick={() => { downloadCsv(`acknowledgements-${ack.id}`, ["Metric", "Count", "Percent"], [
-          ["Recipients", ack.recipients, "100"], ["Delivered", ack.delivered, pct(ack.delivered, ack.recipients)], ["Read", ack.read, pct(ack.read, ack.recipients)], ["Acknowledged", ack.acked ?? 0, pct(ack.acked ?? 0, ack.recipients)]]); }}><Download size={14} />Download CSV</Button>}>
+          ["Recipients", ack.recipients, "100"], ["Available in app", ack.delivered, pct(ack.delivered, ack.recipients)], ["Read", ack.read, pct(ack.read, ack.recipients)], ["Acknowledged", ack.acked ?? 0, pct(ack.acked ?? 0, ack.recipients)]]); }}><Download size={14} />Download CSV</Button>}>
         {ack && <div className="space-y-4">
-          {([["Delivered", ack.delivered, "success"], ["Read", ack.read, "brand"], ["Acknowledged", ack.acked ?? 0, "warning"]] as const).map(([l, v, t]) => (
+          {([["Available in app", ack.delivered, "success"], ["Read", ack.read, "brand"], ["Acknowledged", ack.acked ?? 0, "warning"]] as const).map(([l, v, t]) => (
             <div key={l}><div className="mb-1 flex justify-between text-sm"><span>{l}</span><span className="font-mono">{v} / {ack.recipients} ({pct(v, ack.recipients)}%)</span></div><ProgressBar value={pct(v, ack.recipients)} tone={t} /></div>
           ))}
           <p className="text-on-surface-variant">Unread recipients: {ack.recipients - ack.read}</p>
@@ -157,7 +157,7 @@ function NoticeCard({ n, onEdit, onAck, onResend, onAct }: { n: Notice; onEdit: 
       </div>
       {published && !n.grades?.length && (
         <div className="mt-4 flex flex-wrap items-center gap-6 rounded-lg border border-outline-variant/60 bg-surface-container-low p-4">
-          <div><div className="text-xs text-on-surface-variant">Delivery Success</div><div className="font-semibold"><span className="font-mono">{n.delivered} / {n.recipients}</span> <span className="text-success">({pct(n.delivered, n.recipients)}%)</span></div></div>
+          <div><div className="text-xs text-on-surface-variant">App feed availability</div><div className="font-semibold"><span className="font-mono">{n.delivered} / {n.recipients}</span> <span className="text-success">({pct(n.delivered, n.recipients)}%)</span></div></div>
           <div><div className="text-xs text-on-surface-variant">Acknowledged Receipts</div><div className="font-semibold"><span className="font-mono">{n.acked ?? 0} Verified</span> <span className="text-secondary">({pct(n.acked ?? 0, n.recipients)}%)</span></div></div>
           {n.attachment && <div className="ml-auto flex items-center gap-2 rounded border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm"><FileText size={16} className="text-error" />{n.attachment}<span className="t-caption text-outline">{n.attachmentSize}</span></div>}
         </div>
@@ -204,7 +204,7 @@ function QuickBroadcast({ onCreate, log }: { onCreate: (b: Omit<Notice, "id">) =
     const t = templates.find((x) => x.id === tpl);
     try {
       const n = await onCreate({ title: (t && t.id !== "tpl_4" ? t.name.replace(/ \(.*\)/, "") : "Quick Broadcast") + ` – ${aud}`, category: "General", audience: aud, recipients: a.count, sentAt: new Date().toISOString(), status: "Published", pinned: false, urgent: false,
-        author: `${me.name}${me.title ? ` (${me.title})` : ""}`, channels: CHANNELS, delivered: a.count, acked: 0, read: 0, body, grades: [] });
+        author: `${me.name}${me.title ? ` (${me.title})` : ""}`, channels: CHANNELS, delivered: 0, acked: 0, read: 0, body, grades: [] });
       await log({ noticeId: n.id, action: "Quick broadcast", audience: aud, channels: CHANNELS, recipients: a.count, at: new Date().toISOString() });
       toast(`Broadcast dispatched to ${a.count} recipients (simulated)`);
     } catch { toast("Dispatch failed", "error"); } finally { setBusy(false); }

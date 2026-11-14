@@ -1,2 +1,5 @@
-import { LiveClassesView } from "@/features/ops/LiveClassesView";
-export default function Page() { return <LiveClassesView />; }
+import { redirect } from "next/navigation";
+
+export default function Page() {
+  redirect("/dashboard");
+}

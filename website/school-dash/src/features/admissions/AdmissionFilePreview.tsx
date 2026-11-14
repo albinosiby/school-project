@@ -8,12 +8,12 @@ import { readAdmissionDocument, type AdmissionUpload } from "./admissionDocument
 
 type Preview = { status: "loading" } | { status: "unavailable"; message: string } | { status: "ready"; url: string; kind: "image" | "pdf" };
 
-function useAdmissionPreview(path: string): Preview {
+function useFilePreview(path: string, readFile = readAdmissionDocument): Preview {
   const [result, setResult] = useState<{ path: string; preview: Preview }>();
   useEffect(() => {
     let disposed = false;
     let url: string | undefined;
-    void readAdmissionDocument(path).then((file) => {
+    void readFile(path).then((file) => {
       if (disposed) return;
       const kind = file.type === "application/pdf" ? "pdf"
         : file.type === "image/png" || file.type === "image/jpeg" ? "image" : null;
@@ -31,12 +31,12 @@ function useAdmissionPreview(path: string): Preview {
       disposed = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [path]);
+  }, [path, readFile]);
   return result?.path === path ? result.preview : { status: "loading" };
 }
 
 export function StudentPortrait({ name, path }: { name: string; path: string }) {
-  const preview = useAdmissionPreview(path);
+  const preview = useFilePreview(path);
   const [failedUrl, setFailedUrl] = useState<string>();
   if (preview.status !== "ready" || preview.kind !== "image" || failedUrl === preview.url) {
     return <div className="text-center">
@@ -57,9 +57,22 @@ export function AdmissionFilePreview({ upload, title, onClose, onDownload, downl
   onDownload: () => void;
   downloading: boolean;
 }) {
-  const preview = useAdmissionPreview(upload.path);
+  return <FilePreview path={upload.path} name={upload.name} title={title} onClose={onClose}
+    onDownload={onDownload} downloading={downloading} readFile={readAdmissionDocument} />;
+}
+
+export function FilePreview({ path, name, title, onClose, onDownload, downloading, readFile }: {
+  path: string;
+  name: string;
+  title: string;
+  onClose: () => void;
+  onDownload: () => void;
+  downloading: boolean;
+  readFile: (path: string) => Promise<Blob>;
+}) {
+  const preview = useFilePreview(path, readFile);
   const [failedImage, setFailedImage] = useState<string>();
-  return <Modal open title={title} subtitle={upload.name} onClose={onClose} width="max-w-4xl"
+  return <Modal open title={title} subtitle={name} onClose={onClose} width="max-w-4xl"
     footer={<>
       <Button variant="outline" disabled={downloading} onClick={onDownload}><Download size={16} />Download</Button>
       <Button onClick={onClose}>Done</Button>

@@ -60,7 +60,7 @@ describe("Exam duty allocation", () => {
     await user.click(addFor("Mathematics"));
     const d = dialog("Add invigilator");
     await user.selectOptions(field("Staff member", d), "stf_002");
-    expect(within(d).getByText(/Overlapping duty on 18 Nov 2026: Grade 9 Science \(10:00–12:30\)\. You can still assign, but the teacher cannot be in two halls\./)).toBeInTheDocument();
+    expect(within(d).getByText(/Overlapping duty on 18 Nov 2026: Grade 9 Science \(10:00–12:30\)\. Choose another staff member or change the timetable\./)).toBeInTheDocument();
   });
 
   it("writes the exm_duties row the teacher app reads", async () => {
@@ -71,7 +71,7 @@ describe("Exam duty allocation", () => {
     await user.type(field("Hall / room", d), " Hall 3 ");
     await user.click(within(d).getByRole("button", { name: /Assign duty/ }));
     const row = rowsOf<Record<string, unknown>>("exm_duties")[0];
-    expect(String(row.id)).toMatch(/^dut_pap_1_/);
+    expect(String(row.id)).toMatch(/^dut_/);
     expect(row).toMatchObject({
       paperId: "pap_1", cycleId: "cyc_1", staffId: "stf_003", role: "Invigilator", hall: "Hall 3", venue: "Exam Hall 1", date: "2026-11-18", start: "09:00", end: "11:30",
       grade: "8", subject: "Mathematics", code: "MATH-041", classIds: ["cls_8A"], candidates: 2, status: "upcoming", reportBy: "08:30", note: "",

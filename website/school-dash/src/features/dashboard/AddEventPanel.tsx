@@ -1,11 +1,13 @@
 "use client";
+import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, Trash2, UploadCloud } from "lucide-react";
 import { Badge, Button, Checkbox, Field, Input, Select, SlideOver, Switch, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
-import { CATS, errMsg, MONTHS, monthGrid, parse, TODAY, useEvents, type CalEvent, type CatId, type Staff, nowLocal } from "./data";
+import { CATS, errMsg, MONTHS, monthGrid, parse, useEvents, type CalEvent, type CatId, type Staff, nowLocal } from "./data";
 import { eventClashes, termOf, validateEvent } from "./logic";
+import { circularError, uploadCircular } from "./calendarAttachment";
 
 const GRADES = ["6", "7", "8", "9", "10", "11", "12"];
 const TERMS = ["Term 1 (Apr – Oct)", "Term 2 (Nov – Mar)"];
@@ -14,15 +16,15 @@ const termFor = (date: string) => (termOf(date) === "Term 1" ? TERMS[0]! : TERMS
 const VENUES = ["Main Campus", "Main Auditorium & Science Labs Block B", "Main Field & Amphitheatre", "Examination Wing", "Thyagaraj Stadium", "Library & Seminar Hall"];
 
 type Form = { title: string; category: CatId; term: string; start: string; end: string; allDay: boolean; startTime: string; endTime: string; instructional: boolean; grades: string[];
-  venue: string; lead: string; notifyApp: boolean; notifyWhatsapp: boolean; circular: string; desc: string };
+  venue: string; lead: string; notifyApp: boolean; notifyWhatsapp: boolean; remindApp: boolean; circular: string; circularPath?: string; circularUrl?: string; desc: string };
 const blank = (date: string): Form => ({ title: "", category: "ptm", term: termFor(date), start: date, end: date, allDay: false, startTime: "08:30", endTime: "14:30",
-  instructional: true, grades: [], venue: VENUES[0]!, lead: "", notifyApp: true, notifyWhatsapp: false, circular: "", desc: "" });
+  instructional: true, grades: [], venue: VENUES[0]!, lead: "", notifyApp: true, notifyWhatsapp: false, remindApp: false, circular: "", desc: "" });
 /** the form for an existing event (edit) */
 const fromEvent = (e: CalEvent): Form => ({
-  title: e.title ?? "", category: (CATS.some((c) => c.id === e.category) ? e.category : "ptm"), term: e.term === "Term 1" ? TERMS[0]! : e.term === "Term 2" ? TERMS[1]! : termFor(e.start || TODAY),
+  title: e.title ?? "", category: (CATS.some((c) => c.id === e.category) ? e.category : "ptm"), term: e.term === "Term 1" ? TERMS[0]! : e.term === "Term 2" ? TERMS[1]! : termFor(e.start || new Date().toISOString().slice(0, 10)),
   start: e.start ?? "", end: e.end ?? e.start ?? "", allDay: !!e.allDay || (!e.startTime && !e.endTime), startTime: e.startTime || "08:30", endTime: e.endTime || "14:30",
-  instructional: e.instructional ?? true, grades: e.grades ?? [], venue: e.venue || VENUES[0]!, lead: e.lead ?? "", notifyApp: e.notifyApp ?? true, notifyWhatsapp: e.notifyWhatsapp ?? false,
-  circular: e.circular ?? "", desc: e.desc ?? "",
+  instructional: e.instructional ?? true, grades: e.grades ?? [], venue: e.venue || VENUES[0]!, lead: e.lead ?? "", notifyApp: e.notifyApp ?? true, notifyWhatsapp: false, remindApp: e.remindApp ?? false,
+  circular: e.circular ?? "", ...(e.circularPath ? { circularPath: e.circularPath, circularUrl: e.circularUrl } : {}), desc: e.desc ?? "",
 });
 
 /** calendar_events/{id} as the admin web writes it (contract 3 / 10: status "published" | "draft", notifyApp; never parentVisible) */
@@ -30,11 +32,12 @@ export function eventDoc(f: Form, status: "published" | "draft"): Omit<CalEvent,
   return {
     title: f.title.trim(), category: f.category, term: f.term.startsWith("Term 1") ? "Term 1" : "Term 2", start: f.start, end: f.end,
     allDay: f.allDay, startTime: f.allDay ? "" : f.startTime, endTime: f.allDay ? "" : f.endTime, venue: f.venue, lead: f.lead, grades: f.grades,
-    instructional: f.instructional, notifyApp: f.notifyApp, notifyWhatsapp: f.notifyWhatsapp, circular: f.circular, desc: f.desc.trim(), status,
+    instructional: f.instructional, notifyApp: f.notifyApp, notifyWhatsapp: false, remindApp: f.remindApp, circular: f.circular, ...(f.circularPath ? { circularPath: f.circularPath, circularUrl: f.circularUrl } : {}), desc: f.desc.trim(), status,
   };
 }
 
 export function AddEventPanel({ open, onClose, initialDate, event }: { open: boolean; onClose: () => void; initialDate?: string; event?: CalEvent | null }) {
+  const { date: TODAY } = useSchoolClock();
   const { rows: events, create, update } = useEvents();
   const { rows: staff } = useCollection<Staff>("staff");
   const { create: notify } = useCollection<{ id: string }>("notifications");
@@ -42,9 +45,12 @@ export function AddEventPanel({ open, onClose, initialDate, event }: { open: boo
   const init = () => (event ? fromEvent(event) : blank(initialDate ?? TODAY));
   const [f, setF] = useState<Form>(init);
   const [errs, setErrs] = useState<Record<string, string>>({});
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+  useEffect(() => { if (!file) { setPreview(""); return; } const url = URL.createObjectURL(file); setPreview(url); return () => URL.revokeObjectURL(url); }, [file]);
   const [busy, setBusy] = useState(false);
   // keyed on the event id: a function writing parentVisible on the doc must not reset what the admin is typing
-  useEffect(() => { if (open) { setF(event ? fromEvent(event) : blank(initialDate ?? TODAY)); setErrs({}); } }, [open, initialDate, event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (open) { setF(event ? fromEvent(event) : blank(initialDate ?? TODAY)); setErrs({}); setFile(null); } }, [open, initialDate, event?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
 
   const days = f.start && f.end && f.end >= f.start ? Math.round((parse(f.end).getTime() - parse(f.start).getTime()) / 864e5) + 1 : 1;
@@ -57,9 +63,14 @@ export function AddEventPanel({ open, onClose, initialDate, event }: { open: boo
     const e = validateEvent(f);
     setErrs(e);
     if (Object.keys(e).length) { toast("Please fix the highlighted fields", "error"); return; }
-    const body = eventDoc(f, status);
+    let body = eventDoc(f, status);
     setBusy(true);
     try {
+      if (file) {
+        const uploaded = await uploadCircular(file);
+        body = { ...body, ...uploaded };
+        setF((current) => ({ ...current, ...uploaded })); setFile(null);
+      }
       if (event) await update(event.id, body); else await create(body);
       // the bell row only when the event goes live (the onCalendarEventPublished function pushes the teachers)
       if (status === "published" && f.notifyApp && event?.status !== "published") {
@@ -81,7 +92,7 @@ export function AddEventPanel({ open, onClose, initialDate, event }: { open: boo
 
   return (
     <SlideOver open={open} onClose={onClose} width="max-w-5xl" title={event ? "Edit Academic Event" : "Add Academic Milestone / Statutory Event"}
-      subtitle="Create and publish term milestones, statutory examinations, holidays, PTMs or sports events to the 2026-27 master institutional calendar."
+      subtitle="Create and publish term milestones, statutory examinations, holidays, PTMs or sports events to the school master calendar."
       footer={<div className="flex w-full flex-wrap items-center gap-2">
         <Button variant="ghost" className="!text-error" onClick={() => { setF(init()); setErrs({}); onClose(); }}><Trash2 size={14} />Discard Changes</Button>
         <span className="text-xs text-outline">• Nothing is saved until you publish or save a draft</span>
@@ -126,22 +137,22 @@ export function AddEventPanel({ open, onClose, initialDate, event }: { open: boo
               <Field label="Designated Campus Venue"><Select value={f.venue} onChange={(e) => set("venue", e.target.value)}>{VENUES.map((v) => <option key={v}>{v}</option>)}</Select></Field>
               <Field label="Event Faculty Lead"><Select value={f.lead} onChange={(e) => set("lead", e.target.value)}><option value="">— Unassigned —</option>{staff.filter((s) => s.status === "Active").map((s) => <option key={s.id}>{s.name}</option>)}</Select></Field>
             </div></>)}
-          {section("04", "Parent Sync, Dispatch & Documentation", "Omni-channel guardian broadcast & verified circular upload", "Multi-Channel", <>
+          {section("04", "Parent Sync, Dispatch & Documentation", "Firebase app alerts and event circulars", "Firebase Messaging", <>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex cursor-pointer gap-3 rounded-lg border border-outline-variant p-4"><Checkbox checked={f.notifyApp} onChange={(e) => set("notifyApp", e.target.checked)} />
                 <span><span className="block font-semibold">ParentApp & Portal Sync</span><span className="text-xs text-on-surface-variant">Instant push alert and badge notice to guardian profiles.</span></span></label>
-              <label className="flex cursor-pointer gap-3 rounded-lg border border-outline-variant p-4"><Checkbox checked={f.notifyWhatsapp} onChange={(e) => set("notifyWhatsapp", e.target.checked)} />
-                <span><span className="block font-semibold">48-Hr WhatsApp Notice</span><span className="text-xs text-on-surface-variant">Schedule WhatsApp circular dispatch 48 hours before the event.</span></span></label>
+              <label className="flex cursor-pointer gap-3 rounded-lg border border-outline-variant p-4"><Checkbox checked={f.remindApp} onChange={(e) => set("remindApp", e.target.checked)} />
+                <span><span className="block font-semibold">48-hour app reminder</span><span className="text-xs text-on-surface-variant">Queue a Firebase app reminder within 48 hours of the event.</span></span></label>
             </div>
             <Field label="Notes / Description" className="mt-4"><Input value={f.desc} onChange={(e) => set("desc", e.target.value)} placeholder="Short description shown on the calendar" /></Field>
             <p className="mb-2 mt-4 text-xs font-semibold text-on-surface-variant">Official Circular / CBSE Notification Upload</p>
             <label className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed border-outline-variant p-6 text-center hover:bg-surface-container-low">
               <UploadCloud className="text-secondary" />
               <span className="font-semibold">{f.circular ? "Replace circular" : "Upload Official Approval & Schedule Dossier"}</span>
-              <span className="text-xs text-outline">Click to select PDF or DOCX up to 15MB (file name is recorded; upload is simulated)</span>
-              <input type="file" accept=".pdf,.docx" className="sr-only" onChange={(e) => { const file = e.target.files?.[0]; if (file) set("circular", file.name); }} />
+              <span className="text-xs text-outline">PDF or DOCX, up to 15 MB. Uploaded when you save the event.</span>
+              <input aria-label="Event circular" type="file" accept=".pdf,.docx" className="sr-only" onChange={(e) => { const selected = e.target.files?.[0]; if (!selected) return; const error = circularError(selected); if (error) { toast(error, "error"); e.target.value = ""; return; } setFile(selected); set("circular", selected.name); }} />
             </label>
-            {f.circular && <p className="mt-2 flex items-center gap-2 text-sm"><FileText size={14} className="text-error" />{f.circular}<CheckCircle2 size={14} className="text-success" /></p>}
+            {f.circular && <p className="mt-2 flex items-center gap-2 text-sm"><FileText size={14} className="text-error" />{f.circular}{file ? <span className="text-xs text-outline">Ready to upload</span> : f.circularUrl ? <CheckCircle2 size={14} className="text-success" /> : <span className="text-xs text-outline">Upload needed</span>}{(preview || f.circularUrl) && <a href={preview || f.circularUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-secondary">Preview circular</a>}</p>}
           </>)}
         </div>
         <aside className="space-y-4">

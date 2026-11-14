@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { runTransaction } from "firebase/firestore";
 import { Button, Field, Input, Modal, Select, useToast } from "@/components/ui";
 import { db } from "@/lib/firebase";
 import { createStamp, schoolDoc } from "@/features/fees/logic";
 import { useAdm } from "@/features/admissions/lib";
 import { GRADES } from "@/features/admissions/types";
+import { useCollection } from "@/lib/useCollection";
+import { gradeHref, gradeOfLabel, type SectionRow } from "./gradeSetup";
 
 export function AdmissionSeatSettings() {
   const { ready, seatRows } = useAdm();
@@ -24,16 +27,18 @@ export function AdmissionSeatSettings() {
 
 function SeatEditor({ rows, onClose }: { rows: ReturnType<typeof useAdm>["seatRows"]; onClose: () => void }) {
   const toast = useToast();
+  const sections = useCollection<SectionRow>("set_sections");
   const [grade, setGrade] = useState("");
   const [draft, setDraft] = useState<string>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const cohort = GRADES.find((item) => item.id === grade);
   const row = rows.find((item) => item.grade === grade);
+  const configured = sections.rows.find((item) => !item.streamId && gradeOfLabel(item.grade) === grade);
   const capacity = draft ?? (row ? String(row.capacity) : "");
 
   async function save() {
-    if (busy || !cohort) return;
+    if (busy || !cohort || configured || !sections.ready) return;
     const number = Number(capacity);
     if (!/^\d+$/.test(capacity.trim()) || !Number.isSafeInteger(number)) return setError("Enter a nonnegative whole number of seats.");
     const minimum = Math.max(row?.held ?? 0, row?.rteSeats ?? 0);
@@ -58,12 +63,14 @@ function SeatEditor({ rows, onClose }: { rows: ReturnType<typeof useAdm>["seatRo
 
   return (
     <Modal open onClose={() => { if (!busy) onClose(); }} title="Edit admissions seats"
-      footer={<><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button><Button disabled={busy || !cohort} onClick={save}>{busy ? "Saving…" : "Save capacity"}</Button></>}>
+      footer={<><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button>{configured
+        ? <Link href={gradeHref(configured.id)} className="text-sm font-semibold text-secondary hover:underline">Open grade settings</Link>
+        : <Button disabled={busy || !cohort || !sections.ready} onClick={save}>{busy ? "Saving…" : "Save capacity"}</Button>}</>}>
       <div className="grid gap-4">
         <Field label="Grade or stream"><Select value={grade} disabled={busy} onChange={(event) => { setGrade(event.target.value); setDraft(undefined); setError(""); }}>
           <option value="">Choose a grade or stream</option>{GRADES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
         </Select></Field>
-        {cohort && <Field label="Capacity" error={error} hint={row ? `${row.held} seats occupied or reserved` : "No capacity set yet"}><Input type="number" min={0} disabled={busy} value={capacity} onChange={(event) => setDraft(event.target.value)} /></Field>}
+        {cohort && <Field label="Capacity" error={error} hint={configured ? "Managed through this grade's sections. Save sections and capacity to synchronize admissions." : row ? `${row.held} seats occupied or reserved` : "No capacity set yet"}><Input type="number" min={0} disabled={busy || !sections.ready || !!configured} value={configured ? configured.cap : capacity} onChange={(event) => setDraft(event.target.value)} /></Field>}
       </div>
     </Modal>
   );

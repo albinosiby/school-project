@@ -52,14 +52,71 @@ No new API endpoints, indexes, or broader permissions are needed for these schoo
 |---|---|
 | `school` (doc `school`) | `name, short, board, affiliation, city, academicYear, term` (**term** `"Term 2"`) |
 | `staff` | `name, empId, department, role, status, phone, **email**, **authUid?**, **designation?**, **subjects?**, **joined?**` |
-| `classes` | `id, grade, section, streamId?, stream?, **classTeacherId**, **room**, **wing**, **studentCount?**` |
+| `classes` | `id, grade, section, streamId?, stream?, **classTeacherId**, **room**, **wing**, **studentCount?**, divisionAssignmentRevision?` |
 | `assignments` | `classId, subject, teacherId, **topic?**, **periodsPerWeek?**` (who teaches what to which class) |
 | `students` | `name, grn, grade, section, streamId?, stream?, **classId**, **roll** (int), guardian, **guardianId?**, phone, status, attendance` (**`perfGrade?`** is the optional letter grade; the teacher app must not store a letter grade in `grade`) |
-| `ops_periods` (the timetable) | `classId, grade, section, day:"Mon", period:1..8, subject, teacher (name), teacherId, room` |
+| `ops_periods` (the timetable) | `classId, grade, section, day:"Mon", period:1..configured bell periodCount (max 12), subject, teacher (name), teacherId, room`. Saved lessons beyond the current count are retained separately for review. |
 | `ops_substitutions` (new) | `date, day, period, classId, subject, absentTeacherId, substituteTeacherId, status: "Assigned"|"Accepted"|"Declined", topic?, note?` |
 | `exm_cycles`, `exm_papers`, `exm_candidates` | existing; `exm_candidates` become one per student of rostered classes: `id=cand_{studentId}, studentId, name, roll, grn, cls("8-A"), grade, section`; `exm_papers` gain `classIds?: string[]`, `invigilatorId?` |
 | `com_notices`, `calendar_events` | existing (admin writes). Teacher app reads them for circulars and calendar |
 | `approval_policies`, `set_*` | admin only |
+
+### Assessment scheme (Settings → Assessment Scheme)
+
+Yearly academic setup that exams are created from (stage A of `EXAMS_WORKFLOW_PROPOSAL.md`). Admin-only `set_*`
+collections; carried forward by rollover like the other settings.
+
+- `set_exam_types/{ext_slug}`: `{name, short, termId ("" = none), weight (percent of the term result), pattern:
+  "scheme"|"single", singleMax, shareSubjectWise, countsInTerm, order, active}`. `pattern:"single"` means one theory
+  paper of `singleMax` marks per subject (unit tests); `"scheme"` uses the subject scheme's components.
+  `shareSubjectWise` is the policy for pushing approved subject marks to parents before the full result.
+- `set_subject_schemes/{scheme_{grade}[_{streamId}]}`: `{groupKey ("9:" or "11:science", the exam wizard's class
+  key), grade, streamId, scaleId ("default" = `set_grading`), subjects:[{subject, code, mode:"marks"|"grade", theory,
+  practical, internal, passMarks, theoryPass, practicalPass, internalPass, weight, gradeOptions, duration (hours),
+  enteredBy:"subjectTeacher"|"classTeacher"|"office"}], coScholastic:[string]}`.
+- The wizard's Exam type picker lists active `set_exam_types` (falling back to a fixed list when none exist) and
+  stores `exm_cycles.examTypeId` and `termId` beside the legacy `examType` name. Selecting a class group for the
+  first time pre-fills its subjects from the scheme, scaled to the exam type; "Reset to … scheme" re-applies it.
+
+### Mark sheets and class results
+
+Stages C–E of the workflow. Full field lists, transitions and server actions are in `EXAMS_SHEETS_RESULTS_CONTRACT.md`.
+
+- `exm_sheets/{paperId}__{classId}`: the unit of marks work (one subject × division) with `ownerId`, `rosterIds`,
+  `components` and `status: NotStarted|InProgress|Submitted|Returned|Approved|Locked`. Created by the
+  `manageExamination` action `openEntry`. The owner (teacher) submits by writing `status:"Submitted"` directly;
+  admins return, approve, reopen and reassign through `sheetReturn|sheetApprove|sheetReopen|sheetAssign`.
+  Approval sets `verified` + `verificationFingerprint` on every rostered `exm_marks` row. Teacher writes to
+  `exm_marks` are governed by the sheet when one exists (owner, open status, all components); papers without a
+  sheet keep the legacy paper-level rule.
+- `exm_results/{cycleId}__{studentId}` and `exm_class_results/{cycleId}__{classId}`: compiled, versioned results
+  (`Compiled → Approved → Published → Superseded`, `stale` after a reopen) written only by the server through
+  `compile|signOff|publishResults|withdrawResults`. Publishing a class adds it to every paper's `publishedClassIds`,
+  so the existing `par_results` projection and parent push keep working; parents may also read their own
+  Published `exm_results`.
+- `exm_cycles.stage`: `setup|scheduled|entry|tabulation|published|closed`, additive to `status`.
+
+### Examination setup and publication
+
+The school dashboard uses six steps in Exams & Results > Create Exam Cycle. Drafts need only a name and can be
+saved from every step. Publishing validates the selected divisions, subject components, pass marks and timetable.
+Rooms and invigilators are optional. Course-specific classes retain their actual class IDs throughout the workflow.
+
+- `exm_cycles` stores academic year, exam type, description, selected `classIds`, `excludedStudentIds`, `resultRules`,
+  `setupVersion` and `publicationState` (`draft`, `scheduled`, `published`). `publishAt` is UTC and
+  `publicationTimezone` records the school timezone used to interpret the date-time picker.
+- Each `exm_papers` row stores subject-specific theory/practical/internal maxima and pass marks, grade descriptors,
+  result weight, instructions, per-class `evaluatorIds`, and a frozen `studentIds` participant list. `setupPlanned`
+  includes scheduled publications in conflict detection. `setupPublished` distinguishes published papers from drafts.
+- Candidate synchronization precedes the atomic cycle/paper save. `exm_config/schedule_guard` serializes setup saves
+  so a competing publication rechecks the current server timetable. Published exam configuration is read-only.
+- `publishScheduledExams` runs every five minutes. It publishes due exams and unlocks their papers atomically.
+  `onExamTimetablePublished` sends each participating child's parent their subject timetable through in-app notifications.
+- Practical, internal and grade-only entries are managed in the school dashboard. The teacher app handles theory marks
+  for its assigned examiner and respects excluded participants and locked papers through Firestore rules.
+- Marks use `verificationFingerprint` to invalidate review when reviewed values change. The overall-results view applies
+  the chosen calculation, rounding and ranking settings. Exempt and grade-only subjects are excluded from numeric totals.
+  Parent-result projections retain practical marks, school grades and calculation settings.
 
 ## 4. Collections both sides write (shared records)
 
@@ -335,8 +392,8 @@ Where the backend had to pick a detail the sections above leave open:
   only when the record's `date` is today (India time), so back-filled days update `par_attendance` without a "today" push.
   Dedupe id `att_{date}_{studentId}_{uid}`; `E` (excused) updates the projection but sends no alert.
 - **Homework**: a homework with `deleted: true` or a draft `status` has no `par_homework` copies; publishing it later counts as "new".
-- **Results**: `par_results` also carries `classId`. When a class label is removed from `exm_papers.published` (the admin web does
-  this when marks are edited after publishing) that class's `par_results` for the paper are deleted until it is published again;
+- **Results**: `par_results` also carries `classId`. A reasoned administrator reopening withdraws the paper's subject publications
+  before corrections. Removed publication labels/exact class IDs delete those classes' `par_results` until they are published again;
   marks are matched by `exm_marks.studentId`, else `candId` = `cand_{studentId}`. Students without a mark get no row.
 - **Notices**: parent-visible = `status == "Published"` and `audience` matches `parent|guardian|all school|whole school|everyone`
   ("Staff & Teachers" and "Transport Routes" are not); the flag is always written, `true` or `false`, and only when it changes. The push goes to all parent logins of the school, narrowed by the notice's
@@ -508,3 +565,7 @@ owner site has no landing page or self sign-up and turns school admins away.
   `updatedAt` and `updatedBy` may change.
 - **Admins change their own password** in My Profile (re-authenticate with the current password, then update). My
   Profile stays reachable during the setup wizard.
+
+## Examination operations and consolidated report cards
+
+The additive operational contract, API actions, immutable history/snapshots, tenant permissions, class-level locks, parent PDF access and deployment steps are documented in [EXAMS_ENHANCEMENT.md](EXAMS_ENHANCEMENT.md). Existing `exm_*` setup/marks/duty records and `par_results` subject projections remain in use. `publishedClassIds` and `lockedClassIds` preserve exact division identity alongside legacy publication labels. New report-card records never replace subject-publication controls. Parent queries read only their child's `Published` report snapshots; drafts, approval batches, history and audit records remain administrator-only.

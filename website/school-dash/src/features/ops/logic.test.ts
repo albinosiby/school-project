@@ -324,8 +324,8 @@ describe("class and assignment validation", () => {
   const v = { grade: "8", section: "A", classTeacherId: "", room: "" };
   it("accepts a new class", () => expect(validateClass(v, classes, nameOf)).toEqual({}));
   it("grade 1–12 and section A–D", () => {
-    expect(validateClass({ ...v, grade: "13" }, classes, nameOf).grade).toBe("Grade must be 1–12");
-    expect(validateClass({ ...v, grade: "0" }, classes, nameOf).grade).toBe("Grade must be 1–12");
+    expect(validateClass({ ...v, grade: "13" }, classes, nameOf).grade).toBe("Choose LKG, UKG or Grade 1–12");
+    expect(validateClass({ ...v, grade: "0" }, classes, nameOf).grade).toBe("Choose LKG, UKG or Grade 1–12");
     expect(validateClass({ ...v, section: "E" }, classes, nameOf).section).toBe("Section must be A–D");
     expect(validateClass({ ...v, section: "a" }, classes, nameOf).section).toBe("Section must be A–D");
   });

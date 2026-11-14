@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { CalendarView } from "./CalendarView";
 import { TODAY } from "./data";
-import { dialog, field, fieldError, getRow, renderUI, rowsOf, screen, seed, within, writes, writesTo } from "@/test/render";
+import { dialog, field, fieldError, getRow, renderUI, rowsOf, uploads, screen, seed, within, writes, writesTo } from "@/test/render";
 
 const ADD = "Add Academic Milestone / Statutory Event";
 async function openAdd() {
@@ -104,4 +104,24 @@ describe("Calendar event writes (contract 3 / 10)", () => {
     expect(await screen.findByText("Event published to master calendar")).toBeInTheDocument();
     expect(writesTo("calendar_events")[0]).toMatchObject({ op: "update", id: "ev_2", data: expect.objectContaining({ status: "published" }) });
   });
+});
+
+
+describe("event circular uploads", () => {
+ it("uploads a circular and saves its real preview URL", async () => {
+  const {user,d}=await openAdd();
+  await user.type(field("Official Event Title",d),"School event");
+  const file=new File(["%PDF-1.4 test"],"circular.pdf",{type:"application/pdf"});
+  fireEvent.change(within(d).getByLabelText("Event circular"),{target:{files:[file]}});
+  expect(within(d).getByRole("link",{name:"Preview circular"})).toHaveAttribute("href","blob:test");
+  await user.click(within(d).getByRole("button",{name:"Save as Unapproved Draft"}));
+  await vi.waitFor(()=>expect(rowsOf("calendar_events")[0]?.circularUrl).toMatch(/^https:\/\/files.test\/schools\/sch_test\/calendar-documents\//));
+  expect(uploads.at(-1)?.type).toBe("application/pdf");
+ });
+ it("rejects an unsupported file without saving its name", async () => {
+  const {d}=await openAdd();
+  fireEvent.change(within(d).getByLabelText("Event circular"),{target:{files:[new File(["x"],"unsafe.html",{type:"text/html"})]}});
+  expect(screen.getByText("Choose a PDF or DOCX circular.")).toBeInTheDocument();
+  expect(within(d).queryByText("unsafe.html")).not.toBeInTheDocument();
+ });
 });

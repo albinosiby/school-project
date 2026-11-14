@@ -1,8 +1,8 @@
 // authContext is mocked for every other test; here the real module is loaded to test its error mapping and the
 // admin-only login guard (data contract sections 1 and 7: teacher / parent accounts are refused by the admin web).
 import { describe, expect, it, vi } from "vitest";
-import { act, render, waitFor } from "@testing-library/react";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { act, render, waitFor, screen } from "@testing-library/react";
+import { onAuthStateChanged, signInWithEmailAndPassword, signInWithCustomToken, getIdTokenResult, signOut } from "firebase/auth";
 import { getRow, seed } from "@/test/render";
 
 type Real = typeof import("./authContext");
@@ -115,5 +115,25 @@ describe("login guard", () => {
     await act(async () => observer({ uid: "uid_principal", email: "principal@s.in" }));
     expect(box.ctx!.user).toMatchObject({ role: "staff", staffRole: "principal", schoolId: "sch_test" });
     expect(homeFor(box.ctx!.user)).toBe("/staff-access");
+  });
+});
+
+
+describe("administrator MFA gate", () => {
+  it("keeps the school closed until a verified second-factor token is installed", async () => {
+    const uid="mfa_admin_ui", account={uid,email:"mfa@example.test",displayName:""};
+    seed({users:[{id:uid,schoolId:"mfa_school",role:"admin",mfaVersion:"security-v1"}]});
+    let observer: (user: unknown) => void=()=>{};
+    vi.mocked(onAuthStateChanged).mockImplementationOnce((_auth,callback)=>{observer=callback as typeof observer;return()=>{}});
+    const box=await mount();
+    await act(async()=>observer(account));
+    await screen.findByRole("heading",{name:"Verify administrator access"});
+    expect(box.ctx!.user).toBeNull();
+    vi.mocked(signInWithCustomToken).mockResolvedValueOnce({user:account} as never);
+    vi.mocked(getIdTokenResult).mockResolvedValueOnce({claims:{adminMfaVersion:"security-v1",adminMfaAt:Math.floor(Date.now()/1000)},signInProvider:"custom"} as never);
+    await act(async()=>box.ctx!.completeAdminMfa("verified-test-token",["RECOVERY-CODE-SHOWN-ONCE"]));
+    expect(box.ctx!.user).toMatchObject({id:uid,schoolId:"mfa_school"});
+    expect(screen.getByText("RECOVERY-CODE-SHOWN-ONCE")).toBeInTheDocument();
+    expect(screen.queryByRole("heading",{name:"Verify administrator access"})).not.toBeInTheDocument();
   });
 });

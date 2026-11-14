@@ -50,12 +50,24 @@ export const isOverdue = (i: InvoiceLite, today: string) =>
 
 /* ---------- staff on leave ---------- */
 export type LeaveLite = { id: string; staffId: string; from: string; to?: string; status: string; deleted?: boolean };
-export type StaffLite = { id: string; name: string; status?: string; department?: string };
+export type StaffLite = { id: string; name: string; status?: string; department?: string; leaveTo?: string };
 /** staff ids away on `day`: status "On leave", or an Approved staff_leaves row covering the day */
 export function staffOnLeave(staff: StaffLite[], leaves: LeaveLite[], day: string) {
-  const out = new Set(staff.filter((s) => s.status === "On leave").map((s) => s.id));
-  leaves.forEach((l) => { if (l.status === "Approved" && !l.deleted && l.from <= day && day <= (l.to || l.from)) out.add(l.staffId); });
+  const activeIds = new Set(staff.filter((s) => !/^(inactive|resigned|terminated|retired|left)$/i.test(s.status || "")).map((s) => s.id));
+  const out = new Set(staff.filter((s) => activeIds.has(s.id) && s.status === "On leave" && (!s.leaveTo || s.leaveTo >= day)).map((s) => s.id));
+  leaves.forEach((l) => { if (activeIds.has(l.staffId) && l.status === "Approved" && !l.deleted && l.from <= day && day <= (l.to || l.from)) out.add(l.staffId); });
   return out;
+}
+
+export function openAdmissionEnquiries<T extends { id: string; stage?: string; studentId?: string; applicationId?: string }>(enquiries: T[], applications: { id: string; enquiryId?: string; studentId?: string; status?: string }[]) {
+  const admitted = applications.filter((row) => row.status?.toLowerCase() === "enrolled" || row.studentId);
+  return enquiries.filter((row) => row.stage?.toLowerCase() !== "enrolled" && !row.studentId && !admitted.some((app) => app.enquiryId === row.id || app.id === row.applicationId));
+}
+export const admittedStudents = <T extends { deleted?: boolean; admissionNumber?: string; admissionDate?: string; offerId?: string }>(students: T[]) =>
+  students.filter((row) => !row.deleted && Boolean(row.admissionNumber || row.admissionDate || row.offerId));
+export function checkedInStaff(staff: { id: string; status?: string }[], attendance: { staffId?: string; date?: string; in?: string | null; out?: string | null; status?: string }[], today: string) {
+  const active = new Set(staff.filter((row) => !/^(inactive|resigned|terminated|retired|left|suspended)$/i.test(row.status || "")).map((row) => row.id));
+  return new Set(attendance.filter((row) => row.date === today && row.staffId && active.has(row.staffId) && row.in && !row.out && row.status !== "Leave").map((row) => row.staffId)).size;
 }
 
 /* ---------- operational alerts derived from live collections ---------- */
@@ -82,7 +94,7 @@ export function deriveAlerts(ctx: { today: string; staff: StaffLite[]; leaves: L
     const mine = ctx.periods.filter((p) => p.day === dn && p.teacherId === id && !covered(p)).sort((a, b) => a.period - b.period);
     if (!mine.length) continue;
     const name = ctx.staff.find((s) => s.id === id)?.name ?? mine[0]!.teacher ?? id;
-    out.push({ id: `sub_${id}`, kind: "substitute", title: "SUBSTITUTE REQUIRED", tag: mine.map((p) => `P${p.period}`).join(", "), status: "open", substitute: "", derived: true, href: "/timetable",
+    out.push({ id: `sub_${id}`, kind: "substitute", title: "SUBSTITUTE REQUIRED", tag: mine.map((p) => `P${p.period}`).join(", "), status: "open", substitute: "", derived: true, href: `/classes/${encodeURIComponent(clsOf(mine[0]!))}?tab=timetable&date=${today}`,
       body: `${name} is on leave: ${mine.map((p) => `Gr ${clsLabel(clsOf(p))} ${p.subject}`).join(", ")} ${mine.length === 1 ? "needs" : "need"} cover.` });
   }
   const overdue = ctx.invoices.filter((i) => isOverdue(i, today));

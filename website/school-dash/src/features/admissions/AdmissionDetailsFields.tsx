@@ -1,8 +1,7 @@
 "use client";
 
-import { useCollection } from "@/lib/useCollection";
 import { Field, Input, Select, Switch, Textarea } from "@/components/ui";
-import { SchoolAddressFields, useAddressLocations } from "@/features/onboarding/SchoolAddressFields";
+import { SchoolAddressFields, useAddressCitySuggestions, useAddressLocations } from "@/features/onboarding/SchoolAddressFields";
 import { COUNTRIES } from "@/features/onboarding/locations";
 import { admissionGenders, contactTypes, type AdmissionDetails, type ContactType } from "./admissionDetails";
 import { GRADES } from "./types";
@@ -15,13 +14,7 @@ export function AdmissionDetailsFields({ value, onChange, errors, saving, locati
   value: AdmissionDetails; onChange: (patch: Partial<AdmissionDetails>) => void; errors: Record<string, string>; saving: boolean;
   location: ReturnType<typeof useAddressLocations>;
 }) {
-  const school = useCollection<{ id: string; state?: string; district?: string; city?: string }>("school").rows.find((row) => row.id === "school");
-  const records = useCollection<AdmissionDetails & { id: string }>("adm_student_details").rows;
-  const cities = [...new Set([
-    ...(school?.city && school.state === value.residence.state && school.district === value.residence.district ? [school.city] : []),
-    ...records.filter((row) => row.residence.state === value.residence.state && row.residence.district === value.residence.district)
-      .map((row) => row.residence.city.trim()).filter(Boolean),
-  ])].sort();
+  const cities = useAddressCitySuggestions()(value.residence);
   const set = (key: keyof AdmissionDetails, text: string) => onChange({ [key]: text });
   const selectPrimary = (primary: ContactType) => {
     onChange({
@@ -53,7 +46,7 @@ export function AdmissionDetailsFields({ value, onChange, errors, saving, locati
     {dropdown("category", "Category (if applicable)", ["General", "SC", "ST", "OBC", "EWS", "Other"])}
     {value.category && input("caste", "Caste (if applicable)")}
     <h3 className={heading}>Student address</h3>
-    <div className="sm:col-span-2"><SchoolAddressFields studentCities={cities} value={value.residence} onChange={(patch) => onChange({ residence: { ...value.residence, ...patch } })}
+    <div className="sm:col-span-2"><SchoolAddressFields cityOptions={cities} value={value.residence} onChange={(patch) => onChange({ residence: { ...value.residence, ...patch } })}
       errors={errors} {...location} disabled={saving} /></div>
     <h3 className={heading}>Admission information</h3>
     {input("admissionDate", "Admission date", true, "date")}

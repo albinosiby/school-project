@@ -5,7 +5,7 @@ import { useCollection } from "@/lib/useCollection";
 /** true only after hydration, so cache-dependent branches match the server render */
 export const useHydrated = () => useSyncExternalStore(() => () => {}, () => true, () => false);
 
-/** Demo "today" so seeded dates (Oct–Nov 2026) stay meaningful. */
+/** Compatibility date for initial form values. Live views use useSchoolClock. */
 const p2 = (n: number) => String(n).padStart(2, "0");
 const ymd = (d: Date) => `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`;
 export const TODAY = ymd(new Date());
@@ -22,7 +22,7 @@ export type Approval = {
 };
 export type CalEvent = {
   id: string; title: string; category: CatId; start: string; end: string; startTime: string; endTime: string; venue: string; term: string;
-  status: "published" | "draft"; instructional: boolean; grades: string[]; notifyApp: boolean; notifyWhatsapp: boolean; lead: string; desc: string; circular?: string;
+  status: "published" | "draft"; instructional: boolean; grades: string[]; notifyApp: boolean; notifyWhatsapp: boolean; lead: string; desc: string; circular?: string; circularPath?: string; circularUrl?: string; remindApp?: boolean;
   /** no daily times (startTime / endTime are "") */
   allDay?: boolean;
   /** written only by the onCalendarForParents function (contract 13.2); the admin web never sends it */
@@ -87,10 +87,10 @@ export const fmtSubmitted = (s: string) => {
   const d = new Date(s ?? ""); if (Number.isNaN(d.getTime())) return "—";
   const day = s.slice(0, 10);
   const t = `${pad(d.getHours())}:${pad(d.getMinutes())} IST`;
-  return day === TODAY ? `Today, ${t}` : `${d.getDate()} ${MONTHS[d.getMonth()]!.slice(0, 3)}, ${t}`;
+  return day === ymd(new Date()) ? `Today, ${t}` : `${d.getDate()} ${MONTHS[d.getMonth()]!.slice(0, 3)}, ${t}`;
 };
 export const fmtDay = (s: string) => { if (!s) return "—"; const d = parse(s); if (Number.isNaN(d.getTime())) return "—"; return `${d.getDate()} ${MONTHS[d.getMonth()]!.slice(0, 3)} ${d.getFullYear()}`; };
-export const upcomingEvents = (evs: CalEvent[], from = TODAY) =>
+export const upcomingEvents = (evs: CalEvent[], from = ymd(new Date())) =>
   evs.filter((e) => e.status === "published" && e.end >= from).sort((a, b) => a.start.localeCompare(b.start));
 
 /** safe percentage: 0 when the denominator is 0 */

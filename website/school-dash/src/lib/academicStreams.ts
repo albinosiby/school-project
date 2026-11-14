@@ -11,6 +11,15 @@ export const courseIdOf = (name: string) => {
   return isCourseId(id) ? id : "";
 };
 export const isSeniorGrade = (grade: string) => grade === "11" || grade === "12";
+/** School order of grades: LKG, UKG, then 1..12; unknown labels sort after, alphabetically. */
+export const gradeOrder = (grade: string) => {
+  const key = (grade ?? "").trim().toUpperCase();
+  if (key === "LKG") return 0;
+  if (key === "UKG") return 1;
+  const n = Number(key);
+  return Number.isFinite(n) && key !== "" ? 1 + n : 100;
+};
+export const compareGrades = (a: string, b: string) => gradeOrder(a) - gradeOrder(b) || a.localeCompare(b);
 export function streamIdOf(value?: string): StreamId | "" {
   const key = (value ?? "").trim().toLowerCase();
   if (["science", "sci"].includes(key)) return "science";

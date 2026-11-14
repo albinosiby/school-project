@@ -1,6 +1,7 @@
 "use client";
 // Transport: buses, crew (drivers / bus staff), trips, bus attendance, crew attendance and leaves (data contract section 14).
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import { Bus as BusIcon, Route, UserCog, Users, Wrench } from "lucide-react";
 import { PageHeader, Stat, Tabs } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
@@ -13,6 +14,7 @@ import { AttendancePanel } from "./AttendancePanel";
 import { CrewAttendancePanel } from "./CrewAttendancePanel";
 import { LeavesPanel } from "./LeavesPanel";
 import { isActiveStudent } from "./logic";
+import { busDetailsHref } from "./busRecords";
 import type { Bus, Crew, CrewLeave, Trip } from "./types";
 
 const TABS = ["buses", "drivers", "staff", "trips", "attendance", "crew-attendance", "leaves"] as const;
@@ -27,6 +29,10 @@ export function TransportView() {
   // deep-linkable: /transport?tab=buses&bus=bus_01 | ?tab=attendance&date=…&bus=…&kind=pickup
   const params = useSearchParams(); const router = useRouter(); const path = usePathname();
   const tab: Tab = (TABS as readonly string[]).includes(params.get("tab") ?? "") ? (params.get("tab") as Tab) : "buses";
+  const legacyBusId = tab === "buses" ? params.get("bus") : null;
+  useEffect(() => {
+    if (legacyBusId) router.replace(busDetailsHref(legacyBusId));
+  }, [legacyBusId, router]);
   const go = (q: Record<string, string | null>) => { const p = new URLSearchParams(); for (const [k, v] of Object.entries(q)) if (v) p.set(k, v); const s = p.toString(); router.replace(s ? `${path}?${s}` : path, { scroll: false }); };
   const setTab = (t: string) => go({ tab: t === "buses" ? null : t });
   const today = todayIso();
@@ -34,6 +40,8 @@ export function TransportView() {
   const drivers = crew.filter((c) => c.role === "driver"), attendants = crew.filter((c) => c.role === "attendant");
   const onBuses = students.filter((s) => !!s.busId).length;
   const tripsToday = trips.filter((t) => t.date === today);
+
+  if (legacyBusId) return <p role="status">Opening bus details…</p>;
 
   return (
     <div>
@@ -48,7 +56,7 @@ export function TransportView() {
       <Tabs className="mb-4" value={tab} onChange={setTab} items={[
         { id: "buses", label: "Buses", count: buses.length }, { id: "drivers", label: "Drivers", count: drivers.length }, { id: "staff", label: "Bus staff", count: attendants.length },
         { id: "trips", label: "Trips" }, { id: "attendance", label: "Attendance" }, { id: "crew-attendance", label: "Crew attendance" }, { id: "leaves", label: "Leaves", count: pendingLeaves }]} />
-      {tab === "buses" && <BusesPanel openBusId={params.get("bus")} onOpenBus={(id) => go({ tab: null, bus: id })} />}
+      {tab === "buses" && <BusesPanel />}
       {tab === "drivers" && <CrewPanel role="driver" />}
       {tab === "staff" && <CrewPanel role="attendant" />}
       {tab === "trips" && <TripsPanel onOpenTrip={(t) => go({ tab: "attendance", date: t.date, bus: t.busId, kind: t.kind })} />}

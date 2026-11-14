@@ -1,15 +1,17 @@
 const assert = require("node:assert/strict");
-const { createHash, randomUUID } = require("node:crypto");
+const { normalizeSubjects } = require("../../functions/subjectCatalog");
+const { createHash, randomBytes, randomUUID } = require("node:crypto");
 const { test, after } = require("node:test");
 const { createRequire } = require("node:module");
 const functionsRequire = createRequire(require.resolve("../../functions/staff"));
 const { initializeApp, deleteApp } = functionsRequire("firebase-admin/app");
 const { getAuth } = functionsRequire("firebase-admin/auth");
-const { getFirestore } = functionsRequire("firebase-admin/firestore");
-const { saveStaffProfile, getStaffProfile, setStaffAppLogin, deleteStaffProfile } = require("../../functions/staff");
+const { FieldValue, getFirestore } = functionsRequire("firebase-admin/firestore");
+const { saveStaffProfile, getStaffProfile, setStaffAppLogin, revealStaffAppPassword, deleteStaffProfile } = require("../../functions/staff");
 
 const { GCLOUD_PROJECT: projectId, FIREBASE_AUTH_EMULATOR_HOST: authHost, FIRESTORE_EMULATOR_HOST: firestoreHost } = process.env;
 assert.ok(projectId?.startsWith("demo-") && authHost && firestoreHost, "Run with demo Auth and Firestore emulators.");
+process.env.STAFF_PASSWORD_ENCRYPTION_KEY = randomBytes(32).toString("hex");
 const app = initializeApp({ projectId });
 const auth = getAuth();
 const db = getFirestore();
@@ -67,8 +69,10 @@ test("saves private profiles without a login and provisions correct native app a
   await assert.rejects(save({ birthDate: "1992-02-31" }), { code: "invalid-argument" });
   await assert.rejects(call(saveStaffProfile, { requestId: randomUUID(), profile: base, photo: "data:image/svg+xml;base64,PHN2Zz4=" }), { code: "invalid-argument" });
   await assert.rejects(save({
-    category: "Teaching", designation: "Teacher", teachingLevel: "Primary", primarySubject: "Unconfigured", teachingExperience: "1",
+    category: "Teaching", designation: "Teacher", primarySubject: "Unconfigured", teachingExperience: "1",
   }), { code: "invalid-argument" });
+  await assert.rejects(save({ category: "Teaching", designation: "Head of Department", primarySubject: "Science",
+    teachingExperience: "1" }), (error) => error.code === "invalid-argument" && Boolean(error.details?.fields?.designation));
   const duplicateId = await Promise.allSettled([save({ empId: "MANUAL-123" }), save({ empId: "manual-123" })]);
   assert.equal(duplicateId.filter((result) => result.status === "fulfilled").length, 1);
   assert.equal(duplicateId.find((result) => result.status === "rejected").reason.code, "already-exists");
@@ -77,8 +81,19 @@ test("saves private profiles without a login and provisions correct native app a
   assert.equal((await school.collection("set_config").doc("staff_numbering").get()).get("next"), 45);
   await school.collection("set_config").doc("staff_numbering").set({ template: "FC{YEAR}{SEQ:4}", start: 2 }, { merge: true });
 
+  const subjects = school.collection("set_config").doc("subjects");
+  const departments = [{ id: "dept_science", name: "Science" }];
+  await subjects.set({ subjects: [{ name: "Computing", active: true }, { name: "Science", active: true }, { name: "Mathematics", active: false }], departments });
+  const hod = { category: "Teaching", designation: "Head of Department", primarySubject: "Science", teachingExperience: "2" };
+  await assert.rejects(save(hod), (error) => error.code === "invalid-argument" && Boolean(error.details?.fields?.departmentId));
+  await assert.rejects(save({ ...hod, departmentId: "foreign_department" }), (error) =>
+    error.code === "invalid-argument" && Boolean(error.details?.fields?.departmentId));
+  await assert.rejects(save({ category: "Teaching", designation: "Teacher", primarySubject: "Computing",
+    additionalSubjects: ["Mathematics"], teachingExperience: "2" }), (error) =>
+    error.code === "invalid-argument" && Boolean(error.details?.fields?.additionalSubjects));
+
   for (const [role, input] of [
-    ["teacher", { category: "Teaching", designation: "Teacher", teachingLevel: "Primary", primarySubject: "Mathematics",
+    ["teacher", { category: "Teaching", designation: "Teacher", primarySubject: "Computing",
       additionalSubjects: ["Science"], teachingExperience: "2" }],
     ["driver", { designation: "Driver", department: "Transport", licenseNumber: "TEST-123" }],
     ["staff", {}],
@@ -93,6 +108,14 @@ test("saves private profiles without a login and provisions correct native app a
     assert.equal(member.authUid, undefined);
     for (const key of ["birthDate", "currentAddress", "phone", "qualifications", "emergency"]) assert.equal(member[key], undefined);
     const { profile } = await call(getStaffProfile, { staffId });
+    if (role === "teacher") {
+      assert.equal(profile.teachingLevel, "");
+      assert.equal(profile.departmentId, "");
+      assert.equal(profile.primarySubject, "Computing");
+      assert.deepEqual(profile.additionalSubjects, ["Science"]);
+      await subjects.set({ subjects: [{ name: "Science", active: true }] }, { merge: true });
+      await call(saveStaffProfile, { staffId, profile: { ...base, ...input } });
+    }
     assert.deepEqual(profile.currentAddress, profile.permanentAddress);
     assert.equal(profile.qualifications[0].course, base.qualifications[0].course);
     await assert.rejects(call(getStaffProfile, { staffId }, "foreign_admin"), { code: "not-found" });
@@ -105,7 +128,11 @@ test("saves private profiles without a login and provisions correct native app a
       const uid = "staff_" + createHash("sha256").update(JSON.stringify([schoolId, staffId])).digest("hex");
       await auth.createUser({ uid, email, password: "InterruptedProvisioning1!" });
     }
-    const generated = await call(setStaffAppLogin, { staffId, email, role: loginRole });
+    const chosenPassword = role === "driver" ? "000123" : undefined;
+    if (chosenPassword) await assert.rejects(call(setStaffAppLogin, { staffId, email, role: loginRole, password: "short" }), { code: "invalid-argument" });
+    const generated = await call(setStaffAppLogin, { staffId, email, role: loginRole, ...(chosenPassword ? { password: chosenPassword } : {}) });
+    if (chosenPassword) assert.equal(generated.password, chosenPassword);
+    assert.match(generated.password, /^\d{6}$/);
     const signedIn = await signIn(email, generated.password);
     assert.ok(signedIn.idToken, signedIn.error?.message);
     const uid = (await auth.verifyIdToken(signedIn.idToken)).uid;
@@ -114,6 +141,11 @@ test("saves private profiles without a login and provisions correct native app a
     assert.equal(linked.staffId, staffId);
     assert.equal((await staff.get()).get("authUid"), uid);
     assert.equal((await privateRef.get()).get("password"), undefined);
+    assert.equal((await privateRef.get()).get("appPassword.ciphertext").length, 12);
+    assert.equal((await staff.get()).get("appPassword"), undefined);
+    assert.deepEqual(await call(revealStaffAppPassword, { staffId }), { state: "revealed", email, password: generated.password });
+    await assert.rejects(call(revealStaffAppPassword, { staffId }, uid), { code: "permission-denied" });
+    await assert.rejects(call(revealStaffAppPassword, { staffId }, "foreign_admin"), { code: "not-found" });
     await assert.rejects(call(setStaffAppLogin, { staffId, email, role: loginRole }), { code: "already-exists" });
 
     if (role === "driver") {
@@ -126,7 +158,12 @@ test("saves private profiles without a login and provisions correct native app a
       assert.equal(await clientRead(staff, signedIn.idToken), 200);
       assert.equal(await clientRead(privateRef, signedIn.idToken), 403);
       await assert.rejects(call(setStaffAppLogin, { staffId, replace: true }, uid), { code: "permission-denied" });
+      const encrypted = (await privateRef.get()).get("appPassword");
+      await privateRef.update({ appPassword: FieldValue.delete() });
+      assert.deepEqual(await call(revealStaffAppPassword, { staffId }), { state: "replacement-required" });
+      await privateRef.update({ appPassword: encrypted });
       const replacement = await call(setStaffAppLogin, { staffId, replace: true });
+      assert.deepEqual(await call(revealStaffAppPassword, { staffId }), { state: "revealed", email, password: replacement.password });
       assert.ok((await signIn(email, generated.password)).error);
       assert.ok((await signIn(email, replacement.password)).idToken);
       await call(deleteStaffProfile, { staffId });
@@ -135,4 +172,34 @@ test("saves private profiles without a login and provisions correct native app a
       assert.ok((await signIn(email, replacement.password)).error);
     }
   }
+  const { staffId: hodId } = await save({ ...hod, departmentId: "dept_science" });
+  assert.equal((await school.collection("staff").doc(hodId).get()).get("departmentId"), "dept_science");
+  assert.equal((await call(getStaffProfile, { staffId: hodId })).profile.departmentId, "dept_science");
+  const hodEmail = `hod-${randomUUID()}@example.test`;
+  await assert.rejects(call(setStaffAppLogin, { staffId: hodId, email: hodEmail, role: "teacher" }), { code: "failed-precondition" });
+  await call(setStaffAppLogin, { staffId: hodId, email: hodEmail, role: "hod" });
+  assert.equal((await school.collection("staff").doc(hodId).get()).get("staffRole"), "hod");
+  const chemistry = [
+    { id: "chem_general", name: "Chemistry", active: true },
+    { id: "chem_science", name: "Chemistry", active: true, departmentId: "dept_science" },
+    { id: "chem_home", name: "Chemistry", active: true, departmentId: "dept_home" },
+  ];
+  await subjects.set({ subjects: chemistry, departments: [...departments, { id: "dept_home", name: "Home Science" }] });
+  const chemistryTeacher = { category: "Teaching", designation: "Teacher", teachingExperience: "2",
+    primarySubject: "Chemistry", primarySubjectId: "chem_science",
+    additionalSubjects: ["Chemistry", "Chemistry"], additionalSubjectIds: ["chem_general", "chem_home"] };
+  await assert.rejects(save({ ...chemistryTeacher, primarySubjectId: "unknown" }), { code: "invalid-argument" });
+  const { staffId: chemistryTeacherId } = await save(chemistryTeacher);
+  const chemistryProfile = (await call(getStaffProfile, { staffId: chemistryTeacherId })).profile;
+  assert.equal(chemistryProfile.primarySubject, "Chemistry");
+  assert.equal(chemistryProfile.primarySubjectId, "chem_general");
+  assert.deepEqual(chemistryProfile.additionalSubjects, []);
+  assert.deepEqual(chemistryProfile.additionalSubjectIds, []);
+  await subjects.set({ subjects: normalizeSubjects(chemistry) }, { merge: true });
+  await call(saveStaffProfile, { staffId: chemistryTeacherId, profile: { ...base, ...chemistryTeacher } });
+  assert.deepEqual((await call(getStaffProfile, { staffId: chemistryTeacherId })).profile.additionalSubjects, []);
+  await subjects.set({ subjects: [] }, { merge: true });
+  await call(saveStaffProfile, { staffId: chemistryTeacherId, profile: { ...base, ...chemistryProfile } });
+  assert.equal((await call(getStaffProfile, { staffId: chemistryTeacherId })).profile.primarySubject, "Chemistry");
+  await assert.rejects(save(chemistryTeacher), { code: "invalid-argument" });
 });

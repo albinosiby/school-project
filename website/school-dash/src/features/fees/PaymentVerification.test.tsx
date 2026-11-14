@@ -65,7 +65,7 @@ describe("Payment verification", () => {
     await user.click(screen.getByRole("button", { name: "Verify" }));
     failNextWrite();
     await user.click(within(dialog("Verify payment")).getByRole("button", { name: "Verify & issue receipt" }));
-    expect(await within(dialog("Verify payment")).findByRole("alert")).toHaveTextContent("Could not record the payment. Nothing was saved; try again.");
+    expect(await within(dialog("Verify payment")).findByRole("alert")).toHaveTextContent("Could not confirm the payment. Retry to check its receipt without recording it twice.");
     expect(writes).toHaveLength(0);
     expect(getRow("fee_claims", "clm_1")).toMatchObject({ status: "Pending" });
   });

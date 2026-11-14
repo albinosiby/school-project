@@ -1,4 +1,5 @@
 "use client";
+import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CheckCheck, Mail, MailOpen, Trash2 } from "lucide-react";
@@ -6,12 +7,13 @@ import { Badge, Button, Card, EmptyState, SearchBox, Tabs, useToast } from "@/co
 import { useAuth } from "@/lib/authContext";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
-import { errMsg, relTime, useHydrated, TODAY, type Notif } from "./data";
+import { errMsg, relTime, useHydrated, type Notif } from "./data";
 import { filterNotifs, groupNotifs, notifAt, notifGroup, unreadCount } from "./logic";
 
 const PER = 7;
 
 export function NotificationsView() {
+  const { date: TODAY } = useSchoolClock();
   const router = useRouter();
   const { rows: all, update, remove, ready: r0 } = useCollection<Notif>("notifications");
   const uid = useAuth().user?.id;

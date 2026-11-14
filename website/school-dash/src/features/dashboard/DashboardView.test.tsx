@@ -4,7 +4,7 @@ import { addDays, TODAY } from "./data";
 import { dayName } from "./logic";
 import { dialog, field, fieldError, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
 
-const kpi = (label: string) => screen.getByText(label).closest("a") as HTMLElement;
+const kpi = (label: string) => screen.getByText(label).closest(".shadow-card") as HTMLElement;
 
 describe("Dashboard KPIs from live collections", () => {
   it("today's attendance uses each class's latest submitted record (contract 9)", () => {
@@ -28,7 +28,7 @@ describe("Dashboard KPIs from live collections", () => {
     renderUI(<DashboardView />);
     expect(within(kpi("Fees Overdue")).getByText("₹7,000")).toBeInTheDocument();
     expect(within(kpi("Fees Overdue")).getByText("2 Accounts")).toBeInTheDocument();
-    expect(within(kpi("Staff on Leave")).getByText("1 On duty")).toBeInTheDocument();
+    expect(within(kpi("Staff on Leave")).getByText("0 Checked in")).toBeInTheDocument();
   });
 });
 
@@ -49,7 +49,7 @@ describe("Urgent operational alerts", () => {
     expect(screen.getByText("SUBSTITUTE REQUIRED")).toBeInTheDocument();
     expect(screen.getByText("P3")).toBeInTheDocument();
     expect(screen.getByText("Mr. Verma is on leave: Gr 8-C Science needs cover.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Assign cover/ }).closest("a")).toHaveAttribute("href", "/timetable");
+    expect(screen.getByRole("button", { name: /Assign cover/ }).closest("a")).toHaveAttribute("href", `/classes/cls_8C?tab=timetable&date=${TODAY}`);
     expect(screen.getByText("₹5,000 is overdue across 1 invoice.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open fees/ }).closest("a")).toHaveAttribute("href", "/fees");
     expect(screen.getByText("Route 4B: 5 students need another bus.")).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("Quick Notice (header)", () => {
     expect(writes).toHaveLength(0);
     await user.type(field("Message", d), "No water in Block B till noon");
     await user.click(within(d).getByRole("button", { name: "Send Notice" }));
-    expect(await screen.findByText(/Notice posted to the notification feed/)).toBeInTheDocument();
-    expect(writesTo("notifications")[0]!.data).toMatchObject({ category: "ops", title: "Water supply", body: "No water in Block B till noon", read: false });
+    expect(await screen.findByText(/Notice published to the school apps/)).toBeInTheDocument();
+    expect(writesTo("com_notices")[0]!.data).toMatchObject({ category: "General", title: "Water supply", body: "No water in Block B till noon", status: "Published", audience: "All School", channels: ["Mobile App"], read: 0 });
   });
 });

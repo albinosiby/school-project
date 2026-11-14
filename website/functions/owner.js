@@ -57,6 +57,7 @@ exports.ownerDeleteSchool = onCall({ timeoutSeconds: 540, memory: "512MiB" }, as
   const credentialDeletes = db().bulkWriter();
   await Promise.all([...credentials.docs.map((entry) => credentialDeletes.delete(entry.ref)), credentialDeletes.close()]);
   await db().recursiveDelete(db().doc(`schools/${schoolId}`));
+  await db().recursiveDelete(db().doc(`staff_payroll/${schoolId}`));
   await db().doc(`platform_schools/${schoolId}`).delete();
   // demo requests that became this school keep their history but no longer point at it
   const leads = await db().collection("leads").where("schoolId", "==", schoolId).get();

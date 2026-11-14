@@ -3,14 +3,11 @@
 import { useState } from "react";
 import { runTransaction } from "firebase/firestore";
 import { Button, Field, Input, useToast } from "@/components/ui";
-import { formatAdmissionNumber, validNumberTemplate } from "@/features/admissions/numbering";
+import { validNumberTemplate } from "@/features/admissions/numbering";
+import { defaultEmployeeNumbering as defaults, formatEmployeeId, validGeneratedEmployeeId, type EmployeeNumbering } from "@/features/people/employeeNumbering";
 import { schoolDoc, stamp } from "@/features/fees/logic";
 import { db } from "@/lib/firebase";
 import { useCollection } from "@/lib/useCollection";
-import defaults from "../../../../functions/staffNumberingDefaults.json";
-
-type EmployeeNumbering = { id: string; template: string; start: number; next?: number };
-const validId = (id: string) => /^[A-Z0-9][A-Z0-9_-]{1,39}$/.test(id);
 
 export function EmployeeNumberSettings() {
   const settings = useCollection<EmployeeNumbering>("set_config");
@@ -22,10 +19,9 @@ export function EmployeeNumberSettings() {
   const values = draft ?? { template: current.template, start: String(current.start) };
   const template = values.template.trim().toUpperCase();
   const start = Number(values.start);
-  const year = new Date().toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", year: "numeric" });
-  const preview = formatAdmissionNumber(template, year, Math.max(start || 1, current.next ?? 1));
+  const preview = formatEmployeeId(template, Math.max(start || 1, current.next ?? 1));
   const valid = /^\d+$/.test(values.start) && Number.isSafeInteger(start) && start >= 1 && start < Number.MAX_SAFE_INTEGER &&
-    validNumberTemplate(template) && validId(preview);
+    validNumberTemplate(template) && validGeneratedEmployeeId(preview);
 
   async function save() {
     if (!valid) {
@@ -39,7 +35,7 @@ export function EmployeeNumberSettings() {
       await runTransaction(db, async (tx) => {
         const live = await tx.get(ref);
         const next = Math.max(start, live.get("next") ?? 1);
-        if (!validId(formatAdmissionNumber(template, year, next))) {
+        if (!validGeneratedEmployeeId(formatEmployeeId(template, next))) {
           throw new Error("The employee ID is too long at the current sequence number.");
         }
         tx.set(ref, { id: defaults.id, template, start, ...stamp() }, { merge: true });

@@ -1,13 +1,15 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useSchoolClock } from "@/lib/useSchoolClock";
+import { useState } from "react";
 import { CalendarDays, Cloud, FileClock, LayoutGrid, ListChecks, Megaphone, Plus } from "lucide-react";
 import { Badge, Button, Field, Input, Modal, Textarea, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { AddEventPanel } from "./AddEventPanel";
 import { STEPS } from "@/features/onboarding/logic";
-import { addDays, downloadCsv, errMsg, parse, TODAY, upcomingEvents, useApprovals, useEvents, MONTHS, type Notif, type SetupStep, nowLocal } from "./data";
+import { addDays, downloadCsv, errMsg, parse, upcomingEvents, useApprovals, useEvents, MONTHS, type SetupStep } from "./data";
+import type { Notice } from "@/features/communication/types";
 
 type Me = { id: string; name: string };
 type School = { id: string; name: string; affiliation: string; board?: string };
@@ -25,28 +27,20 @@ export function DashHeader({ active }: { active: "dashboard" | "setup" | "approv
   const { rows: school } = useCollection<School>("school");
   const { rows: approvals } = useApprovals();
   const { rows: events } = useEvents();
-  const { create: notify } = useCollection<Notif>("notifications");
+  const { create: publishNotice } = useCollection<Notice>("com_notices", false);
   const { rows: audit } = useCollection<Audit>("set_audit");
   const toast = useToast();
   const [sending, setSending] = useState(false);
-  const [time, setTime] = useState("");
-  const [hour, setHour] = useState(9);
+  const { date: TODAY, time, hour, label: zoneLabel } = useSchoolClock();
   const [addOpen, setAddOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [notice, setNotice] = useState({ title: "", body: "" });
   const [nerr, setNerr] = useState("");
-  useEffect(() => {
-    const f = () => {
-      const now = new Date();
-      setTime(now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true, timeZone: "Asia/Kolkata" }).toUpperCase());
-      setHour(Number(now.toLocaleString("en-IN", { hour: "numeric", hour12: false, timeZone: "Asia/Kolkata" })));
-    };
-    f(); const t = setInterval(f, 30000); return () => clearInterval(t);
-  }, []);
+
 
   const pending = approvals.filter((a) => a.status === "pending").length;
   const horizon = addDays(TODAY, 30);
-  const upcoming = upcomingEvents(events).filter((e) => e.start <= horizon).length;
+  const upcoming = upcomingEvents(events, TODAY).filter((e) => e.start <= horizon).length;
   const d = parse(TODAY);
   const dateStr = `${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]!.slice(0, 3)} ${d.getFullYear()}`;
 
@@ -65,7 +59,7 @@ export function DashHeader({ active }: { active: "dashboard" | "setup" | "approv
             <Badge tone="success" className="!px-3 !py-1"><span className="size-2 rounded-full bg-success" />Campus Active</Badge>
           </div>
           <p className="mt-1 text-on-surface-variant">{dateStr} <span className="mx-1 text-outline">•</span> {school[0]?.name ?? "—"}{school[0]?.affiliation ? ` (${school[0].board || "CBSE"} Affiliation ${school[0].affiliation})` : ""} <span className="mx-1 text-outline">•</span>
-            {time && <span className="rounded bg-info-container px-1.5 py-0.5 font-mono text-xs text-secondary">{time} IST</span>}</p>
+            {time && <span className="rounded bg-info-container px-1.5 py-0.5 font-mono text-xs text-secondary">{time} {zoneLabel}</span>}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => {
@@ -88,14 +82,15 @@ export function DashHeader({ active }: { active: "dashboard" | "setup" | "approv
       </nav>
 
       <AddEventPanel open={addOpen} onClose={() => setAddOpen(false)} />
-      <Modal open={noticeOpen} onClose={() => { setNoticeOpen(false); setNerr(""); }} title="Quick Notice" subtitle="Broadcast a short notice to the notification feed"
+      <Modal open={noticeOpen} onClose={() => { setNoticeOpen(false); setNerr(""); }} title="Quick Notice" subtitle="Publish a notice to the school apps and send Firebase push notifications to registered devices"
         footer={<><Button variant="outline" onClick={() => { setNoticeOpen(false); setNerr(""); }}>Cancel</Button>
           <Button disabled={sending} onClick={async () => {
             if (!notice.title.trim() || !notice.body.trim()) { setNerr("Title and message are required"); return; }
             setSending(true);
             try {
-              await notify({ category: "ops", title: notice.title.trim(), body: notice.body.trim(), createdAt: nowLocal(), read: false, href: "" } as never);
-              toast("Notice posted to the notification feed (parent push simulated)"); setNotice({ title: "", body: "" }); setNerr(""); setNoticeOpen(false);
+              await publishNotice({ category: "General", title: notice.title.trim(), body: notice.body.trim(), sentAt: new Date().toISOString(), status: "Published", audience: "All School",
+                author: me[0]?.name || "School administrator", channels: ["Mobile App"], grades: [], pinned: false, urgent: false, recipients: 0, delivered: 0, acked: 0, read: 0 });
+              toast("Notice published to the school apps. Firebase push notifications are queued for registered devices."); setNotice({ title: "", body: "" }); setNerr(""); setNoticeOpen(false);
             } catch (e) { setNerr(errMsg(e, "Could not post the notice")); } finally { setSending(false); }
           }}>{sending ? "Sending…" : "Send Notice"}</Button></>}>
         <div className="space-y-4">

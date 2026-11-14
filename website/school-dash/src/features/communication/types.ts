@@ -14,7 +14,7 @@ export type Schedule = { id: string; title: string; to: string; when: string; ac
 export type Exported = { id: string; code: string; title: string; size: string; format: string; ago: string };
 export type LogRec = { id: string; noticeId?: string; action: string; audience: string; channels: string[]; recipients: number; at: string };
 
-export const CHANNELS = ["WhatsApp", "Mobile App", "SMS Gateway"];
+export const CHANNELS = ["Mobile App"];
 /** audience strings stored on com_notices; the functions and apps match on them (see logic.ts audienceReach). Recipient
  *  counts come from the live roster (logic.ts audienceCount), never from fixed numbers. */
 export const AUDIENCES: { label: string }[] = [

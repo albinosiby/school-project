@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { BusesPanel } from "./BusesPanel";
+import { BusDetailsView } from "./BusDetailsView";
 import { ADMIN_UID, dialog, field, fieldError, getRow, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
 
 const stops = [
@@ -28,19 +29,22 @@ const kids = [
 const setVal = (el: HTMLElement, v: string) => fireEvent.change(el, { target: { value: v } });
 
 async function openAdd() {
-  const r = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
+  const r = renderUI(<BusesPanel />);
   await r.user.click(screen.getByRole("button", { name: /Add Bus/ }));
   return { ...r, d: dialog("Add Bus") };
 }
 const save = (d: HTMLElement) => within(d).getByRole("button", { name: /^(Add Bus|Save Changes)$/ });
 
+
 describe("Add / edit bus validation", () => {
   it("sets each bus's own monthly fee without creating class-wide charges or copying rates to students", async () => {
     seed({ tr_buses: [{ ...bus14, monthlyFee: 1200 }, { ...bus15, monthlyFee: 1800 }], students: kids });
-    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
+    const directory = renderUI(<BusesPanel />);
     expect(screen.getByText("₹1,200")).toBeInTheDocument();
     expect(screen.getByText("₹1,800")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Edit Bus 14" }));
+    directory.unmount();
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    await user.click(screen.getByRole("button", { name: "Edit bus" }));
     const d = dialog("Edit Bus 14");
     const input = field("Monthly transport fee (₹)", d);
     expect(input).toHaveValue(1200);
@@ -119,8 +123,8 @@ describe("Add / edit bus validation", () => {
 
   it("still validates and saves ordered stops separately after adding a bus", async () => {
     seed({ tr_buses: [{ ...bus14, endPoint: "Edappally", stops: [], pickupStart: "", dropStart: "" }] });
-    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: "Edit Bus 14" }));
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    await user.click(screen.getByRole("button", { name: "Edit bus" }));
     const d = dialog("Edit Bus 14");
     await user.click(within(d).getByRole("button", { name: "Add stop" }));
     await user.click(within(d).getByRole("button", { name: "Add stop" }));
@@ -146,7 +150,7 @@ describe("Add / edit bus validation", () => {
       { id: ADMIN_UID, schoolId: "sch_test", role: "admin", name: "Transport Lead" },
       { id: "staff_01", schoolId: "sch_test", role: "staff", name: "Office Staff" },
     ] });
-    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
+    const { user } = renderUI(<BusesPanel />);
     await user.click(screen.getByRole("button", { name: "Expiry reminders" }));
     const d = dialog("Bus expiry reminders");
     expect(within(d).queryByRole("option", { name: "Office Staff" })).not.toBeInTheDocument();
@@ -157,8 +161,8 @@ describe("Add / edit bus validation", () => {
 
   it("on edit, blocks a capacity below the riders, then syncs riders' and crew's names in one batch", async () => {
     seed({ tr_buses: [bus14, bus15], tr_crew: crew, students: kids });
-    const { user } = renderUI(<BusesPanel openBusId={null} onOpenBus={vi.fn()} />);
-    await user.click(screen.getByRole("button", { name: "Edit Bus 14" }));
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    await user.click(screen.getByRole("button", { name: "Edit bus" }));
     const d = dialog("Edit Bus 14");
     await user.clear(field("Capacity (seats)", d)); await user.type(field("Capacity (seats)", d), "1");
     await user.click(save(d));
@@ -183,8 +187,8 @@ describe("Add / edit bus validation", () => {
 describe("Bus detail: students and crew", () => {
   it("refuses to add more students than the seats left and writes nothing", async () => {
     seed({ tr_buses: [bus14, bus15], tr_crew: crew, students: kids });
-    const { user } = renderUI(<BusesPanel openBusId="bus_01" onOpenBus={vi.fn()} />);
-    const d = dialog("Bus 14");
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.click(within(d).getByRole("tab", { name: /^Students/ }));
     await user.click(within(d).getByLabelText("Select Meera Sharma"));
     await user.click(within(d).getByLabelText("Select Rohan Gupta"));
@@ -196,8 +200,8 @@ describe("Bus detail: students and crew", () => {
 
   it("assigns students to the bus and stop and recomputes studentCount on every touched bus", async () => {
     seed({ tr_buses: [{ ...bus14, capacity: 40 }, bus15], tr_crew: crew, students: kids });
-    const { user } = renderUI(<BusesPanel openBusId="bus_01" onOpenBus={vi.fn()} />);
-    const d = dialog("Bus 14");
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.click(within(d).getByRole("tab", { name: /^Students/ }));
     await user.click(within(d).getByLabelText("Select Meera Sharma"));
     await user.click(within(d).getByLabelText("Select Kabir Das")); // moves off Bus 15
@@ -213,8 +217,8 @@ describe("Bus detail: students and crew", () => {
 
   it("changes a rider's stop and takes a rider off the bus", async () => {
     seed({ tr_buses: [bus14, bus15], tr_crew: crew, students: kids });
-    const { user } = renderUI(<BusesPanel openBusId="bus_01" onOpenBus={vi.fn()} />);
-    const d = dialog("Bus 14");
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.click(within(d).getByRole("tab", { name: /^Students/ }));
     await user.selectOptions(within(d).getByLabelText("Stop for Aarav Sharma"), "stp_02");
     expect(getRow("students", "stu_101")).toMatchObject({ busStopId: "stp_02", busStop: "Greater Kailash" });
@@ -228,8 +232,8 @@ describe("Bus detail: students and crew", () => {
 
   it("allots a driver from another bus in one batch: both buses and the displaced driver stay in sync", async () => {
     seed({ tr_buses: [bus14, bus15], tr_crew: crew, students: kids });
-    const { user } = renderUI(<BusesPanel openBusId="bus_01" onOpenBus={vi.fn()} />);
-    const d = dialog("Bus 14");
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.selectOptions(field("Driver", d), "crw_003");
     expect(getRow("tr_buses", "bus_01")).toMatchObject({ driverId: "crw_003", driver: "Vijay Singh", attendantId: "crw_002" });
     expect(getRow("tr_buses", "bus_02")).not.toHaveProperty("driverId");
@@ -241,8 +245,8 @@ describe("Bus detail: students and crew", () => {
 
   it("unallots the attendant, and re-picking the current driver writes nothing", async () => {
     seed({ tr_buses: [bus14, bus15], tr_crew: crew, students: kids });
-    const { user } = renderUI(<BusesPanel openBusId="bus_01" onOpenBus={vi.fn()} />);
-    const d = dialog("Bus 14");
+    const { user } = renderUI(<BusDetailsView busId="bus_01" />);
+    const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.selectOptions(field("Driver", d), "crw_001");
     expect(writes).toHaveLength(0);
     await user.selectOptions(field("Attendant (bus staff)", d), "");

@@ -1,171 +1,168 @@
 import { fireEvent } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CycleForm } from "./CycleForm";
-import { field, fieldError, getRow, renderUI, router, rowsOf, screen, seed, writes, writesTo } from "@/test/render";
+import { field, renderUI, router, rowsOf, screen, seed, within, writesTo } from "@/test/render";
 
-const staff = [{ id: "stf_001", name: "Mrs. Sunita Verma", department: "Mathematics", status: "Active" }];
-const students = [
-  { id: "stu_1", name: "Kabir Nair", grn: "GIS-1", grade: "8", section: "A", roll: 1, status: "Active" },
-  { id: "stu_2", name: "Myra Iyer", grn: "GIS-2", grade: "8", section: "A", roll: 2, status: "Active" },
-  { id: "stu_3", name: "Aarav Sharma", grn: "GIS-3", grade: "10", section: "B", roll: 4, status: "Active" },
-  { id: "stu_4", name: "Gone", grn: "GIS-4", grade: "8", section: "A", roll: 3, status: "Alumni" },
-];
-const classes = [{ id: "cls_8A", grade: "8", section: "A" }];
-const change = (el: HTMLElement, value: string) => fireEvent.change(el, { target: { value } });
-const schedule = () => screen.getByRole("button", { name: "Schedule & Publish Exam Cycle" });
-/** the Step 4 paper-slot error line (the same text is also toasted) */
-const slotError = (text: string) => screen.getAllByText(text).find((n) => n.tagName === "P");
-
-function fillBasics(_user: unknown, d = { start: "2026-11-15", end: "2026-12-02", decl: "2026-12-18" }) {
-  change(field("Exam Cycle Title"), "Term 2 Pre-Board Examinations 2026-27");
-  change(field("Start Date"), d.start);
-  change(field("End Date"), d.end);
-  change(field("Target Declaration"), d.decl);
+beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-12T10:00:00Z")); });
+afterEach(() => vi.useRealTimers());
+const classA = { id: "cls_11_course_home_science_A", grade: "11", section: "A", streamId: "course_home_science", stream: "Home Science", subjects: ["Food and Nutrition"] };
+const classB = { ...classA, id: "cls_11_course_home_science_B", section: "B" };
+const student = (id: string, classId = classA.id) => ({ id, name: id, grade: "11", section: classId === classA.id ? "A" : "B", classId, streamId: "course_home_science", grn: id, status: "Active", roll: 1 });
+const staff = [{ id: "teacher_1", name: "Teacher One", department: "Home Science", status: "Active" }];
+const change = (label: string, value: string, root?: HTMLElement) => fireEvent.change(field(label, root), { target: { value } });
+async function open() {
+  seed({ classes: [classA, classB], students: [student("Included"), student("Excluded", classB.id)], staff,
+    school: [{ id: "profile", academicYear: "2026–27" }], assignments: [{ id: "a1", classId: classA.id, subject: "Food and Nutrition", teacherId: "teacher_1" }] });
+  return renderUI(<CycleForm />);
 }
-async function addSlot(user: ReturnType<typeof renderUI>["user"], p: { subject?: string; code?: string; date?: string; venue?: string; inv?: string } = {}) {
-  await user.click(screen.getByRole("button", { name: /Add Subject Paper Slot/ }));
-  if (p.subject !== "") change(field("Subject"), p.subject ?? "Mathematics");
-  if (p.code !== "") change(field("Code"), p.code ?? "math-041");
-  change(field("Date"), p.date ?? "2026-11-18");
-  if (p.venue !== "") change(field("Venue / Room"), p.venue ?? "Exam Hall 1");
-  if (p.inv !== "") await user.selectOptions(field("Chief Invigilator"), p.inv ?? "stf_001");
+async function fill(user: ReturnType<typeof renderUI>["user"]) {
+  change("Examination name", "Term 1");
+  change("Exam start date", "2026-12-01"); change("Exam end date", "2026-12-10");
+  await user.click(screen.getByRole("button", { name: "2. Classes & Divisions" }));
+  await user.click(screen.getByRole("button", { name: "Select all Grade 11 · Home Science" }));
+  change("Find student to exclude", "Excl");
+  await user.click(screen.getByRole("button", { name: "Exclude Excluded · Excluded" }));
+  await user.click(screen.getByRole("button", { name: "3. Subjects & Assessment" }));
+  await user.selectOptions(field("Add subject for Grade 11 · Home Science"), "Food and Nutrition");
+  expect(field("Marks entry teacher · 11-Home Science-A")).toHaveValue("teacher_1");
+  await user.click(screen.getByRole("button", { name: "4. Timetable" }));
+  change("Paper date", "2026-12-02"); change("Start time", "09:00");
+  expect(field("End time")).toHaveValue("11:00");
+  await user.click(screen.getByRole("button", { name: "6. Review & Publish" }));
 }
 
-describe("Exam cycle form validation", () => {
-  it("shows the required errors and writes nothing", async () => {
-    seed({ staff });
+describe("Six-step examination setup", () => {
+  it("offers the school's active subject catalog for classes without their own subject list", async () => {
+    seed({ classes: [{ id: "cls_5A", grade: "5", section: "A" }], set_config: [{ id: "subjects", subjects: [{ name: "Mathematics", active: true }, { name: "Archived subject", active: false }] }] });
     const { user } = renderUI(<CycleForm />);
-    await user.click(schedule());
-    expect(fieldError("Exam Cycle Title")).toBe("Title is required");
-    expect(fieldError("Start Date")).toBe("Required");
-    expect(fieldError("End Date")).toBe("Required");
-    expect(fieldError("Target Declaration")).toBe("Required");
-    expect(slotError("Add at least one subject paper slot")).toBeTruthy();
-    expect(writes).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "2. Classes & Divisions" }));
+    await user.click(screen.getByRole("button", { name: "5-A" }));
+    await user.click(screen.getByRole("button", { name: "3. Subjects & Assessment" }));
+    expect(screen.getByRole("option", { name: "Mathematics" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Archived subject" })).not.toBeInTheDocument();
   });
-
-  it("checks the date order", async () => {
-    seed({ staff });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user, { start: "2026-11-20", end: "2026-11-10", decl: "2026-11-01" });
-    await user.click(schedule());
-    expect(fieldError("End Date")).toBe("End must be after start");
-    expect(fieldError("Target Declaration")).toBe("Must be on/after end date");
-    expect(writes).toHaveLength(0);
+  it("selects divisions from the matrix with presets, shows scheme readiness and excludes students by search", async () => {
+    const { user } = await open();
+    await user.click(screen.getByRole("button", { name: "2. Classes & Divisions" }));
+    expect(screen.getByText(", no subject scheme")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Senior secondary 11 and 12" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Classes LKG to 10" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Senior 11–12" }));
+    expect(screen.getByRole("button", { name: "Senior 11–12" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "11-Home Science-A" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "11-Home Science-B" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/no scheme, add subjects manually/)).toBeInTheDocument();
+    change("Find student to exclude", "excl");
+    await user.click(screen.getByRole("button", { name: "Exclude Excluded · Excluded" }));
+    expect(screen.getByText("1 excluded")).toBeInTheDocument();
+    expect(screen.getByText("Participating students").nextSibling).toHaveTextContent("1");
+    await user.click(screen.getByRole("button", { name: "Remove exclusion Excluded" }));
+    expect(screen.getByText("0 excluded")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "11-Home Science-B" }));
+    expect(screen.getByRole("button", { name: "11-Home Science-B" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(screen.getByText("Nothing selected yet.")).toBeInTheDocument();
   });
-
-  it("needs at least one grade", async () => {
-    seed({ staff });
+  it("combines stage presets instead of replacing the selection", async () => {
+    seed({ classes: [{ id: "cls_5A", grade: "5", section: "A" }, { id: "cls_9A", grade: "9", section: "A" }, { id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }] });
     const { user } = renderUI(<CycleForm />);
-    for (const g of ["8", "9", "10"]) await user.click(screen.getByRole("button", { name: new RegExp(`^Grade ${g}\\b`) }));
-    await user.click(schedule());
-    expect(screen.getAllByText("Select at least one grade").length).toBeGreaterThan(0);
-    expect(writes).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "2. Classes & Divisions" }));
+    await user.click(screen.getByRole("button", { name: "Primary 1–5" }));
+    await user.click(screen.getByRole("button", { name: "Secondary 9–10" }));
+    expect(screen.getByRole("button", { name: "5-A" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "9-A" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "11-Science-A" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", { name: "Primary 1–5" }));
+    expect(screen.getByRole("button", { name: "5-A" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "9-A" })).toHaveAttribute("aria-pressed", "true");
   });
-
-  it("needs positive theory max marks", async () => {
-    seed({ staff });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user);
-    await addSlot(user);
-    change(screen.getByLabelText("Theory max marks"), "0");
-    await user.click(schedule());
-    expect(screen.getAllByText("Theory max marks must be above 0").length).toBeGreaterThan(0);
-    expect(writes).toHaveLength(0);
-  });
-
-  it("needs every paper slot field, including the invigilator", async () => {
-    seed({ staff });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user);
-    await addSlot(user, { inv: "" });
-    await user.click(schedule());
-    expect(slotError("Complete all paper slot fields")).toBeTruthy();
-    expect(writes).toHaveLength(0);
-  });
-
-  it("keeps paper dates inside the cycle window", async () => {
-    seed({ staff });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user);
-    await addSlot(user, { date: "2026-12-05" });
-    await user.click(schedule());
-    expect(slotError("Paper dates must fall within the cycle window")).toBeTruthy();
-    expect(writes).toHaveLength(0);
-  });
-
-  it("needs a paper duration (start < end)", async () => {
-    seed({ staff });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user);
-    await addSlot(user);
-    change(field("Hours"), "0");
-    await user.click(schedule());
-    expect(slotError("Paper duration must be between 0.5 and 6 hours")).toBeTruthy();
-    expect(writes).toHaveLength(0);
-  });
-
-  it("refuses two overlapping papers of the same grade", async () => {
-    seed({ staff: [...staff, { id: "stf_002", name: "Dr. Manoj Kaushik", department: "Science", status: "Active" }] });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user);
-    await addSlot(user);
-    await user.click(screen.getByRole("button", { name: /Add Subject Paper Slot/ }));
-    const subj = screen.getAllByText("Subject").map((s) => s.closest("label")!.querySelector("input")!);
-    change(subj[1], "Science");
-    const code = screen.getAllByText("Code").map((s) => s.closest("label")!.querySelector("input")!);
-    change(code[1], "SCI-086");
-    change(screen.getAllByText("Date").map((s) => s.closest("label")!.querySelector("input")!)[1], "2026-11-18");
-    change(screen.getAllByText("Start").map((s) => s.closest("label")!.querySelector("input")!)[1], "10:00");
-    change(screen.getAllByText("Venue / Room").map((s) => s.closest("label")!.querySelector("input")!)[1], "Hall 2");
-    await user.selectOptions(screen.getAllByText("Chief Invigilator").map((s) => s.closest("label")!.querySelector("select")!)[1], "stf_002");
-    expect(screen.getByText(/2 slot\(s\) have a cohort, room or invigilator clash/)).toBeInTheDocument();
-    await user.click(schedule());
-    expect(slotError("Resolve schedule clashes before saving")).toBeTruthy();
-    expect(writes).toHaveLength(0);
-  });
-
-  it("a draft needs only a title", async () => {
-    const { user } = renderUI(<CycleForm />);
+  it("saves a resumable draft from the first step with only a name", async () => {
+    const { user } = await open();
+    change("Examination name", "Annual examination");
     await user.click(screen.getByRole("button", { name: "Save as Draft" }));
-    expect(fieldError("Exam Cycle Title")).toBe("Title is required");
-    expect(writes).toHaveLength(0);
-    await user.type(field("Exam Cycle Title"), "Annual 2027");
-    await user.click(screen.getByRole("button", { name: "Save as Draft" }));
-    expect(rowsOf("exm_cycles")[0]).toMatchObject({ title: "Annual 2027", status: "Draft" });
+    expect(rowsOf("exm_cycles")[0]).toMatchObject({ title: "Annual examination", status: "Draft", publicationState: "draft" });
     expect(writesTo("exm_candidates")).toHaveLength(0);
+    expect(router.push).toHaveBeenCalledWith("/exams");
+  });
+  it("publishes exact divisions, course subjects and participants with independent assessment settings", async () => {
+    const { user } = await open();
+    await fill(user);
+    await user.click(screen.getByRole("button", { name: "Publish Exam" }));
+    const cycle = rowsOf("exm_cycles")[0];
+    expect(cycle).toMatchObject({ title: "Term 1", classIds: [classA.id, classB.id], excludedStudentIds: ["Excluded"], publicationState: "published", status: "Scheduled" });
+    expect(rowsOf("exm_papers")[0]).toMatchObject({ cycleId: cycle.id, classIds: [classA.id, classB.id], studentIds: ["Included"], subject: "Food and Nutrition", theory: 80, internal: 20, practical: 0, passMarks: 33, evaluatorIds: { [classA.id]: "teacher_1" }, locked: false, published: [] });
+    expect(rowsOf("exm_candidates").map((row) => row.id)).toEqual(["cand_Included"]);
+  });
+  it("keeps scheduled examinations locked until the school-time publication instant", async () => {
+    const { user } = await open(); await fill(user);
+    change("Schedule publication", "2026-11-20T09:00");
+    await user.click(screen.getByRole("button", { name: "Schedule Publication" }));
+    expect(rowsOf("exm_cycles")[0]).toMatchObject({ publishAt: "2026-11-20T03:30:00.000Z", publicationState: "scheduled", status: "Draft" });
+    expect(rowsOf("exm_papers")[0]).toMatchObject({ locked: true, setupPublished: false });
+  });
+  it("reviews missing subjects and dates without publishing a partial exam", async () => {
+    const { user } = await open();
+    await user.click(screen.getByRole("button", { name: "6. Review & Publish" }));
+    await user.click(screen.getByRole("button", { name: "Publish Exam" }));
+    expect(within(screen.getByRole("alert")).getByText("Select at least one class and division")).toBeInTheDocument();
+    expect(writesTo("exm_cycles")).toHaveLength(0);
+  });
+  it("loads old published cycles for inspection without permitting destructive reconfiguration", async () => {
+    seed({ classes: [classA], exm_cycles: [{ id: "old", title: "Legacy exam", status: "Live", grades: ["11"] }] });
+    renderUI(<CycleForm cycleId="old" />);
+    expect(field("Examination name")).toHaveValue("Legacy exam");
+    expect(field("Examination name")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save as Draft" })).not.toBeInTheDocument();
   });
 });
 
-describe("Exam cycle save", () => {
-  it("writes the cycle, its papers with classIds + invigilatorId, and the candidates of the cycle's grades", async () => {
-    seed({ staff, students, classes });
-    const { user } = renderUI(<CycleForm />);
-    fillBasics(user);
-    await addSlot(user);
-    await user.click(schedule());
-    const c = rowsOf<Record<string, unknown>>("exm_cycles")[0];
-    expect(c).toMatchObject({ title: "Term 2 Pre-Board Examinations 2026-27", short: "Term 2 Pre-Board", status: "Scheduled", start: "2026-11-15", end: "2026-12-02", grades: ["8", "9", "10"], theoryMax: 80, internalMax: 20 });
-    expect(rowsOf("exm_papers")[0]).toMatchObject({
-      cycleId: c.id, grade: "8", subject: "Mathematics", code: "MATH-041", date: "2026-11-18", start: "09:00", duration: 2.5, theory: 80, internal: 20,
-      venue: "Exam Hall 1", invigilator: "Mrs. Sunita Verma", invigilatorId: "stf_001", classIds: ["cls_8A"], status: "Scheduled", marksEntered: false, published: [],
-    });
-    expect(rowsOf("exm_candidates").map((x) => x.id).sort()).toEqual(["cand_stu_1", "cand_stu_2", "cand_stu_3"]);
-    expect(getRow("exm_candidates", "cand_stu_1")).toMatchObject({ studentId: "stu_1", name: "Kabir Nair", roll: "#8A-01", grn: "GIS-1", cls: "8-A", grade: "8", section: "A" });
-    expect(getRow("exm_candidates", "cand_stu_3")).toMatchObject({ roll: "#10B-04", cls: "10-B" });
-    expect(router.push).toHaveBeenCalledWith("/exams");
+describe("Assessment scheme pre-fill", () => {
+  const cls9 = { id: "cls_9A", grade: "9", section: "A" };
+  const scheme9 = { id: "scheme_9", groupKey: "9:", grade: "9", streamId: "", scaleId: "default", coScholastic: [], subjects: [
+    { subject: "Mathematics", code: "041", mode: "marks", theory: 80, practical: 0, internal: 20, passMarks: 33, theoryPass: 0, practicalPass: 0, internalPass: 0, weight: 1, gradeOptions: [], duration: 3, enteredBy: "subjectTeacher" }] };
+  const examType = (id: string, name: string, pattern: string, weight: number) => ({ id, name, short: id, termId: "term_1", weight, pattern, singleMax: 20, shareSubjectWise: pattern === "single", countsInTerm: true, order: weight, active: true });
+  const seedScheme = () => seed({
+    classes: [cls9], staff, school: [{ id: "profile", academicYear: "2026–27" }],
+    students: [{ id: "S1", name: "S1", grade: "9", section: "A", classId: cls9.id, grn: "S1", status: "Active", roll: 1 }],
+    assignments: [{ id: "a9", classId: cls9.id, subject: "Mathematics", teacherId: "teacher_1" }],
+    set_terms: [{ id: "term_1", name: "Term 1", start: "2026-04-01", end: "2026-09-30", days: 183, status: "In Progress" }],
+    set_exam_types: [examType("ext_pt1", "Periodic Test 1", "single", 10), examType("ext_hy", "Half-Yearly", "scheme", 80)],
+    set_subject_schemes: [scheme9],
   });
-
-  it("editing a Live cycle keeps it Live and only writes changed candidates", async () => {
-    const cyc = { id: "cyc_2", title: "Term 2 Pre-Board Examinations 2026-27", short: "Term 2 Pre-Board", term: "Term 2 (Spring) · AY 2026-27", category: "CBSE Board", start: "2026-11-15", end: "2026-12-02", declaration: "2026-12-18", instructions: "", circular: "", grades: ["8"], sections: "all", enforceAttendance: true, theoryMax: 80, internalMax: 20, internalParts: [5, 5, 5, 5], scale: "CBSE 9-Point Scale (A1 to E2)", passRule: "Min 33% aggregate", grace: "No grace marks", qr: true, sealed: true, biometric: true, status: "Live" };
-    const pap = { id: "pap_1", cycleId: "cyc_2", grade: "8", subject: "Mathematics", code: "MATH-041", date: "2026-11-18", start: "09:00", duration: 2.5, theory: 80, internal: 20, internalType: "Internal", venue: "Hall 1", invigilator: "Mrs. Sunita Verma", invigilatorId: "stf_001", status: "Scheduled", marksEntered: false, published: [], classIds: ["cls_8A"] };
-    const cand1 = { id: "cand_stu_1", studentId: "stu_1", name: "Kabir Nair", roll: "#8A-01", grn: "GIS-1", cls: "8-A", grade: "8", section: "A" };
-    seed({ staff, students, classes, exm_cycles: [cyc], exm_papers: [pap], exm_candidates: [cand1] });
-    const { user } = renderUI(<CycleForm cycleId="cyc_2" />);
-    change(field("Exam Cycle Title"), "Term 2 Pre-Board 2026-27");
-    await user.click(screen.getByRole("button", { name: "Save Changes" }));
-    expect(getRow("exm_cycles", "cyc_2")).toMatchObject({ title: "Term 2 Pre-Board 2026-27", status: "Live" });
-    expect(writesTo("exm_papers").map((w) => w.op)).toEqual(["update"]);
-    expect(writesTo("exm_candidates").map((w) => w.id)).toEqual(["cand_stu_2"]);
+  const selectGrade9 = async (user: ReturnType<typeof renderUI>["user"]) => {
+    await user.click(screen.getByRole("button", { name: "2. Classes & Divisions" }));
+    await user.click(screen.getByRole("button", { name: "9-A" }));
+    await user.click(screen.getByRole("button", { name: "3. Subjects & Assessment" }));
+    return screen.getByRole("region", { name: "Mathematics assessment" });
+  };
+  it("pre-fills a selected class group from its scheme, scaled to the exam type, and stores the type and term", async () => {
+    seedScheme();
+    const { user } = renderUI(<CycleForm />);
+    change("Examination name", "PT1");
+    await user.selectOptions(field("Exam type"), "ext_pt1");
+    change("Exam start date", "2026-12-01"); change("Exam end date", "2026-12-10");
+    const section = await selectGrade9(user);
+    expect(field("Theory maximum", section)).toHaveValue(20);
+    expect(field("Internal maximum", section)).toHaveValue(0);
+    expect(field("Pass marks", section)).toHaveValue(7);
+    expect(field("Marks entry teacher · 9-A", section)).toHaveValue("teacher_1");
+    await user.click(screen.getByRole("button", { name: "4. Timetable" }));
+    change("Paper date", "2026-12-02"); change("Start time", "09:00");
+    await user.click(screen.getByRole("button", { name: "6. Review & Publish" }));
+    await user.click(screen.getByRole("button", { name: "Publish Exam" }));
+    expect(rowsOf("exm_cycles")[0]).toMatchObject({ examType: "Periodic Test 1", examTypeId: "ext_pt1", termId: "term_1" });
+    expect(rowsOf("exm_papers")[0]).toMatchObject({ subject: "Mathematics", code: "041", theory: 20, internal: 0, passMarks: 7, evaluatorIds: { cls_9A: "teacher_1" } });
+  });
+  it("uses the full scheme components for a scheme-pattern exam and can reset manual edits to the scheme", async () => {
+    seedScheme();
+    const { user } = renderUI(<CycleForm />);
+    await user.selectOptions(field("Exam type"), "ext_hy");
+    const section = await selectGrade9(user);
+    expect(field("Theory maximum", section)).toHaveValue(80);
+    expect(field("Internal maximum", section)).toHaveValue(20);
+    change("Theory maximum", "70", section);
+    expect(field("Theory maximum", section)).toHaveValue(70);
+    await user.click(screen.getByRole("button", { name: "Reset to Grade 9 scheme" }));
+    expect(field("Theory maximum", screen.getByRole("region", { name: "Mathematics assessment" }))).toHaveValue(80);
   });
 });

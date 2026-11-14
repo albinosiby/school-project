@@ -7,7 +7,7 @@ setLogLevel("silent"); // denied writes are expected; keep the output to ok / FA
 
 const env = await initializeTestEnvironment({
   projectId: "demo-school-rules",
-  firestore: { rules: readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: 8080 },
+  firestore: { rules: readFileSync(new URL("../../firestore.rules", import.meta.url), "utf8"), host: "127.0.0.1", port: Number(process.env.RULES_TEST_PORT || 8080) },
 });
 await env.clearFirestore(); // a re-run against a long-lived emulator starts clean
 let failed = 0;
@@ -17,6 +17,10 @@ const check = async (name, p) => { total++; try { await p; console.log("  ok  ",
 // seed: school S1 (admin a1, teachers t1/t2, parent p1 of stu_101, parent p2 of stu_102), school S2 (admin a2)
 await env.withSecurityRulesDisabled(async (ctx) => {
   const db = ctx.firestore();
+  await setDoc(doc(db, "schools/S1/classes/cls_10B"), { grade: "10", section: "B", classTeacherId: "stf_025" });
+  await setDoc(doc(db, "schools/S1/classes/cls_10A"), { grade: "10", section: "A", classTeacherId: "stf_023" });
+  await setDoc(doc(db, "schools/S1/assignments/a_math"), { classId: "cls_10B", teacherId: "stf_025", subject: "Maths" });
+  await setDoc(doc(db, "schools/S1/teaching_access/cls_10B__stf_025"), { assignmentId: "a_math", subjects: { Maths: { assignmentId: "a_math" } } });
   await setDoc(doc(db, "users/a1"), { schoolId: "S1", role: "admin" });
   await setDoc(doc(db, "users/t1"), { schoolId: "S1", role: "teacher", staffId: "stf_025" });
   await setDoc(doc(db, "users/t2"), { schoolId: "S1", role: "teacher", staffId: "stf_023" });
@@ -28,11 +32,11 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, "schools/S1/students/stu_103"), { name: "C", classId: "cls_10B", grn: "GIS-9203", guardianUids: [] });
   await setDoc(doc(db, "schools/S1/fee_invoices/f1"), { amount: 1 });
   await setDoc(doc(db, "schools/S1/exm_cycles/c1"), { title: "T" });
-  await setDoc(doc(db, "schools/S1/ops_attendance/2026-10-26_cls_10B_1"), { teacherId: "stf_025", marks: {}, total: 42 });
+  await setDoc(doc(db, "schools/S1/ops_attendance/2026-10-26_cls_10B_1"), { teacherId: "stf_025", classId: "cls_10B", date: "2026-10-26", period: 1, marks: {}, total: 42 });
   await setDoc(doc(db, "schools/S1/ops_attendance/2026-10-26_cls_10A_1"), { teacherId: "stf_023", marks: {}, total: 48 });
   await setDoc(doc(db, "schools/S1/tk_tasks/k1"), { teacherId: "stf_025", title: "mine" });
   await setDoc(doc(db, "schools/S1/tk_tasks/k2"), { teacherId: "stf_023", title: "theirs" });
-  await setDoc(doc(db, "schools/S1/staff_leaves/l1"), { staffId: "stf_025", status: "Pending" });
+  await setDoc(doc(db, "schools/S1/staff_leaves/l1"), { staffId: "stf_025", status: "Pending", from: "2026-10-26", to: "2026-10-26", reason: "Appointment" });
   await setDoc(doc(db, "schools/S1/staff_leaves/l2"), { staffId: "stf_023", status: "Pending" });
   await setDoc(doc(db, "schools/S1/ops_substitutions/sub_1"), { substituteTeacherId: "stf_025", status: "Assigned", classId: "cls_8C" });
   await setDoc(doc(db, "schools/S1/live_classes/lv1"), { teacherId: "stf_025", title: "x", classId: "cls_10B" });
@@ -41,7 +45,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, "schools/S1/staff_regularizations/r1"), { staffId: "stf_025", teacherId: "stf_025", status: "Pending", date: "2026-10-24" });
   await setDoc(doc(db, "schools/S1/staff_regularizations/r2"), { staffId: "stf_025", teacherId: "stf_025", status: "Approved", date: "2026-10-23" });
   await setDoc(doc(db, "schools/S1/staff_regularizations/r3"), { staffId: "stf_023", teacherId: "stf_023", status: "Pending", date: "2026-10-24" });
-  await setDoc(doc(db, "schools/S1/exm_papers/p1"), { subject: "Maths", locked: false });
+  await setDoc(doc(db, "schools/S1/exm_papers/p1"), { subject: "Maths", grade: "10", classIds: ["cls_10B"], theory: 80, locked: false });
   await setDoc(doc(db, "schools/S1/exm_duties/d1"), { staffId: "stf_025", paperId: "p1" });
   await setDoc(doc(db, "schools/S1/set_leave_policy/policy"), { checkInBy: "08:15", types: [] });
 });
@@ -93,17 +97,17 @@ await check("teacher cannot write set_*", assertFails(setDoc(doc(as("t1"), "scho
 await check("teacher cannot read adm_*", assertFails(getDoc(doc(as("t1"), "schools/S1/adm_form/f"))));
 
 console.log("teacher: shared records");
-await check("teacher creates own attendance", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/ops_attendance/2026-10-26_cls_10B_2"), { teacherId: "stf_025", marks: { stu_101: "A" }, total: 42 })));
+await check("teacher creates own attendance", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/ops_attendance/2026-10-26_cls_10B_2"), { teacherId: "stf_025", classId: "cls_10B", date: "2026-10-26", period: 2, marks: { stu_101: "A" }, total: 42 })));
 await check("teacher cannot create attendance for another teacher", assertFails(setDoc(doc(as("t1"), "schools/S1/ops_attendance/z"), { teacherId: "stf_023", marks: {}, total: 1 })));
 await check("teacher cannot edit another teacher's attendance", assertFails(updateDoc(doc(as("t2"), "schools/S1/ops_attendance/2026-10-26_cls_10B_1"), { total: 1 })));
 await check("teacher edits own attendance", assertSucceeds(updateDoc(doc(as("t1"), "schools/S1/ops_attendance/2026-10-26_cls_10B_1"), { total: 41 })));
-await check("teacher creates own homework", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/ops_homework/h1"), { teacherId: "stf_025", title: "t" })));
-await check("teacher creates own live class", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/live_classes/lv2"), { teacherId: "stf_025", title: "t" })));
+await check("teacher creates own homework", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/ops_homework/h1"), { teacherId: "stf_025", classId: "cls_10B", subject: "Maths", title: "t" })));
+await check("teacher creates own live class", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/live_classes/lv2"), { teacherId: "stf_025", classId: "cls_10B", subject: "Maths", title: "t" })));
 await check("teacher cannot edit another's live class", assertFails(updateDoc(doc(as("t2"), "schools/S1/live_classes/lv1"), { title: "hijack" })));
-await check("teacher enters own marks", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/exm_marks/m1"), { teacherId: "stf_025", paperId: "p1", theory: 50 })));
+await check("teacher enters own marks", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/exm_marks/m1"), { teacherId: "stf_025", classId: "cls_10B", studentId: "stu_101", candId: "cand_stu_101", paperId: "p1", theory: 50 })));
 
 console.log("teacher: leaves + substitutions");
-await check("teacher creates own leave", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/staff_leaves/l3"), { staffId: "stf_025", status: "Pending" })));
+await check("teacher creates own leave", assertSucceeds(setDoc(doc(as("t1"), "schools/S1/staff_leaves/l3"), { staffId: "stf_025", status: "Pending", from: "2026-10-26", to: "2026-10-26", reason: "Appointment" })));
 await check("teacher cannot create leave for someone else", assertFails(setDoc(doc(as("t1"), "schools/S1/staff_leaves/l4"), { staffId: "stf_023", status: "Pending" })));
 await check("teacher reads own leave", assertSucceeds(getDoc(doc(as("t1"), "schools/S1/staff_leaves/l1"))));
 await check("teacher cannot read another's leave", assertFails(getDoc(doc(as("t1"), "schools/S1/staff_leaves/l2"))));
@@ -379,7 +383,8 @@ await check("parent reads own reported payments", assertSucceeds(getDocs(query(c
 await check("another parent cannot read it", assertFails(getDoc(doc(as("p2"), "schools/S1/fee_claims/fc1"))));
 await check("parent cannot mark own payment verified", assertFails(updateDoc(P("fee_claims/fc1"), { status: "Verified" })));
 await check("teacher cannot read reported payments", assertFails(getDoc(doc(as("t1"), "schools/S1/fee_claims/fc1"))));
-await check("admin verifies a reported payment", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/fee_claims/fc1"), { status: "Verified", receiptNo: "RCP-20401" })));
+await check("admin cannot bypass transactional payment verification", assertFails(updateDoc(doc(as("a1"), "schools/S1/fee_claims/fc1"), { status: "Verified", receiptNo: "RCP-20401" })));
+await env.withSecurityRulesDisabled(async (ctx) => { await updateDoc(doc(ctx.firestore(), "schools/S1/fee_claims/fc1"), { status: "Verified", receiptNo: "RCP-20401" }); });
 await check("parent cannot withdraw a verified payment", assertFails(deleteDoc(P("fee_claims/fc1"))));
 await check("admin sets the bank details", assertSucceeds(setDoc(doc(as("a1"), "schools/S1/school/school"), { bank: { upiId: "school@bank" } }, { merge: true })));
 await check("parent cannot change the bank details", assertFails(setDoc(P("school/school"), { bank: { upiId: "evil@bank" } }, { merge: true })));

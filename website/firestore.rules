@@ -19,27 +19,42 @@ service cloud.firestore {
     // A migrated parent must use a custom sign-in session for the current password.
     // Only the server can write users/{uid}.parentCredentialVersion.
     function validSession(profile) {
-      return profile.get('role', '') != 'parent' || !profile.keys().hasAny(['parentCredentialVersion'])
+      let parent = profile.get('role', '') != 'parent' || !profile.keys().hasAny(['parentCredentialVersion'])
         || (request.auth.token.firebase.sign_in_provider == 'custom'
           && request.auth.token.get('parentCredentialVersion', '') == profile.parentCredentialVersion
           && profile.get('studentIds', []).size() > 0);
+      let admin = profile.get('role', '') != 'admin' || !profile.keys().hasAny(['mfaVersion'])
+        || (request.auth.token.firebase.sign_in_provider == 'custom'
+          && request.auth.token.get('adminMfaVersion', '') == profile.mfaVersion
+          && request.auth.token.get('adminMfaAt', 0) * 1000 <= request.time.toMillis() + 30000
+          && request.time.toMillis() - request.auth.token.get('adminMfaAt', 0) * 1000 < 43200000);
+      return parent && admin;
     }
     function hasUser() { return signedIn() && exists(userPath(request.auth.uid)) && validSession(me()); }
     // contract 16: a suspended school is locked for all of its members (admin, staff, parents, crew)
     // get() of a missing doc is an error in rules, not null: most schools have no platform_schools doc, so test exists() first
     function schoolActive(sid) {
       let p = /databases/$(database)/documents/platform_schools/$(sid);
-      return !exists(p) || get(p).data.get('status', 'active') != 'suspended';
+      return !exists(p) || (get(p).data.get('status', 'active') != 'suspended'
+        && (get(p).data.get('rolloverJob', '') == '' || (request.method in ['get', 'list'] && me().role == 'admin')));
+    }
+    function schoolUnlocked(sid) {
+      let p = /databases/$(database)/documents/platform_schools/$(sid);
+      return !exists(p) || get(p).data.get('rolloverJob', '') == '';
     }
     function memberOf(sid) { return hasUser() && me().schoolId == sid; }
     function inSchool(sid) { return memberOf(sid) && schoolActive(sid); }
     // product owner (contract 16): platform_admins/{uid} exists
     function isOwner() { return signedIn() && exists(/databases/$(database)/documents/platform_admins/$(request.auth.uid)); }
-    function isAdmin(sid) { return inSchool(sid) && me().role == 'admin'; }
-    function isTeacher(sid) { return inSchool(sid) && me().role == 'teacher' && me().get('staffId', '') != ''; }
+    // The role is checked before the session/suspension chain: a request is evaluated against the admin, parent,
+    // teacher and crew allow statements in turn, and the rules engine's per-request evaluation budget (1000
+    // expressions) is nearly consumed by the teacher marks rules alone when every non-matching role pays for inSchool().
+    function hasRole(role) { return signedIn() && exists(userPath(request.auth.uid)) && me().role == role; }
+    function isAdmin(sid) { return hasRole('admin') && inSchool(sid); }
+    function isTeacher(sid) { return hasRole('teacher') && me().get('staffId', '') != '' && inSchool(sid); }
     function myStaffId() { return me().staffId; }
     // parent: users/{uid}.studentIds / classIds / grns are kept by the onStudentWritten function (contract 13.1)
-    function isParentIn(sid) { return inSchool(sid) && me().role == 'parent'; }
+    function isParentIn(sid) { return hasRole('parent') && inSchool(sid); }
     function myStudents() { return me().get('studentIds', []); }
     function myClasses() { return me().get('classIds', []); }
     function myGrns() { return me().get('grns', []); }
@@ -58,8 +73,189 @@ service cloud.firestore {
     function ownDay(docId) { return ownRequest() && docId == request.resource.data.get('date', '') + '_' + myStaffId(); }
     function onlyKeys(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
     // marks can be written only while the admin has not locked the paper (Exams > Lock Marks Entry)
-    function paperOpen(sid) {
-      return get(/databases/$(database)/documents/schools/$(sid)/exm_papers/$(request.resource.data.get('paperId', 'none'))).data.get('locked', false) != true;
+
+
+    // Teacher writes are authorized by live master records, not an incoming teacherId alone.
+    // teaching_access/{classId}__{staffId} is a server-maintained lookup of assignment/period anchors.
+    // Anchors are rechecked on every request, so a stale index never preserves revoked access.
+    function optionalText(d, key, maximum) { return !(key in d) || (d[key] is string && d[key].size() <= maximum); }
+    function isoDay(value) { return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    function teacherPermission(sid, permission) {
+      let role = me().get('staffRole', '') == 'hod' ? 'role_hod' : 'role_teacher';
+      let p = /databases/$(database)/documents/schools/$(sid)/set_roles/$(role);
+      return !exists(p) || get(p).data.get('perms', []).hasAny([permission, 'Full System Root']);
+    }
+    function classTeacherOf(sid, classId) {
+      let p = /databases/$(database)/documents/schools/$(sid)/classes/$(classId);
+      return classId is string && classId.size() > 0 && classId.size() <= 128 && exists(p)
+        && get(p).data.get('classTeacherId', '') == myStaffId();
+    }
+    function assignmentAnchor(sid, classId, id) {
+      let p = /databases/$(database)/documents/schools/$(sid)/assignments/$(id);
+      return id != '' && get(p).data.get('teacherId', '') == myStaffId() && get(p).data.get('classId', '') == classId;
+    }
+    function periodAnchor(sid, classId, id) {
+      let p = /databases/$(database)/documents/schools/$(sid)/ops_periods/$(id);
+      return id != '' && get(p).data.get('teacherId', '') == myStaffId()
+        && get(p).data.get('classId', 'cls_' + get(p).data.get('grade', '') + get(p).data.get('section', '')) == classId;
+    }
+    function teachesClass(sid, classId) {
+      let p = /databases/$(database)/documents/schools/$(sid)/teaching_access/$(classId + '__' + myStaffId());
+      let access = exists(p) ? get(p).data : {};
+      return classTeacherOf(sid, classId) || assignmentAnchor(sid, classId, access.get('assignmentId', ''))
+        || periodAnchor(sid, classId, access.get('periodId', ''));
+    }
+    function teachesSubject(sid, classId, subject) {
+      let p = /databases/$(database)/documents/schools/$(sid)/teaching_access/$(classId + '__' + myStaffId());
+      let access = get(p).data.get('subjects', {}).get(subject, {});
+      return (assignmentAnchor(sid, classId, access.get('assignmentId', ''))
+          && get(/databases/$(database)/documents/schools/$(sid)/assignments/$(access.assignmentId)).data.get('subject', '') == subject)
+        || (periodAnchor(sid, classId, access.get('periodId', ''))
+          && get(/databases/$(database)/documents/schools/$(sid)/ops_periods/$(access.periodId)).data.get('subject', '') == subject);
+    }
+    function coversPeriod(sid, d) {
+      let p = /databases/$(database)/documents/schools/$(sid)/ops_substitutions/$('sub_' + d.date + '_' + d.classId + '_' + string(d.period));
+      return exists(p) && get(p).data.get('substituteTeacherId', '') == myStaffId()
+        && get(p).data.get('status', '') in ['Assigned', 'Accepted'] && get(p).data.get('date', '') == d.date;
+    }
+    // Models below match the teacher adapter's wire shapes. Optional legacy metadata is bounded.
+    function validTeacherAttendance(d) {
+      return d.keys().hasAll(['teacherId', 'classId', 'date', 'period', 'total', 'marks'])
+        && d.keys().hasOnly(['id', 'teacherId', 'classId', 'grade', 'section', 'date', 'period', 'total', 'marks', 'submitted', 'deleted', 'updatedAt', 'updatedBy', 'createdAt', '_o'])
+        && d.teacherId == myStaffId() && d.classId is string && d.classId.size() <= 128 && isoDay(d.date)
+        && d.period is int && d.period >= 1 && d.period <= 24 && d.total is int && d.total >= 0 && d.total <= 1000
+        && d.marks is map && d.marks.size() <= d.total && d.marks.values().hasOnly(['P', 'A', 'L', 'E'])
+        && (!('submitted' in d) || d.submitted is bool) && (!('deleted' in d) || d.deleted is bool)
+        && optionalText(d, 'grade', 30) && optionalText(d, 'section', 30) && optionalText(d, 'updatedAt', 50) && optionalText(d, 'updatedBy', 128);
+    }
+    function validTeacherMarks(sid, d) {
+      let paper = get(/databases/$(database)/documents/schools/$(sid)/exm_papers/$(d.get('paperId', 'none'))).data;
+      let student = studentDoc(sid, d.get('studentId', 'none'));
+      let cls = get(/databases/$(database)/documents/schools/$(sid)/classes/$(d.get('classId', 'none'))).data;
+      return d.keys().hasAll(['paperId', 'studentId', 'classId', 'candId', 'teacherId', 'theory'])
+        && d.keys().hasOnly(['id', 'paperId', 'studentId', 'classId', 'candId', 'teacherId', 'theory', 'internal', 'medical', 'verified', 'status', 'tag', 'note', 'enteredAt', 'updatedAt', 'updatedBy', '_o'])
+        && d.teacherId == myStaffId() && d.candId == 'cand_' + d.studentId && student.get('classId', '') == d.classId
+        && student.get('deleted', false) != true && student.get('status', 'Active') == 'Active'
+        && (d.theory == null || (d.theory is number && d.theory >= 0 && d.theory <= paper.get('theory', 100)))
+        && optionalText(d, 'status', 40) && optionalText(d, 'tag', 120) && optionalText(d, 'note', 2000)
+        && optionalText(d, 'enteredAt', 50) && optionalText(d, 'updatedAt', 50) && optionalText(d, 'updatedBy', 128)
+        && d.get('updatedBy', request.auth.uid) == request.auth.uid
+        && paper.get('locked', false) != true
+        && !(d.classId in paper.get('lockedClassIds', []))
+        && paper.get('assessmentMode', 'marks') != 'grade' && paper.get('theory', 80) > 0
+        && paper.get('setupPublished', true) == true && !(paper.get('scheduleStatus', 'Scheduled') in ['Postponed', 'Cancelled'])
+        && !paper.get('published', []).hasAny([d.classId, cls.get('grade', '') + '-' + cls.get('section', ''), cls.get('grade', '') + '-' + cls.get('stream', '') + '-' + cls.get('section', '')])
+        && !(d.classId in paper.get('publishedClassIds', []))
+        && (paper.get('classIds', []).size() == 0 ? paper.get('grade', '') == cls.get('grade', '') : d.classId in paper.classIds)
+        && (paper.get('studentIds', null) == null || d.studentId in paper.studentIds)
+        && (paper.get('evaluatorIds', {}).get(d.classId, '') != ''
+          ? paper.evaluatorIds[d.classId] == myStaffId()
+          : teachesSubject(sid, d.classId, paper.get('subject', '')));
+    }
+    function validStaffLeave(d) {
+      return d.keys().hasAll(['staffId', 'status', 'from', 'to', 'reason'])
+        && d.keys().hasOnly(['id', 'staffId', 'teacherId', 'status', 'from', 'to', 'start', 'end', 'reason', 'type', 'days', 'coverage', 'by', 'handovers', 'doc', 'attachment', 'createdAt', 'at', 'updatedAt', 'updatedBy', 'decidedAt', 'decidedBy', 'decisionNote', 'name', 'dept', 'note'])
+        && d.staffId == myStaffId() && d.get('teacherId', myStaffId()) == myStaffId() && d.status == 'Pending'
+        && isoDay(d.from) && isoDay(d.to) && d.from <= d.to && d.reason is string && d.reason.size() > 0 && d.reason.size() <= 2000
+        && optionalText(d, 'type', 120) && optionalText(d, 'coverage', 80) && optionalText(d, 'by', 160) && optionalText(d, 'doc', 2048)
+        && optionalText(d, 'note', 2000) && optionalText(d, 'attachment', 2048) && optionalText(d, 'updatedAt', 50) && optionalText(d, 'updatedBy', 128)
+        && (!('handovers' in d) || (d.handovers is list && d.handovers.size() <= 40));
+    }
+    // Mark sheets (EXAMS_SHEETS_RESULTS_CONTRACT.md section 1): exm_sheets/{paperId}__{classId}. When one exists it
+    // governs the teacher's marks write instead of the paper-level checks above: the owner, an open status, a rostered
+    // student and every component within the sheet's maxima. verified / medical / verificationFingerprint stay server-only.
+    // Dispatch reads exm_papers.sheetsOpened (set by the openEntry action together with the sheets): a lookup of a
+    // missing document costs more of the rules engine's evaluation budget than the whole legacy marks rule has left,
+    // so the sheet document is fetched only when the paper says sheets exist (a missing sheet then denies the write).
+    function sheetOf(sid, d) {
+      return get(/databases/$(database)/documents/schools/$(sid)/exm_sheets/$(d.get('paperId', 'none') + '__' + d.get('classId', 'none'))).data;
+    }
+    function teacherMarksWrite(sid, d, creating) {
+      let paper = get(/databases/$(database)/documents/schools/$(sid)/exm_papers/$(d.get('paperId', 'none'))).data;
+      return paper.get('sheetsOpened', false) == true
+        ? validSheetMarks(sid, d, creating)
+        : (validTeacherMarks(sid, d)
+          && (creating ? !d.keys().hasAny(['internal', 'medical', 'verified'])
+            : onlyKeys(['theory', 'status', 'tag', 'note', 'enteredAt', 'updatedAt', 'updatedBy'])));
+    }
+    function validSheetMarks(sid, d, creating) {
+      let sheet = sheetOf(sid, d);
+      let c = sheet.get('components', {});
+      return d.keys().hasAll(['paperId', 'studentId', 'classId', 'candId', 'teacherId'])
+        && d.keys().hasOnly(['id', 'paperId', 'studentId', 'classId', 'candId', 'teacherId', 'theory', 'practical', 'internal', 'gradeValue', 'status', 'tag', 'note',
+                             'medical', 'verified', 'verificationFingerprint', 'enteredBy', 'enteredAt', 'updatedAt', 'updatedBy', 'operationId', '_o'])
+        && (creating ? !d.keys().hasAny(['medical', 'verified', 'verificationFingerprint', 'enteredBy', 'operationId'])
+          : onlyKeys(['theory', 'practical', 'internal', 'gradeValue', 'status', 'tag', 'note', 'enteredAt', 'updatedAt', 'updatedBy']))
+        && sheet.get('ownerId', '') == myStaffId() && sheet.get('status', '') in ['NotStarted', 'InProgress', 'Returned']
+        && d.studentId in sheet.get('rosterIds', []) && d.candId == 'cand_' + d.studentId
+        && (d.get('theory', null) == null || (d.theory is number && d.theory >= 0 && d.theory <= c.get('theory', 0)))
+        && (d.get('practical', null) == null || (d.practical is number && d.practical >= 0 && d.practical <= c.get('practical', 0)))
+        && (d.get('internal', null) == null || (d.internal is number && d.internal >= 0 && d.internal <= c.get('internal', 0)))
+        && (d.get('gradeValue', '') == '' || (d.gradeValue is string && d.gradeValue in c.get('gradeOptions', [])))
+        && (!('status' in d) || d.status in ['Present', 'Absent', 'Medical Slip', 'Exempt', 'Disqualified'])
+        && optionalText(d, 'tag', 120) && optionalText(d, 'note', 2000)
+        && optionalText(d, 'enteredAt', 50) && optionalText(d, 'updatedAt', 50) && optionalText(d, 'updatedBy', 128)
+        && d.get('updatedBy', request.auth.uid) == request.auth.uid;
+    }
+    // the sheet owner submits by writing only the transition keys; everything else is a manageExamination action
+    function teacherSheetSubmit() {
+      let d = request.resource.data;
+      return resource.data.get('ownerId', '') == myStaffId()
+        && resource.data.get('status', '') in ['NotStarted', 'InProgress', 'Returned']
+        && onlyKeys(['status', 'submittedAt', 'submittedBy', 'updatedAt', 'updatedBy'])
+        && d.get('status', '') == 'Submitted' && d.get('submittedBy', '') == myStaffId()
+        && optionalText(d, 'submittedAt', 50) && optionalText(d, 'updatedAt', 50)
+        && d.get('updatedBy', request.auth.uid) == request.auth.uid;
+    }
+    function teacherAcademicWrite(sid, col, creating) {
+      let d = request.resource.data;
+      return (col == 'ops_attendance' && teacherPermission(sid, 'Daily Attendance') && validTeacherAttendance(d)
+          && (teachesClass(sid, d.classId) || coversPeriod(sid, d)))
+        || (col == 'exm_marks' && teacherPermission(sid, 'Marks & Grades Entry') && teacherMarksWrite(sid, d, creating))
+        || (col in ['ops_homework', 'live_classes'] && teacherPermission(sid, col == 'ops_homework' ? 'Homework Broadcast' : 'Master Timetable')
+          && d.get('classId', '') is string && d.get('title', '') is string && d.title.size() > 0 && d.title.size() <= 200
+          && optionalText(d, 'description', 10000) && optionalText(d, 'link', 2048) && teachesSubject(sid, d.classId, d.get('subject', '')));
+    }
+    function adminExamWrite(sid, col) {
+      let d = request.resource.data;
+      return (!(col in ['exm_cycles', 'exm_papers', 'exm_marks']) || request.method == 'delete'
+          || (d.get('updatedBy', request.auth.uid) == request.auth.uid && (request.method == 'create'
+            ? !d.keys().hasAny(['operationId']) : !d.diff(resource.data).affectedKeys().hasAny(['operationId']))))
+        && (col == 'exm_cycles'
+        ? request.method == 'create' || resource.data.get('status', 'Draft') == 'Draft'
+        : col == 'exm_papers'
+          ? !exists(/databases/$(database)/documents/schools/$(sid)/exm_cycles/$(request.method == 'create' ? d.cycleId : resource.data.cycleId))
+            || get(/databases/$(database)/documents/schools/$(sid)/exm_cycles/$(request.method == 'create' ? d.cycleId : resource.data.cycleId)).data.get('status', 'Draft') == 'Draft'
+          : col == 'exm_marks'
+            ? request.method != 'delete' && validAdminExamMark(sid, d)
+            : true);
+    }
+    function validAdminExamMark(sid, d) {
+      let paper = get(/databases/$(database)/documents/schools/$(sid)/exm_papers/$(d.get('paperId', 'none'))).data;
+      let cls = get(/databases/$(database)/documents/schools/$(sid)/classes/$(d.get('classId', 'none'))).data;
+      return d.get('paperId', '') is string && d.get('studentId', '') is string && d.get('classId', '') is string
+        && (paper.get('studentIds', null) == null || d.studentId in paper.studentIds)
+        && ((paper.get('locked', false) != true && !(d.classId in paper.get('lockedClassIds', [])) && !(d.classId in paper.get('publishedClassIds', []))
+              && !paper.get('published', []).hasAny([d.classId, cls.get('grade', '') + '-' + cls.get('section', '')]))
+            || request.method == 'update' && !d.diff(resource.data).affectedKeys().hasAny(['theory', 'internal', 'practical', 'gradeValue', 'status', 'medical', 'studentId', 'candId', 'classId', 'paperId']))
+        && (d.get('theory', null) == null || d.theory is number && d.theory >= 0 && d.theory <= paper.get('theory', 80))
+        && (d.get('internal', null) == null || d.internal is number && d.internal >= 0 && d.internal <= paper.get('internal', 20))
+        && (d.get('practical', null) == null || d.practical is number && d.practical >= 0 && d.practical <= paper.get('practical', 0))
+        && optionalText(d, 'gradeValue', 100) && optionalText(d, 'verificationFingerprint', 1000)
+        && d.get('status', 'Present') in ['Present', 'Absent', 'Medical Slip', 'Exempt', 'Disqualified'];
+    }
+    function adminSchoolWrite(sid, col) {
+      let d = request.resource.data;
+      return !(col in ['fee_payments', 'fee_counters', 'fee_payment_requests', 'fee_payment_references', 'teaching_access', 'class_teacher_assignments', 'push_deliveries', 'academic_rollovers', 'academic_archives',
+          'exm_duties', 'exm_activity', 'exm_schedule_history', 'exm_requests', 'exm_report_templates', 'exm_report_remarks', 'exm_report_batches', 'exm_report_cards',
+          'exm_results', 'exm_class_results'])
+        && adminExamWrite(sid, col)
+        && (col != 'fee_invoices' || (request.method == 'create' ? d.get('paid', 0) == 0
+            : request.method == 'delete' ? resource.data.get('paid', 0) == 0
+            : !d.diff(resource.data).affectedKeys().hasAny(['paid', 'balance'])))
+        && (col != 'fee_claims' || request.method == 'delete' || d.get('status', '') != 'Verified')
+        && (col != 'classes' || (request.method == 'create' ? d.get('classTeacherId', '') == ''
+            : request.method == 'delete' || !d.diff(resource.data).affectedKeys().hasAny(['classTeacherId', 'classTeacher'])));
     }
 
     // a parent's leave request: own child, own uid, the child's current class
@@ -130,7 +326,7 @@ service cloud.firestore {
     }
 
     // ---------- transport crew (contract 14): driver / attendant of one bus ----------
-    function isCrew(sid) { return inSchool(sid) && me().role in ['driver', 'attendant'] && me().get('crewId', '') != ''; }
+    function isCrew(sid) { return signedIn() && exists(userPath(request.auth.uid)) && me().role in ['driver', 'attendant'] && me().get('crewId', '') != '' && inSchool(sid); }
     function myCrewId() { return me().crewId; }
     // the crew member's bus comes from tr_crew/{crewId}.busId (kept by the admin web), never from the client
     function myBusId(sid) { return get(/databases/$(database)/documents/schools/$(sid)/tr_crew/$(myCrewId())).data.get('busId', ''); }
@@ -168,7 +364,7 @@ service cloud.firestore {
     }
     function legacyUserCreate(data) {
       return validUserAccess(data)
-        && !data.keys().hasAny(['staffRole', 'invitedBy', 'invitationId', 'parentCredentialVersion'])
+        && !data.keys().hasAny(['staffRole', 'invitedBy', 'invitationId', 'parentCredentialVersion', 'mfaVersion', 'mfaEnabledAt'])
         && (data.role == 'parent'
           || (data.role == 'teacher' && data.get('staffId', '') is string && data.get('staffId', '') != '')
           || (data.role in ['driver', 'attendant'] && data.get('crewId', '') is string && data.get('crewId', '') != ''));
@@ -176,10 +372,10 @@ service cloud.firestore {
 
     // ---------- users ----------
     match /users/{uid} {
-      allow read: if signedIn() && ((request.auth.uid == uid && validSession(resource.data)) || isAdmin(resource.data.schoolId) || isOwner());
+      allow read: if signedIn() && ((request.auth.uid == uid && (resource.data.role == 'admin' || validSession(resource.data))) || isAdmin(resource.data.schoolId) || isOwner());
       allow create: if signedIn() && (
         (isOwner() && validUserAccess(request.resource.data) && request.resource.data.role in ['admin', 'parent']
-          && !request.resource.data.keys().hasAny(['staffRole', 'invitedBy', 'invitationId', 'parentCredentialVersion']))
+          && !request.resource.data.keys().hasAny(['staffRole', 'invitedBy', 'invitationId', 'parentCredentialVersion', 'mfaVersion', 'mfaEnabledAt']))
         || (isAdmin(request.resource.data.schoolId) && !isOwner() && legacyUserCreate(request.resource.data))
       );
       allow update: if validUserAccess(request.resource.data)
@@ -206,7 +402,8 @@ service cloud.firestore {
       // ---------- generic docs: schools/{sid}/{collection}/{docId} ----------
       match /{col}/{docId} {
         // admin: everything in the school; product owner: everything in every school (contract 16)
-        allow read, write: if isAdmin(sid) || isOwner();
+        allow read: if isAdmin(sid) || isOwner();
+        allow write: if (isAdmin(sid) || isOwner()) && schoolUnlocked(sid) && adminSchoolWrite(sid, col);
 
         // parent: only their own children's data (contract 13.2)
         allow read: if isParentIn(sid) && (
@@ -226,6 +423,9 @@ service cloud.firestore {
           || (col in ['com_notices', 'calendar_events'] && resource.data.get('parentVisible', false) == true)
           || (col in ['msg_threads', 'msg_messages'] && request.auth.uid in resource.data.get('parentUids', []))
           || (col == 'par_notifications' && resource.data.get('uid', '') == request.auth.uid)
+          || (col == 'exm_report_cards' && resource.data.get('studentId', '') in myStudents() && resource.data.get('status', '') == 'Published')
+          // compiled exam results, only the published version (EXAMS_SHEETS_RESULTS_CONTRACT.md section 2)
+          || (col == 'exm_results' && resource.data.get('studentId', '') in myStudents() && resource.data.get('status', '') == 'Published')
           || (col == 'consents' && docId == request.auth.uid));
 
         // parent: own requests (leave, messages, consent); par_notifications only `read`
@@ -271,6 +471,8 @@ service cloud.firestore {
                   'exm_duties', 'set_leave_policy']
           // own leave requests, check-in days and regularization requests only (contract section 12)
           || (col in ['staff_leaves', 'staff_attendance', 'staff_regularizations'] && resource.data.get('staffId', '') == myStaffId())
+          // own mark sheets (EXAMS_SHEETS_RESULTS_CONTRACT.md section 1)
+          || (col == 'exm_sheets' && resource.data.get('ownerId', '') == myStaffId())
           // own check-in day by id, also when it does not exist yet (the app reads today's doc directly)
           || (col == 'staff_attendance' && docId.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}_' + myStaffId()))
           // own private data
@@ -279,9 +481,12 @@ service cloud.firestore {
           || (col in ['msg_threads', 'msg_messages', 'ptm_slots', 'ptm_bookings'] && ownsExisting()));
 
         // teacher: shared records, only for their own staffId
-        allow create: if isTeacher(sid) && (
-          (col in ['ops_attendance', 'ops_homework', 'exm_marks', 'live_classes'] && ownsIncoming() && (col != 'exm_marks' || paperOpen(sid)))
-          || (col == 'staff_leaves' && request.resource.data.get('staffId', '') == myStaffId())
+        // `||` chains are evaluated in full by the rules engine, so marks writes (the heaviest rule) are dispatched
+        // through a lazy ternary and skip the other branches; no other branch can match col == 'exm_marks'.
+        allow create: if isTeacher(sid) && (col == 'exm_marks'
+          ? (ownsIncoming() && teacherAcademicWrite(sid, col, true))
+          : ((ownsIncoming() && teacherAcademicWrite(sid, col, true))
+          || (col == 'staff_leaves' && validStaffLeave(request.resource.data) && !request.resource.data.keys().hasAny(['decidedBy', 'decidedAt', 'decisionNote']))
           // own check-in day: staff_attendance/{date}_{staffId}
           || (col == 'staff_attendance' && ownDay(docId))
           // a regularization request always starts pending
@@ -293,25 +498,32 @@ service cloud.firestore {
           || (col == 'msg_threads' && ownsIncoming() && docId == 'thr_' + request.resource.data.get('studentId', '') + '_' + myStaffId()
               && studentDoc(sid, request.resource.data.studentId).get('guardianUids', []).hasAll(request.resource.data.get('parentUids', [])) && newThreadOk())
           || (col == 'msg_messages' && ownsIncoming() && request.resource.data.get('from', '') == 'teacher' && request.resource.data.get('uid', '') == request.auth.uid
-              && threadAfter(sid, request.resource.data.get('threadId', 'none')).get('teacherId', '') == myStaffId() && messageMatchesThread(sid)));
-        allow update: if isTeacher(sid) && (
-          (col in ['ops_attendance', 'ops_homework', 'exm_marks', 'live_classes'] && ownsExisting() && ownsIncoming() && (col != 'exm_marks' || paperOpen(sid)))
+              && threadAfter(sid, request.resource.data.get('threadId', 'none')).get('teacherId', '') == myStaffId() && messageMatchesThread(sid))));
+        allow update: if isTeacher(sid) && (col == 'exm_marks'
+          ? (ownsExisting() && ownsIncoming() && teacherAcademicWrite(sid, col, false)
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['teacherId', 'classId', 'studentId', 'paperId', 'candId', 'date', 'period', 'createdAt']))
+          : ((ownsExisting() && ownsIncoming() && teacherAcademicWrite(sid, col, false)
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['teacherId', 'classId', 'studentId', 'paperId', 'candId', 'date', 'period', 'createdAt']))
           // a leave can be edited or withdrawn only while pending, and cannot be decided by its owner
           || (col == 'staff_leaves' && resource.data.get('staffId', '') == myStaffId() && resource.data.status == 'Pending'
-              && request.resource.data.get('staffId', '') == myStaffId() && request.resource.data.status == 'Pending')
+              && validStaffLeave(request.resource.data) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['staffId', 'teacherId', 'createdAt', 'decidedBy', 'decidedAt', 'decisionNote']))
           || (col == 'staff_attendance' && resource.data.get('staffId', '') == myStaffId() && ownDay(docId))
           // a regularization can be edited only while pending, and cannot be decided by its owner
           || (col == 'staff_regularizations' && resource.data.get('staffId', '') == myStaffId() && resource.data.get('status', '') == 'Pending'
               && ownRequest() && request.resource.data.get('status', '') == 'Pending')
+          // the sheet owner submits their marks (status → Submitted only)
+          || (col == 'exm_sheets' && teacherSheetSubmit())
           // the substitute accepts or declines their own assignment
           || (col == 'ops_substitutions' && resource.data.get('substituteTeacherId', '') == myStaffId()
               && onlyKeys(['status', 'updatedAt', 'updatedBy']) && request.resource.data.status in ['Accepted', 'Declined'])
           // teachers decide student leave requests (status + note only; what the parent asked for stays untouched)
           || (col == 'student_leaves' && onlyKeys(['status', 'decisionNote', 'decidedBy', 'decidedAt', 'updatedAt', 'updatedBy'])
+              && classTeacherOf(sid, resource.data.get('classId', 'none'))
+              && optionalText(request.resource.data, 'decisionNote', 2000)
               && request.resource.data.get('status', '') in ['Pending', 'Approved', 'Rejected'])
           // reading a thread resets the teacher's own unread counter, nothing else
           || (col == 'msg_threads' && ownsExisting() && onlyKeys(['unreadTeacher', 'updatedAt', 'updatedBy']) && request.resource.data.get('unreadTeacher', 0) == 0)
-          || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting() && ownsIncoming()));
+          || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting() && ownsIncoming())));
         // hard delete is admin-only for shared records; teachers may delete their own private docs
         allow delete: if isTeacher(sid) && (
           (col in ['staff_leaves', 'staff_regularizations'] && resource.data.get('staffId', '') == myStaffId() && resource.data.get('status', '') == 'Pending')
@@ -366,8 +578,9 @@ service cloud.firestore {
       }
 
       // ---------- other nested subcollections: admin only ----------
-      match /{col}/{docId}/{sub=**} {
-        allow read, write: if isAdmin(sid) || isOwner();
+      match /{col}/{docId}/{subcol}/{nestedId}/{sub=**} {
+        allow read: if isAdmin(sid) || isOwner();
+        allow write: if (isAdmin(sid) || isOwner()) && schoolUnlocked(sid) && !(col in ['academic_archives', 'academic_rollovers']);
       }
     }
 

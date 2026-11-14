@@ -5,11 +5,11 @@ import type { Period } from "./logic";
 import { ADMIN_UID, dialog, field, fieldError, getRow, renderUI, screen, seed, within, writes, writesTo } from "@/test/render";
 
 const staff = [
-  { id: "stf_025", name: "Mrs. Anita Sharma", department: "Mathematics" },
-  { id: "stf_003", name: "Ravi Kumar", department: "Science" },
-  { id: "stf_010", name: "Neha Gupta", department: "English" },
-  { id: "stf_011", name: "Karan Shah", department: "Hindi" },
-  { id: "stf_012", name: "Zoya Khan", department: "Science" },
+  { id: "stf_025", name: "Mrs. Anita Sharma", department: "Academics", subjects: "Mathematics" },
+  { id: "stf_003", name: "Ravi Kumar", department: "Academics", subjects: "Science" },
+  { id: "stf_010", name: "Neha Gupta", department: "Academics", subjects: "English" },
+  { id: "stf_011", name: "Karan Shah", department: "Academics", subjects: "Hindi" },
+  { id: "stf_012", name: "Zoya Khan", department: "Academics", subjects: "Science" },
   { id: "stf_100", name: "Office Clerk", department: "Administration" },
 ];
 const periods: Period[] = [

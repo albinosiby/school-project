@@ -35,13 +35,13 @@ export function candidatesFor(students: StudentRow[], grades?: string[]): Candid
     const sorted = [...list].sort((a, b) => (rollOf(a) ?? Infinity) - (rollOf(b) ?? Infinity) || a.name.localeCompare(b.name));
     for (const s of sorted) {
       const roll = rollOf(s) ?? ++next;
-      out.push({ id: `cand_${s.id}`, studentId: s.id, name: s.name, roll: rollLabel(s.grade!, s.section!, roll), grn: s.grn ?? "", cls: classLabel(s.grade!, s.section!, s.streamId || streamFromClassId(s.classId)), grade: s.grade!, section: s.section! });
+      out.push({ id: `cand_${s.id}`, studentId: s.id, name: s.name, ...(s.classId ? { classId: s.classId } : {}), roll: rollLabel(s.grade!, s.section!, roll), grn: s.grn ?? "", cls: classLabel(s.grade!, s.section!, s.streamId || streamFromClassId(s.classId)), grade: s.grade!, section: s.section! });
     }
   }
   return out.sort((a, b) => a.cls.localeCompare(b.cls, "en", { numeric: true }) || a.roll.localeCompare(b.roll, "en", { numeric: true }));
 }
 
-const CAND_KEYS = ["studentId", "name", "roll", "grn", "cls", "grade", "section"] as const;
+const CAND_KEYS = ["studentId", "classId", "name", "roll", "grn", "cls", "grade", "section"] as const;
 /** the generated candidates that are missing from `existing` or differ from it (what a sync has to write) */
 export const candidateChanges = (existing: Candidate[], wanted: Candidate[]) => {
   const by = new Map(existing.map((c) => [c.id, c]));
@@ -55,8 +55,8 @@ export const rosterOf = (persisted: Candidate[], students: StudentRow[]) => {
 /** studentId of a candidate (its field, else cand_{studentId}) */
 export const studentIdOf = (c: Pick<Candidate, "id" | "studentId">) => c.studentId || c.id.replace(/^cand_/, "");
 /** does a paper cover this class? (no classIds = every class of its grade, as in the teacher app) */
-export const paperCoversClass = (p: Pick<Paper, "grade" | "classIds">, cls: string) =>
-  p.classIds?.length ? p.classIds.includes(labelToClassId(cls)) : cls.split("-")[0] === p.grade;
+export const paperCoversClass = (p: Pick<Paper, "grade" | "classIds">, cls: string, storedClassId?: string) =>
+  p.classIds?.length ? p.classIds.includes(storedClassId || labelToClassId(cls)) : cls.split("-")[0] === p.grade;
 
 // ---- marks ---------------------------------------------------------------------------------------------------------
 /** "" when `raw` is a blank (no mark) or a whole number 0..max, else the message */
@@ -82,7 +82,7 @@ export const subjectTeacherId = (assignments: { classId: string; subject: string
   assignments.find((a) => a.classId === classId && subjectCovers(subject, a.subject))?.teacherId ?? "";
 
 /** states a class can be published with */
-const FINAL: Eval["state"][] = ["verified", "passed", "failed", "medical", "absent"];
+const FINAL: Eval["state"][] = ["verified", "passed", "failed", "medical", "absent", "exempt"];
 /** why a class cannot be published yet ("" = it can) */
 export function publishBlocker(evals: Eval[]) {
   if (!evals.length) return "No candidates in this class";

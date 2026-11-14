@@ -246,7 +246,7 @@ function FeeSetupForm({ initial, busy, onSubmit, back, fs, defaults, policy }: S
 }
 
 /* ---------------- 6 · Staff allocations ---------------- */
-const ROLES = ["PGT", "TGT", "PRT", "HOD", "Coordinator", "Lab Assistant", "Clerk"];
+const ROLES = ["Teacher", "HOD", "Coordinator", "Lab Assistant", "Clerk"];
 function Step6({ initial, busy, onSubmit, back }: StepProps) {
   const staff = useCollection<any>("staff");
   const secs = useCollection<any>("set_sections");

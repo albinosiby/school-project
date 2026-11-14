@@ -1,60 +1,35 @@
 "use client";
-// Transport > Buses: tr_buses CRUD with the ordered stops list, crew allotment, student assignment (contract 14.1 / 14.2).
-import { Fragment, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, Pencil, Plus, Trash2, UserMinus } from "lucide-react";
-import { deleteField, runTransaction, writeBatch } from "firebase/firestore";
-import { Badge, Button, Card, Checkbox, DataTable, EmptyState, Field, Input, Modal, SearchBox, Select, SlideOver, Tabs, Textarea, useToast, type Column, type Tone } from "@/components/ui";
-import { GRADES, SECTIONS } from "@/features/ops/shared";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Plus } from "lucide-react";
+import { runTransaction } from "firebase/firestore";
+import { Badge, Button, Card, DataTable, EmptyState, useToast, type Column, type Tone } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { db } from "@/lib/firebase";
 import { inrFull } from "@/lib/format";
 import type { Student } from "@/features/people/StudentsView";
-import { applyAllot, busLabel, planAllot, planBusEdit, schoolDoc, stamp, stopsOf, studentLabel, t12 } from "./shared";
-import { busStudentCounts, capacityError, isActiveStudent, moveStop, nextBusId, nextStopId, validateBus } from "./logic";
-import type { Bus, BusStatus, BusStop, Crew } from "./types";
+import { busLabel, schoolDoc, stamp, stopsOf, t12 } from "./shared";
+import { isActiveStudent, nextBusId } from "./logic";
+import type { Bus, BusStatus } from "./types";
+import { busDetailsHref } from "./busRecords";
 import { VehicleForm } from "./VehicleForm";
 import { ExpiryReminderSettings } from "./ExpiryReminderSettings";
 
-const STATUS: BusStatus[] = ["Active", "Maintenance", "Inactive"];
 const statusTone: Record<BusStatus, Tone> = { Active: "success", Maintenance: "warning", Inactive: "neutral" };
 
-export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null; onOpenBus: (id: string | null) => void }) {
+export function BusesPanel() {
+  const router = useRouter();
   const toast = useToast();
   const buses = useCollection<Bus>("tr_buses");
-  const crew = useCollection<Crew>("tr_crew").rows;
-  const allStudents = useCollection<Student>("students").rows;
-  const students = useMemo(() => allStudents.filter(isActiveStudent), [allStudents]);
-  const [form, setForm] = useState<{ mode: "add" } | { mode: "vehicle" | "operations"; edit: Bus } | null>(null);
+  const students = useCollection<Student>("students").rows.filter(isActiveStudent);
+  const [adding, setAdding] = useState(false);
   const [reminders, setReminders] = useState(false);
-  const [del, setDel] = useState<Bus | null>(null);
-  const [busy, setBusy] = useState(false);
-  const open = openBusId ? buses.rows.find((b) => b.id === openBusId) ?? null : null;
-  const onBus = (busId: string) => students.filter((s) => s.busId === busId);
-
-  async function removeBus(b: Bus) {
-    setBusy(true);
-    try {
-      const batch = writeBatch(db); const s = stamp();
-      batch.delete(schoolDoc("tr_buses", b.id));
-      for (const st of onBus(b.id)) batch.update(schoolDoc("students", st.id), { busId: deleteField(), bus: deleteField(), busStopId: deleteField(), busStop: deleteField(), ...s });
-      for (const c of crew.filter((x) => x.busId === b.id)) batch.update(schoolDoc("tr_crew", c.id), { busId: deleteField(), bus: deleteField(), ...s });
-      await batch.commit();
-      toast(`${busLabel(b)} removed`); setDel(null); if (openBusId === b.id) onOpenBus(null);
-    } catch { toast("Could not delete the bus", "error"); } finally { setBusy(false); }
-  }
-
-  /** saves the bus and, in the same batch, the names its riders and crew keep for it (number, stop names, removed stops) */
-  async function saveBusEdit(b: Bus, v: Partial<Bus>) {
-    const batch = writeBatch(db); const s = stamp();
-    const sync = planBusEdit({ id: b.id, number: v.number ?? b.number, stops: v.stops ?? stopsOf(b) }, allStudents, crew);
-    batch.update(schoolDoc("tr_buses", b.id), { ...v, studentCount: sync.studentCount, ...s });
-    sync.students.forEach((p, id) => batch.update(schoolDoc("students", id), { ...p, ...s }));
-    sync.crew.forEach((p, id) => batch.update(schoolDoc("tr_crew", id), { ...p, ...s }));
-    await batch.commit();
-  }
+  const onBus = (busId: string) => students.filter((student) => student.busId === busId);
 
   const cols: Column<Bus>[] = [
-    { key: "number", header: "Bus", sortValue: (b) => Number(b.number) || b.number, render: (b) => <div><div className="font-semibold">{busLabel(b)}</div><div className="t-caption text-outline">{[b.displayName, b.model].filter(Boolean).join(" · ") || "—"}</div></div> },
+    { key: "number", header: "Bus", sortValue: (b) => Number(b.number) || b.number, render: (b) => <div><Link href={busDetailsHref(b.id)} onClick={(event) => event.stopPropagation()} className="font-semibold text-secondary hover:underline">{busLabel(b)}</Link><div className="t-caption text-outline">{[b.displayName, b.model].filter(Boolean).join(" · ") || "—"}</div></div> },
     { key: "regNo", header: "Reg no", sortValue: (b) => b.regNo, render: (b) => <span className="font-mono text-sm">{b.regNo}</span> },
     { key: "route", header: "Route", sortValue: (b) => b.endPoint || b.routeName, render: (b) => <div>{b.endPoint || b.routeName}
       {(stopsOf(b).length > 0 || b.pickupStart) && <div className="t-caption text-outline">{stopsOf(b).length} stops{b.pickupStart && ` · pickup ${t12(b.pickupStart)}`}</div>}</div> },
@@ -64,258 +39,33 @@ export function BusesPanel({ openBusId, onOpenBus }: { openBusId: string | null;
     { key: "attendant", header: "Attendant", sortValue: (b) => b.attendant ?? "", render: (b) => b.attendant || <span className="text-outline">Unassigned</span> },
     { key: "students", header: "Students", sortValue: (b) => onBus(b.id).length, render: (b) => { const n = onBus(b.id).length; return <span className={n > b.capacity ? "font-semibold text-error" : ""}>{n}{b.capacity ? ` / ${b.capacity}` : ""}</span>; } },
     { key: "status", header: "Status", sortValue: (b) => b.status, render: (b) => <Badge tone={statusTone[b.status] ?? "neutral"}>{b.status}</Badge> },
-    { key: "actions", header: "", className: "text-right", render: (b) => (
-      <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-        <Button size="sm" variant="ghost" aria-label={`Edit ${busLabel(b)}`} onClick={() => setForm({ mode: "operations", edit: b })}><Pencil size={14} /></Button>
-        <Button size="sm" variant="ghost" aria-label={`Delete ${busLabel(b)}`} onClick={() => setDel(b)}><Trash2 size={14} className="text-error" /></Button>
-      </div>) },
   ];
 
-  return (
-    <>
-      <Card className="pt-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
-          <p className="text-on-surface-variant">Click a bus to allot crew, assign students and review stops.</p>
-          <Button className="ml-auto" variant="outline" onClick={() => setReminders(true)}>Expiry reminders</Button>
-          <Button disabled={!buses.ready} onClick={() => setForm({ mode: "add" })}><Plus size={16} />Add Bus</Button>
-        </div>
-        {buses.ready ? <DataTable rows={buses.rows} columns={cols} pageSize={10} onRowClick={(b) => onOpenBus(b.id)} searchText={(b) => `${b.number} ${b.regNo} ${b.displayName ?? ""} ${b.endPoint ?? ""} ${b.routeName} ${b.driver ?? ""} ${b.attendant ?? ""}`}
-          empty={<EmptyState title="No buses yet" hint="Add a bus with its vehicle details and route end point." />} />
-          : <p className="px-5 pb-5 text-on-surface-variant">Loading buses…</p>}
-      </Card>
-      {reminders && <ExpiryReminderSettings onClose={() => setReminders(false)} />}
-      {form?.mode === "operations" && <BusForm key={form.edit.id} edit={form.edit} existing={buses.rows}
-        onBus={onBus(form.edit.id).length} onClose={() => setForm(null)} onSave={async (values) => {
-          try {
-            await saveBusEdit(form.edit, values);
-            toast("Bus updated");
-            setForm(null);
-          } catch { toast("Could not save the bus", "error"); }
-        }} />}
-      {form && form.mode !== "operations" && <VehicleForm key={form.mode === "add" ? "new" : form.edit.id}
-        bus={form.mode === "vehicle" ? form.edit : undefined} existing={buses.rows}
-        assigned={form.mode === "vehicle" ? onBus(form.edit.id).length : 0} onClose={() => setForm(null)}
-        onSave={async (values) => {
-          if (form.mode === "vehicle") {
-            const bus = buses.rows.find((row) => row.id === form.edit.id);
-            if (!bus) throw new Error("This bus no longer exists.");
-            const routeName = !bus.routeName || bus.routeName === bus.endPoint ? values.endPoint : bus.routeName;
-            await saveBusEdit(bus, { ...values, routeName });
-            toast("Vehicle details saved");
-          } else {
-            const id = nextBusId(buses.rows.map((bus) => bus.id));
-            const ref = schoolDoc("tr_buses", id);
-            await runTransaction(db, async (tx) => {
-              if ((await tx.get(ref)).exists()) throw new Error("Another bus was just added. Check the form and try again.");
-              tx.set(ref, {
-                ...values, id, routeName: values.endPoint, stops: [], pickupStart: "", dropStart: "",
-                status: "Active", studentCount: 0, monthlyFee: null, _o: Date.now(), ...stamp(),
-              });
-            });
-            toast("Bus added");
-          }
-          setForm(null);
-        }} />}
-      {open && !form && <BusDetail bus={open} crew={crew} students={students} buses={buses.rows}
-        onClose={() => onOpenBus(null)} onEdit={() => setForm({ mode: "operations", edit: open })}
-        onEditVehicle={() => setForm({ mode: "vehicle", edit: open })} />}
-      <Modal open={!!del} onClose={() => setDel(null)} title="Delete bus?" subtitle={del ? `${busLabel(del)} · ${del.routeName}` : ""}
-        footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" disabled={busy} onClick={() => del && removeBus(del)}>Delete</Button></>}>
-        <p className="text-on-surface-variant">This removes the bus permanently. {del && onBus(del.id).length > 0 ? `${onBus(del.id).length} student(s) are taken off the bus and ` : ""}its crew become unassigned.</p></Modal>
-    </>
-  );
-}
-
-type StopDraft = BusStop & { landmark: string };
-function BusForm({ edit, existing, onBus, onClose, onSave }: { edit: Bus; existing: Bus[]; onBus: number; onClose: () => void; onSave: (v: Omit<Bus, "id" | "studentCount">) => Promise<void> }) {
-  const [f, setF] = useState({ number: edit?.number ?? "", regNo: edit?.regNo ?? "", capacity: String(edit?.capacity ?? 40), monthlyFee: edit?.monthlyFee == null ? "" : String(edit.monthlyFee), model: edit?.model ?? "", routeName: edit?.routeName ?? "", pickupStart: edit?.pickupStart ?? "06:45", dropStart: edit?.dropStart ?? "15:30", status: edit?.status ?? "Active", note: edit?.note ?? "" });
-  const [stops, setStops] = useState<StopDraft[]>(stopsOf(edit).map((s) => ({ ...s, landmark: s.landmark ?? "" })));
-  const [err, setErr] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const set = (k: keyof typeof f, v: string) => setF((p) => ({ ...p, [k]: v }));
-  const setStop = (i: number, k: keyof StopDraft, v: string) => setStops((p) => p.map((s, j) => (j === i ? { ...s, [k]: v } : s)));
-  const move = (i: number, d: -1 | 1) => setStops((p) => moveStop(p, i, d));
-  const addStop = () => {
-    if (!f.pickupStart) set("pickupStart", "06:45");
-    if (!f.dropStart) set("dropStart", "15:30");
-    setStops((p) => [...p, { id: nextStopId(p), name: "", pickupTime: p.at(-1)?.pickupTime ?? (f.pickupStart || "06:45"), dropTime: p.at(-1)?.dropTime ?? (f.dropStart || "15:30"), landmark: "" }]);
-  };
-  async function submit() {
-    const e = validateBus(f, stops, existing, edit.id, onBus, !!edit.endPoint);
-    if (edit.totalSeats != null && Number(f.capacity) > edit.totalSeats) e.capacity ??= "Student seating cannot exceed total seating";
-    setErr(e); if (Object.keys(e).length) return;
-    const body: Omit<Bus, "id" | "studentCount"> = { number: f.number.trim(), regNo: f.regNo.trim().toUpperCase().replace(/\s+/g, "-"), capacity: Number(f.capacity), routeName: f.routeName.trim(), pickupStart: f.pickupStart, dropStart: f.dropStart, status: f.status as BusStatus,
-      stops: stops.map((s) => ({ id: s.id, name: s.name.trim(), pickupTime: s.pickupTime, dropTime: s.dropTime, ...(s.landmark.trim() ? { landmark: s.landmark.trim() } : {}) })), model: f.model.trim(), note: f.note.trim(), monthlyFee: f.monthlyFee.trim() ? Number(f.monthlyFee) : null };
-    setSaving(true);
-    try { await onSave(body); } finally { setSaving(false); }
-  }
-  return (
-    <SlideOver open onClose={onClose} title={`Edit ${busLabel(edit)}`} subtitle="Bus, route timings and stops in route order" width="max-w-xl"
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button onClick={submit} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button></>}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Bus number" required error={err.number}><Input value={f.number} onChange={(e) => set("number", e.target.value)} placeholder="14" /></Field>
-        <Field label="Registration no" required error={err.regNo}><Input value={f.regNo} onChange={(e) => set("regNo", e.target.value)} placeholder="DL-01-AB-4092" /></Field>
-        <Field label="Capacity (seats)" required error={err.capacity}><Input type="number" min={1} value={f.capacity} onChange={(e) => set("capacity", e.target.value)} /></Field>
-        <Field label="Model"><Input value={f.model} onChange={(e) => set("model", e.target.value)} placeholder="42-seater AC" /></Field>
-        <Field label="Route name" required error={err.routeName} className="sm:col-span-2"><Input value={f.routeName} onChange={(e) => set("routeName", e.target.value)} placeholder="Route 4B" /></Field>
-        <Field label="Pickup starts" hint="Leaves the first stop" error={err.pickupStart}><Input type="time" value={f.pickupStart} onChange={(e) => set("pickupStart", e.target.value)} /></Field>
-        <Field label="Drop starts" hint="Leaves the school" error={err.dropStart}><Input type="time" value={f.dropStart} onChange={(e) => set("dropStart", e.target.value)} /></Field>
-        <Field label="Status"><Select value={f.status} onChange={(e) => set("status", e.target.value)}>{STATUS.map((s) => <option key={s}>{s}</option>)}</Select></Field>
-        <Field label="Note" className="sm:col-span-2"><Textarea value={f.note} onChange={(e) => set("note", e.target.value)} className="min-h-16" placeholder="e.g. Fitness certificate due in March" /></Field>
+  return <>
+    <Card className="pt-4">
+      <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
+        <p className="text-on-surface-variant">Click a bus to view its details, crew, students and stops.</p>
+        <Button className="ml-auto" variant="outline" onClick={() => setReminders(true)}>Expiry reminders</Button>
+        <Button disabled={!buses.ready} onClick={() => setAdding(true)}><Plus size={16} />Add Bus</Button>
       </div>
-      <section className="mt-6 rounded-lg border border-outline-variant/60 p-4">
-        <h3 className="mb-3 text-sm font-semibold">Transportation fee</h3>
-        <Field label="Monthly transport fee (₹)" hint="Per student assigned to this bus. Leave blank if not yet decided, or enter 0 for free transport." error={err.monthlyFee}><Input type="number" min={0} max={10000000} step={0.01} value={f.monthlyFee} onChange={(e) => set("monthlyFee", e.target.value)} placeholder="e.g. 1200" /></Field>
-      </section>
-      <section className="mt-6">
-        <div className="mb-2 flex items-center justify-between"><h3 className="t-label-caps text-on-surface-variant">Stops ({stops.length})</h3><Button size="sm" variant="outline" onClick={addStop}><Plus size={14} />Add stop</Button></div>
-        {err.stops && <p className="mb-2 text-xs text-error" role="alert">{err.stops}</p>}
-        {stops.length === 0 && <p className="rounded-lg bg-surface-container-low p-3 text-sm text-on-surface-variant">No stops yet. Add them in route order; the school itself is not a stop.</p>}
-        <ol className="space-y-2">
-          {stops.map((s, i) => (
-            <li key={s.id} className="rounded-lg border border-outline-variant/60 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs text-outline"><span className="font-mono">{i + 1}. {s.id}</span>
-                <span className="ml-auto flex gap-1">
-                  <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={14} /></Button>
-                  <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === stops.length - 1} onClick={() => move(i, 1)}><ArrowDown size={14} /></Button>
-                  <Button size="sm" variant="ghost" aria-label="Remove stop" onClick={() => setStops((p) => p.filter((_, j) => j !== i))}><Trash2 size={14} className="text-error" /></Button></span></div>
-              <div className="grid gap-2 sm:grid-cols-[1fr_96px_96px_1fr]">
-                <Input value={s.name} onChange={(e) => setStop(i, "name", e.target.value)} placeholder="Stop name" aria-label="Stop name" />
-                <Input type="time" value={s.pickupTime} onChange={(e) => setStop(i, "pickupTime", e.target.value)} aria-label="Pickup time" />
-                <Input type="time" value={s.dropTime} onChange={(e) => setStop(i, "dropTime", e.target.value)} aria-label="Drop time" />
-                <Input value={s.landmark} onChange={(e) => setStop(i, "landmark", e.target.value)} placeholder="Landmark" aria-label="Landmark" />
-              </div>
-            </li>))}
-        </ol>
-      </section>
-    </SlideOver>
-  );
-}
-
-function BusDetail({ bus, crew, students, buses, onClose, onEdit, onEditVehicle }: { bus: Bus; crew: Crew[]; students: Student[]; buses: Bus[]; onClose: () => void; onEdit: () => void; onEditVehicle: () => void }) {
-  const toast = useToast();
-  const [tab, setTab] = useState("crew");
-  const [busy, setBusy] = useState(false);
-  const assigned = useMemo(() => students.filter((s) => s.busId === bus.id).sort((a, b) => a.name.localeCompare(b.name)), [students, bus.id]);
-  const [q, setQ] = useState(""); const [grade, setGrade] = useState(""); const [section, setSection] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
-  const stops = stopsOf(bus);
-  const [stopFor, setStopFor] = useState(stops[0]?.id ?? "");
-  const [addErr, setAddErr] = useState("");
-  const candidates = useMemo(() => students.filter((s) => s.busId !== bus.id && (!grade || s.grade === grade) && (!section || s.section === section)
-    && (!q || `${s.name} ${s.grn} ${s.guardian}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name)), [students, bus.id, grade, section, q]);
-  const stopName = (id?: string) => stops.find((s) => s.id === id)?.name ?? "";
-
-  async function allot(role: "driver" | "attendant", crewId: string) {
-    const seat = role === "driver" ? bus.driverId : bus.attendantId;
-    if ((crewId || "") === (seat || "")) return;
-    setBusy(true);
-    try {
-      const batch = writeBatch(db);
-      const c = crew.find((x) => x.id === crewId) ?? (seat ? crew.find((x) => x.id === seat) : undefined);
-      if (!c) return;
-      applyAllot(batch, planAllot(c, crewId ? bus.id : "", crew, buses));
-      await batch.commit(); toast(crewId ? `${c.name} allotted to ${busLabel(bus)}` : `${c.name} removed from ${busLabel(bus)}`);
-    } catch { toast("Could not update the crew", "error"); } finally { setBusy(false); }
-  }
-  /** writes students.busId/bus/busStopId/busStop for every change and recomputes studentCount on every touched bus (contract 14.2) */
-  async function assign(changes: { s: Student; busId: string | null; stopId?: string }[]) {
-    if (!changes.length) return false;
-    setBusy(true);
-    try {
-      const batch = writeBatch(db); const st = stamp();
-      const moves = new Map<string, string>();
-      const touched = new Set<string>([bus.id]);
-      for (const { s, busId, stopId } of changes) {
-        if (s.busId) touched.add(s.busId); if (busId) touched.add(busId);
-        moves.set(s.id, busId ?? "");
-        const b = busId ? buses.find((x) => x.id === busId) : undefined;
-        const stop = stopId && b ? stopsOf(b).find((x) => x.id === stopId) : undefined;
-        batch.update(schoolDoc("students", s.id), busId && b
-          ? { busId, bus: busLabel(b), ...(stop ? { busStopId: stop.id, busStop: stop.name } : { busStopId: deleteField(), busStop: deleteField() }), ...st }
-          : { busId: deleteField(), bus: deleteField(), busStopId: deleteField(), busStop: deleteField(), ...st });
-      }
-      const counts = busStudentCounts(students, moves);
-      for (const id of touched) if (buses.some((b) => b.id === id)) batch.update(schoolDoc("tr_buses", id), { studentCount: counts.get(id) ?? 0, ...st });
-      await batch.commit();
-      return true;
-    } catch { toast("Could not update the students", "error"); return false; } finally { setBusy(false); }
-  }
-  const byRole = (r: "driver" | "attendant") => crew.filter((c) => c.role === r && c.status !== "Inactive").sort((a, b) => a.name.localeCompare(b.name));
-  const seatSelect = (role: "driver" | "attendant", seatId?: string) => (
-    <Field label={role === "driver" ? "Driver" : "Attendant (bus staff)"}>
-      <Select value={seatId ?? ""} disabled={busy} onChange={(e) => allot(role, e.target.value)}>
-        <option value="">Unassigned</option>
-        {byRole(role).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.empId}{c.busId && c.busId !== bus.id ? ` (on ${c.bus})` : ""}</option>)}
-      </Select></Field>);
-
-  return (
-    <SlideOver open onClose={onClose} title={busLabel(bus)} subtitle={`${bus.endPoint || bus.routeName} · ${bus.regNo} · ${assigned.length}/${bus.capacity} seats`} width="max-w-2xl"
-      footer={<><Badge tone={statusTone[bus.status] ?? "neutral"} className="mr-auto self-center">{bus.status}</Badge><Button variant="outline" onClick={onEditVehicle}>Edit vehicle details</Button><Button variant="outline" onClick={onEdit}><Pencil size={14} />Edit bus</Button></>}>
-      <div className="mb-4 rounded-lg border border-outline-variant/60 bg-surface-container-low p-4"><p className="text-xs text-on-surface-variant">Monthly transport fee per student</p><p className="mt-1 text-lg font-semibold">{bus.monthlyFee == null ? "Not configured" : inrFull(bus.monthlyFee)}</p><p className="mt-1 text-xs text-on-surface-variant">This bus&apos;s rate applies to its assigned students. Update it using Edit bus.</p></div>
-      <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ id: "crew", label: "Crew" }, { id: "students", label: "Students", count: assigned.length }, { id: "stops", label: "Stops", count: stops.length }]} />
-      {tab === "crew" && <div className="space-y-4">
-        <p className="text-sm text-on-surface-variant">Allotting a crew member here moves them off their previous bus and frees this seat&apos;s previous holder.</p>
-        <div className="grid gap-4 sm:grid-cols-2">{seatSelect("driver", bus.driverId)}{seatSelect("attendant", bus.attendantId)}</div>
-        <dl className="grid grid-cols-[120px_1fr] gap-y-2 rounded-lg bg-surface-container-low p-3 text-sm">
-          {(["driver", "attendant"] as const).map((r) => { const c = crew.find((x) => x.id === (r === "driver" ? bus.driverId : bus.attendantId));
-            return <Fragment key={r}><dt className="text-outline">{r === "driver" ? "Driver" : "Attendant"}</dt><dd>{c ? <>{c.name} <span className="text-outline">· {c.phone}{c.status !== "Active" ? ` · ${c.status}` : ""}</span></> : "—"}</dd></Fragment>; })}
-        </dl>
-      </div>}
-      {tab === "students" && <div className="space-y-5">
-        <section>
-          <h3 className="t-label-caps mb-2 text-on-surface-variant">On this bus ({assigned.length})</h3>
-          {assigned.length === 0 ? <p className="rounded-lg bg-surface-container-low p-3 text-sm text-on-surface-variant">No students assigned yet.</p> : (
-            <ul className="divide-y divide-outline-variant/40 rounded-lg border border-outline-variant/60">
-              {assigned.map((s) => (
-                <li key={s.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
-                  <div className="min-w-0 flex-1"><div className="truncate font-medium">{s.name}</div><div className="t-caption text-outline">{studentLabel(s)} · {s.grn}</div></div>
-                  <Select aria-label={`Stop for ${s.name}`} className="w-48" value={s.busStopId ?? ""} disabled={busy} onChange={(e) => assign([{ s, busId: bus.id, stopId: e.target.value || undefined }])}>
-                    <option value="">No stop</option>{stops.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</Select>
-                  <Button size="sm" variant="ghost" aria-label={`Remove ${s.name}`} disabled={busy} onClick={() => assign([{ s, busId: null }])}><UserMinus size={14} className="text-error" /></Button>
-                </li>))}
-            </ul>)}
-        </section>
-        <section>
-          <h3 className="t-label-caps mb-2 text-on-surface-variant">Add students</h3>
-          <div className="mb-2 flex flex-wrap gap-2">
-            <SearchBox value={q} onChange={setQ} placeholder="Search name, GRN, guardian…" className="w-full max-w-xs" />
-            <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-32"><option value="">All grades</option>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select>
-            <Select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)} className="w-28"><option value="">All sections</option>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select>
-          </div>
-          <ul className="max-h-64 divide-y divide-outline-variant/40 overflow-y-auto rounded-lg border border-outline-variant/60">
-            {candidates.length === 0 && <li className="p-3 text-sm text-on-surface-variant">No students match.</li>}
-            {candidates.slice(0, 200).map((s) => (
-              <li key={s.id}><label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-surface-container-low">
-                <Checkbox aria-label={`Select ${s.name}`} checked={picked.includes(s.id)} onChange={(e) => { setAddErr(""); setPicked((p) => (e.target.checked ? [...p, s.id] : p.filter((x) => x !== s.id))); }} />
-                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{s.name}</span><span className="t-caption text-outline">{studentLabel(s)} · {s.grn}{s.bus ? ` · on ${s.bus}` : ""}</span></span>
-              </label></li>))}
-          </ul>
-          <div className="mt-3 flex flex-wrap items-end gap-2">
-            <Field label="Stop for the selected students" className="w-56"><Select value={stopFor} onChange={(e) => setStopFor(e.target.value)}><option value="">No stop</option>{stops.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</Select></Field>
-            <Button disabled={!picked.length || busy} onClick={async () => {
-              const sel = students.filter((s) => picked.includes(s.id));
-              const over = capacityError(bus.capacity, assigned.length, sel.length, busLabel(bus));
-              if (over) { setAddErr(over); return; }
-              if (await assign(sel.map((s) => ({ s, busId: bus.id, stopId: stopFor || undefined })))) { setPicked([]); toast(`${sel.length} student${sel.length === 1 ? "" : "s"} added to ${busLabel(bus)}`); }
-            }}>
-              <Plus size={14} />Add {picked.length || ""} student{picked.length === 1 ? "" : "s"}</Button>
-            {assigned.length + picked.length > bus.capacity && <Badge tone="danger">Over capacity</Badge>}
-          </div>
-          {addErr && <p className="mt-2 text-xs text-error" role="alert">{addErr}</p>}
-        </section>
-      </div>}
-      {tab === "stops" && (stops.length === 0 ? <EmptyState title="No stops" hint="Edit the bus to add its stops in route order." action={<Button variant="outline" onClick={onEdit}>Edit bus</Button>} /> : (
-        <table className="w-full text-left text-sm">
-          <thead><tr className="border-b border-outline-variant/60 text-on-surface-variant"><th className="py-2 pr-3 t-label-caps !text-[11px]">#</th><th className="py-2 pr-3 t-label-caps !text-[11px]">Stop</th><th className="py-2 pr-3 t-label-caps !text-[11px]">Pickup</th><th className="py-2 pr-3 t-label-caps !text-[11px]">Drop</th><th className="py-2 t-label-caps !text-[11px] text-right">Students</th></tr></thead>
-          <tbody>{stops.map((st, i) => (
-            <tr key={st.id} className="border-b border-outline-variant/40 last:border-0"><td className="py-2 pr-3 font-mono text-outline">{i + 1}</td>
-              <td className="py-2 pr-3"><div className="font-medium">{st.name}</div>{st.landmark && <div className="t-caption text-outline">{st.landmark}</div>}</td>
-              <td className="py-2 pr-3 font-mono">{t12(st.pickupTime)}</td><td className="py-2 pr-3 font-mono">{t12(st.dropTime)}</td>
-              <td className="py-2 text-right">{assigned.filter((s) => s.busStopId === st.id).length}</td></tr>))}
-            {assigned.some((s) => !s.busStopId) && <tr><td className="py-2 pr-3 text-outline">—</td><td className="py-2 pr-3 text-on-surface-variant" colSpan={3}>No stop set</td><td className="py-2 text-right">{assigned.filter((s) => !stopName(s.busStopId)).length}</td></tr>}
-          </tbody>
-        </table>))}
-    </SlideOver>
-  );
+      {buses.ready ? <DataTable rows={buses.rows} columns={cols} pageSize={10} onRowClick={(bus) => router.push(busDetailsHref(bus.id))}
+        searchText={(bus) => `${bus.number} ${bus.regNo} ${bus.displayName ?? ""} ${bus.endPoint ?? ""} ${bus.routeName} ${bus.driver ?? ""} ${bus.attendant ?? ""}`}
+        empty={<EmptyState title="No buses yet" hint="Add a bus with its vehicle details and route end point." />} />
+        : <p role="status" className="px-5 pb-5 text-on-surface-variant">Loading buses…</p>}
+    </Card>
+    {reminders && <ExpiryReminderSettings onClose={() => setReminders(false)} />}
+    {adding && <VehicleForm existing={buses.rows} assigned={0} onClose={() => setAdding(false)} onSave={async (values) => {
+      const id = nextBusId(buses.rows.map((bus) => bus.id));
+      const ref = schoolDoc("tr_buses", id);
+      await runTransaction(db, async (transaction) => {
+        if ((await transaction.get(ref)).exists()) throw new Error("Another bus was just added. Check the form and try again.");
+        transaction.set(ref, {
+          ...values, id, routeName: values.endPoint, stops: [], pickupStart: "", dropStart: "",
+          status: "Active", studentCount: 0, monthlyFee: null, _o: Date.now(), ...stamp(),
+        });
+      });
+      toast("Bus added");
+      setAdding(false);
+    }} />}
+  </>;
 }

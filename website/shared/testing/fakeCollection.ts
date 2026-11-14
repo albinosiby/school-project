@@ -3,6 +3,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { ADMIN_UID, SCHOOL_ID, getVersion, rawDelete, rawSet, rawUpdate, rowsOf, subscribe } from "./fakeDb";
 
 type Row = { id: string };
+const EMPTY: Row[] = [];
 let scope: string | null = SCHOOL_ID;
 export const currentSchoolId = () => scope;
 export const setCollectionScope = (next: string | null) => { scope = next; };
@@ -27,8 +28,10 @@ function snapshot(name: string) {
   return out;
 }
 
-export function useCollection<T extends Row>(name: string) {
-  const rows = useSyncExternalStore(subscribe, () => snapshot(name), () => snapshot(name)) as T[];
+export function useCollection<T extends Row>(name: string, enabled = true) {
+  const subscribeWhenEnabled = useCallback((callback: () => void) => enabled ? subscribe(callback) : () => {}, [enabled]);
+  const getRows = () => enabled ? snapshot(name) : EMPTY;
+  const rows = useSyncExternalStore(subscribeWhenEnabled, getRows, getRows) as T[];
   const create = useCallback(async (body: Omit<T, "id"> & { id?: string }) => {
     const id = (body as { id?: string }).id || newId(name);
     const row = { ...body, id } as unknown as T;
@@ -41,5 +44,10 @@ export function useCollection<T extends Row>(name: string) {
     return { ...(rowsOf<Row>(name).find((r) => r.id === id) ?? {}), ...patch, id } as T;
   }, [name]);
   const remove = useCallback(async (id: string) => { rawDelete(name, id); }, [name]);
-  return { rows, ready: true, create, update, remove, reload: () => {} };
+  return { rows, ready: enabled, error: undefined, create, update, remove, reload: () => {} };
 }
+
+const NO_ISSUES: [] = [];
+export const useCollectionFailures = () => NO_ISSUES;
+export const useCollectionPending = () => NO_ISSUES;
+export const retryCollection = () => {};

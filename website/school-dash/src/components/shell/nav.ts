@@ -1,4 +1,4 @@
-import { BookOpenCheck, Bus, CalendarDays, ClipboardCheck, GraduationCap, Banknote, LayoutDashboard, MessagesSquare, Settings2, UserPlus, Users, Briefcase, BookText, School, Video } from "lucide-react";
+import { BookOpenCheck, Bus, GraduationCap, Banknote, LayoutDashboard, MessagesSquare, Settings2, UserPlus, Users, Briefcase, School } from "lucide-react";
 
 export const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -6,11 +6,7 @@ export const NAV = [
   { href: "/students", label: "Students & Guardians", icon: Users },
   { href: "/staff", label: "Staff & HR", icon: Briefcase },
   { href: "/classes", label: "Classes & Assignments", icon: School },
-  { href: "/attendance", label: "Attendance", icon: ClipboardCheck },
   { href: "/transport", label: "Transport", icon: Bus },
-  { href: "/timetable", label: "Timetable", icon: CalendarDays },
-  { href: "/live-classes", label: "Live Classes", icon: Video },
-  { href: "/academics", label: "Academics & Homework", icon: BookText },
   { href: "/exams", label: "Exams & Results", icon: GraduationCap },
   { href: "/fees", label: "Fees & Payments", icon: Banknote },
   { href: "/communication", label: "Communication & Reports", icon: MessagesSquare },
@@ -18,6 +14,7 @@ export const NAV = [
 ] as const;
 
 export const EXTRA_PAGES = [
+  { href: "/settings?section=timetable", label: "Timetable" },
   { href: "/approvals", label: "Approvals Inbox" },
   { href: "/calendar", label: "Academic Calendar" },
   { href: "/notifications", label: "Notifications" },

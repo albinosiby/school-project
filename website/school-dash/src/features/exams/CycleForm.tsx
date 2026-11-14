@@ -1,294 +1,1127 @@
 "use client";
-import { teachingStaff } from "@/features/ops/shared";
+
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
-import { doc, writeBatch } from "firebase/firestore";
-import { Check, FileText, Plus, Trash2, Upload, X } from "lucide-react";
-import { Badge, Button, Card, Field, Input, PageHeader, Select, Switch, Textarea, useToast } from "@/components/ui";
-import { cn } from "@/lib/cn";
-import { auth, db } from "@/lib/firebase";
-import { currentSchoolId, useCollection } from "@/lib/useCollection";
-import { parseCsv } from "@/features/fees/csv";
-import { candidateChanges, candidatesFor, classIdOf, cycleErrors, isActiveStudent, slotClashes, type CycleSlot, type StudentRow } from "./logic";
+import { ArrowLeft, ArrowRight, Check, Plus, Trash2, X } from "lucide-react";
+import {
+  Button,
+  Card,
+  Checkbox,
+  Field,
+  Input,
+  PageHeader,
+  Select,
+  Textarea,
+  useToast,
+} from "@/components/ui";
+import { classStream, compareGrades, isSeniorGrade, streamName, type AcademicClass } from "@/lib/academicStreams";
+import { useSchoolSubjects } from "@/lib/schoolSubjects";
+import { useCollection } from "@/lib/useCollection";
+import { teachingStaff, type StaffRef } from "@/features/ops/shared";
+import {
+  classKey,
+  className,
+  EXAM_TYPES,
+  initialSetup,
+  newAssessment,
+  participants,
+  SETUP_STEPS,
+  setupErrors,
+  studentClass,
+  type Assessment,
+  type ExamRules,
+  type ExamSetup,
+} from "./examSetup";
+import { assessmentsFromScheme, schemeId, type ExamType, type SubjectScheme } from "./assessmentScheme";
+import { isActiveStudent, paperEnd, subjectTeacherId, type StudentRow } from "./logic";
+import { saveExamSetup } from "./saveExamSetup";
 import type { Candidate, Cycle, Paper } from "./types";
 
-type Slot = CycleSlot;
-
-/** Upserts exm_candidates (cand_{studentId}, contract 3) for the active students of the cycle's grades, 400 per batch. */
-async function syncCandidates(existing: Candidate[], students: StudentRow[], grades: string[]) {
-  const changes = candidateChanges(existing, candidatesFor(students, grades));
-  const sid = currentSchoolId();
-  if (!changes.length || !sid) return 0;
-  const have = new Set(existing.map((c) => c.id));
-  for (let i = 0; i < changes.length; i += 400) {
-    const b = writeBatch(db);
-    const st = { updatedAt: new Date().toISOString(), updatedBy: auth.currentUser?.uid ?? "" };
-    changes.slice(i, i + 400).forEach((c, k) => b.set(doc(db, "schools", sid, "exm_candidates", c.id), { ...c, ...st, ...(have.has(c.id) ? {} : { _o: Date.now() - i - k }) }, { merge: true }));
-    await b.commit();
-  }
-  return changes.length;
-}
-const PARTS = ["Periodic", "Portfolio", "Enrichment", "Multiple"];
-const ALL_GRADES = ["8", "9", "10", "11", "12"];
-const blank = {
-  title: "", term: "Term 2 (Spring) · AY 2026-27", category: "CBSE Board", start: "", end: "", declaration: "", instructions: "", circular: "",
-  grades: ["8", "9", "10"], sections: "all" as "all" | "custom", enforceAttendance: true, theoryMax: 80, internalMax: 20, internalParts: [5, 5, 5, 5],
-  scale: "CBSE 9-Point Scale (A1 to E2)", passRule: "Min 33% independently in Theory & Practical (Bylaws §14.2)", grace: "Up to 5 Marks (Council Approval Req.)",
-  qr: true, sealed: true, biometric: true,
+type Assignment = {
+  id: string;
+  classId: string;
+  subject: string;
+  teacherId: string;
 };
-let n = 0;
-const nk = () => `s${Date.now()}_${n++}`;
-
-function Step({ n, title, badge, desc, right, children }: { n: number; title: string; badge?: React.ReactNode; desc: string; right?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <Card className="mb-5">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-outline-variant/50 p-5">
-        <div className="flex items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-secondary font-bold text-on-secondary">{n}</span>
-          <div><h2 className="flex flex-wrap items-center gap-2 t-headline-md !text-[17px]">Step {n} · {title} {badge}</h2><p className="mt-0.5 text-on-surface-variant">{desc}</p></div>
-        </div>{right}
-      </div>
-      <div className="p-5">{children}</div>
-    </Card>
-  );
-}
-
-function CycleFormInner({ cycleId, initF, initSlots, initStatus }: { cycleId?: string; initF: typeof blank; initSlots: Slot[]; initStatus?: Cycle["status"] }) {
-  const router = useRouter();
-  const toast = useToast();
-  const cycles = useCollection<Cycle>("exm_cycles");
-  const papers = useCollection<Paper>("exm_papers");
-  const staff = teachingStaff(useCollection<{ id: string; name: string; department: string; status: string; staffRole?: string }>("staff").rows);
-  const [f, setF] = useState(initF);
-  const [slots, setSlots] = useState<Slot[]>(initSlots);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const csvRef = useRef<HTMLInputElement>(null);
-  const createdId = useRef<string | undefined>(undefined); // a retry after a failed paper write must not create a second cycle
-  const students = useCollection<StudentRow & { grade: string; section: string }>("students").rows;
-  const classRows = useCollection<{ id: string; grade: string; section: string }>("classes").rows;
-  const cands = useCollection<Candidate>("exm_candidates");
-  const school = useCollection<{ id: string; affiliation?: string; board?: string }>("school").rows[0];
-  const dirty = JSON.stringify(f) !== JSON.stringify(initF) || JSON.stringify(slots) !== JSON.stringify(initSlots);
-  // real roster figures (were hard-coded demo numbers)
-  const enrolled = (g: string) => students.filter((s) => s.grade === g && isActiveStudent(s));
-  const sectionsOf = (g: string) => [...new Set(enrolled(g).map((s) => s.section))].sort();
-  const set = <K extends keyof typeof blank>(k: K, v: (typeof blank)[K]) => setF((x) => ({ ...x, [k]: v }));
-
-  const candidates = f.grades.reduce((a, g) => a + enrolled(g).length, 0);
-  const sectionCount = f.grades.reduce((a, g) => a + sectionsOf(g).length, 0);
-  const weightOk = f.theoryMax > 0 && f.internalMax >= 0 && f.theoryMax + f.internalMax === 100;
-  // same date, overlapping time, and the same grade, venue or invigilator
-  const clashes = slotClashes(slots).length;
-  /** the classes sitting a grade's papers (contract 3: exm_papers.classIds): the grade's classes, else its students' sections */
-  const classIdsOf = (g: string) => [...new Set([...classRows.filter((c) => String(c.grade) === g).map((c) => c.id), ...(classRows.some((c) => String(c.grade) === g) ? [] : sectionsOf(g).map((sec) => classIdOf(g, sec)))])].sort();
-  const days = f.start && f.end ? Math.max(0, Math.round((+new Date(f.end) - +new Date(f.start)) / 864e5) + 1) : 0;
-  const postDays = f.end && f.declaration ? Math.round((+new Date(f.declaration) - +new Date(f.end)) / 864e5) : 0;
-
-  const validate = () => {
-    const e = cycleErrors(f, slots);
-    setErrors(e);
-    if (Object.keys(e).length) { toast(Object.values(e)[0], "error"); return false; }
-    return true;
-  };
-
-  const save = async (status: Cycle["status"]) => {
-    if (status !== "Draft" && !validate()) return;
-    if (status === "Draft" && !f.title.trim()) { setErrors({ title: "Title is required" }); return toast("Give the cycle a title first", "error"); }
-    if (status === "Draft" && f.start && f.end && f.end < f.start) { setErrors({ end: "End must be after start" }); return toast("End must be after start", "error"); }
-    setSaving(true);
-    try {
-      const body = { ...f, short: f.title.replace(/ Examinations?| 20\d\d-\d\d$/g, "").trim() || f.title, status } as Omit<Cycle, "id">;
-      let id = cycleId ?? createdId.current;
-      // editing keeps a Live/Completed cycle's status; only a Draft moves to Scheduled
-      const was = cycleId ? cycles.rows.find((c) => c.id === cycleId)?.status ?? initStatus : undefined;
-      const next = status === "Draft" ? "Draft" : was === "Live" || was === "Completed" ? was : status;
-      if (id) await cycles.update(id, { ...body, status: next });
-      else { id = (await cycles.create(body)).id; createdId.current = id; }
-      const existing = papers.rows.filter((p) => p.cycleId === id);
-      for (const p of existing) if (!slots.some((s) => s.id === p.id)) await papers.remove(p.id);
-      for (const s of slots) {
-        const data = { cycleId: id!, grade: s.grade, subject: s.subject.trim(), code: s.code.trim(), date: s.date, start: s.start, duration: s.duration, theory: f.theoryMax, internal: f.internalMax, internalType: "Internal", venue: s.venue.trim(), invigilator: s.invigilator, invigilatorId: s.invigilatorId ?? staff.find((t) => t.name === s.invigilator)?.id ?? "", classIds: classIdsOf(s.grade) };
-        if (s.id) await papers.update(s.id, data);
-        else { const row = await papers.create({ ...data, status: "Scheduled", marksEntered: false, published: [] } as Omit<Paper, "id">); upd(s.key, { id: row.id }); }
-      }
-      // one exm_candidates row per student of the cycle's grades (the teacher app seats them; marks use cand_{studentId})
-      if (status !== "Draft") await syncCandidates(cands.rows, students, f.grades);
-      toast(status === "Draft" ? "Draft saved" : cycleId ? "Exam cycle updated" : "Exam cycle scheduled & published");
-      router.push("/exams");
-    } catch { toast("Could not save exam cycle", "error"); setSaving(false); }
-  };
-
-  const upd = (key: string, patch: Partial<Slot>) => setSlots((x) => x.map((s) => (s.key === key ? { ...s, ...patch } : s)));
-  const addSlot = () => setSlots((x) => [...x, { key: nk(), subject: "", code: "", grade: f.grades[0] ?? "8", date: "", start: "09:00", duration: 2.5, venue: "", invigilator: "" }]);
-  const importCsv = async (file?: File) => {
-    if (!file) return;
-    const rows = parseCsv(await file.text()).filter((r) => r.length >= 4 && r[0].toLowerCase() !== "subject");
-    if (!rows.length) return toast("CSV needs: subject,code,grade,date,start,duration,venue,invigilator", "error");
-    setSlots((x) => [...x, ...rows.map((r) => ({ key: nk(), subject: r[0], code: r[1], grade: r[2] || "8", date: r[3], start: r[4] || "09:00", duration: Number(r[5]) || 2.5, venue: r[6] ?? "", invigilator: r[7] ?? "" }))]);
-    toast(`Imported ${rows.length} paper slots`);
-    if (csvRef.current) csvRef.current.value = "";
-  };
-
-  return (
-    <div className="pb-28">
-      <PageHeader title={cycleId ? "Edit Examination Cycle" : "Create New Examination Cycle"} subtitle="Unified configuration workspace: define term parameters, candidate cohorts, assessment scheme, and schedule paper slots."
-        actions={school?.affiliation ? <Badge tone="success">{school.board ? `${school.board} ` : ""}Affiliation {school.affiliation}</Badge> : undefined} />
-
-      <Step n={1} title="Basic Details & Academic Term" badge={<Badge tone="info">REQUIRED</Badge>} desc="Define examination cycle parameters, term session, statutory category, and official schedule dates."
-        right={f.title && f.start && f.end && f.declaration ? <Badge tone="success"><Check size={12} />Configured</Badge> : <Badge>Incomplete</Badge>}>
-        <div className="grid gap-4 md:grid-cols-[2fr_1fr]">
-          <Field label="Exam Cycle Title" required error={errors.title}><Input value={f.title} onChange={(e) => set("title", e.target.value)} placeholder="Term 2 Pre-Board Examinations 2026-27" /></Field>
-          <Field label="Academic Term & Year" required error={errors.term}>
-            <Select value={f.term} onChange={(e) => set("term", e.target.value)}>
-              {["Term 1 (Autumn) · AY 2026-27", "Term 2 (Spring) · AY 2026-27"].map((t) => <option key={t}>{t}</option>)}
-            </Select>
-          </Field>
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
-          <div><span className="mb-1.5 block text-xs font-semibold text-on-surface-variant">Examination Category</span>
-            <div className="flex gap-2" role="radiogroup" aria-label="Examination category">
-              {["CBSE Board", "Internal", "Diagnostic"].map((c) => (
-                <button key={c} type="button" role="radio" aria-checked={f.category === c} onClick={() => set("category", c)}
-                  className={cn("h-10 cursor-pointer rounded border px-3 text-xs font-semibold", f.category === c ? "border-secondary bg-info-container text-secondary" : "border-outline-variant text-on-surface-variant hover:bg-surface-container-low")}>{c}</button>))}
-            </div></div>
-          <Field label="Start Date" required error={errors.start} hint={days ? `${days} day window` : undefined}><Input type="date" value={f.start} onChange={(e) => set("start", e.target.value)} /></Field>
-          <Field label="End Date" required error={errors.end}><Input type="date" value={f.end} onChange={(e) => set("end", e.target.value)} /></Field>
-          <Field label="Target Declaration" required error={errors.declaration} hint={postDays > 0 ? `${postDays} days post final exam` : undefined}><Input type="date" value={f.declaration} onChange={(e) => set("declaration", e.target.value)} /></Field>
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-[2fr_1fr]">
-          <Field label="Instructions & Conduct Guidelines"><Textarea value={f.instructions} onChange={(e) => set("instructions", e.target.value)} placeholder="Reporting time, admit card, conduct rules…" /></Field>
-          <div><span className="mb-1.5 block text-xs font-semibold text-on-surface-variant">Official Circular Document</span>
-            {f.circular ? (
-              <div className="flex items-center gap-3 rounded border border-dashed border-outline-variant p-3"><FileText size={18} className="text-secondary" />
-                <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{f.circular}</p><p className="text-xs text-outline">Attached</p></div>
-                <button aria-label="Remove circular" className="cursor-pointer text-outline hover:text-error" onClick={() => set("circular", "")}><X size={16} /></button></div>
-            ) : <Button variant="outline" className="w-full border-dashed" onClick={() => fileRef.current?.click()}><Upload size={16} />Attach PDF circular</Button>}
-            <input ref={fileRef} type="file" accept="application/pdf" className="hidden" aria-label="Circular PDF" onChange={(e) => e.target.files?.[0] && set("circular", e.target.files[0].name)} />
-          </div>
-        </div>
-      </Step>
-
-      <Step n={2} title="Grade, Section & Candidate Scope" badge={<Badge tone="success">{f.grades.length} GRADES ACTIVE</Badge>} desc="Select eligible academic cohorts, configure section rules, and enforce statutory attendance filters."
-        right={<span className="text-on-surface-variant">Candidate Verification: <b className="text-on-surface">{candidates} Enrolled</b></span>}>
-        <span className="mb-2 block text-xs font-semibold text-on-surface-variant">Eligible Grades Cohort</span>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-5" role="group" aria-label="Eligible grades">
-          {ALL_GRADES.map((g) => { const on = f.grades.includes(g); return (
-            <button key={g} type="button" aria-pressed={on} onClick={() => set("grades", on ? f.grades.filter((x) => x !== g) : [...f.grades, g])}
-              className={cn("cursor-pointer rounded-lg border p-3 text-left", on ? "border-secondary bg-info-container/50" : "border-outline-variant text-on-surface-variant")}>
-              <div className="flex items-center justify-between font-semibold"><span>Grade {g}</span>{on ? <Check size={16} className="text-secondary" /> : <span className="size-4 rounded-full border border-outline-variant" />}</div>
-              <div className="mt-1 text-xs">{enrolled(g).length} Students</div><div className="text-xs text-outline">{sectionsOf(g).length ? `Sec ${sectionsOf(g).join(", ")}` : "No sections"}</div>
-            </button>); })}
-        </div>
-        {errors.grades && <p className="mt-1 text-xs text-error">{errors.grades}</p>}
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-outline-variant/60 p-4">
-            <div className="mb-2 flex items-center justify-between font-semibold">Sections Inclusion<Badge tone="success">{f.sections === "all" ? "All Sections Active" : "Custom"}</Badge></div>
-            <div className="flex gap-2">
-              <Button size="sm" variant={f.sections === "all" ? "primary" : "outline"} onClick={() => set("sections", "all")}>All Sections</Button>
-              <Button size="sm" variant={f.sections === "custom" ? "primary" : "outline"} onClick={() => set("sections", "custom")}>Customize Sections</Button>
-            </div>
-            <p className="mt-2 text-on-surface-variant">{f.sections === "all" ? `All ${sectionCount} section${sectionCount === 1 ? "" : "s"} mapped automatically based on current AY registration roster.` : "Section-level selection will be confirmed on the candidate roster."}</p>
-          </div>
-          <div className="rounded-lg border border-outline-variant/60 p-4">
-            <div className="flex items-center justify-between font-semibold">Enforce CBSE ≥75% Attendance<Switch checked={f.enforceAttendance} onChange={(v) => set("enforceAttendance", v)} label="Enforce attendance" /></div>
-            <p className="mt-2 text-on-surface-variant">Automatically flags candidates below 75% for Principal dispensation review & medical exemption override.</p>
-          </div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-info-container/60 p-4">
-          <div><p className="font-semibold">{candidates} Candidates Eligible · {Math.ceil(candidates / 35)} Examination Halls Required</p><p className="text-secondary text-xs">Active students in the selected grades, at 35 per hall</p></div>
-          <Button variant="outline" size="sm" onClick={() => window.open("/students", "_blank", "noopener")}>View Candidate Roster</Button>
-        </div>
-      </Step>
-
-      <Step n={3} title="Assessment Structure, Weightage & Grading Scheme" badge={<Badge tone="info">CBSE 9-POINT SCALE</Badge>} desc="Configure component distribution, pass qualification benchmark, and moderation policies."
-        right={weightOk && !errors.parts ? <Badge tone="success"><Check size={12} />{f.theoryMax} / {f.internalMax} Weightage Valid</Badge> : <Badge tone="danger">Weightage must total 100</Badge>}>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-outline-variant/60 p-4">
-            <div className="flex items-center justify-between gap-2 font-semibold">Component 1: Theory Paper
-              <span className="flex items-center gap-1"><Input aria-label="Theory max marks" type="number" min={0} max={100} className="!h-8 !w-16 text-center" value={f.theoryMax} onChange={(e) => set("theoryMax", Number(e.target.value))} /><span className="text-xs text-on-surface-variant">Marks ({f.theoryMax}%)</span></span></div>
-            <div className="mt-3 h-2 rounded-full bg-surface-container-high"><div className="h-full rounded-full bg-secondary" style={{ width: `${Math.min(100, f.theoryMax)}%` }} /></div>
-            <p className="mt-3 text-on-surface-variant">Formal pen-and-paper centralized evaluation administered under strictly invigilated board protocols.</p>
-          </div>
-          <div className="rounded-lg border border-outline-variant/60 p-4">
-            <div className="flex items-center justify-between gap-2 font-semibold">Component 2: Internal / Practical
-              <span className="flex items-center gap-1"><Input aria-label="Internal max marks" type="number" min={0} max={100} className="!h-8 !w-16 text-center" value={f.internalMax} onChange={(e) => set("internalMax", Number(e.target.value))} /><span className="text-xs text-on-surface-variant">Marks ({f.internalMax}%)</span></span></div>
-            <div className="mt-3 h-2 rounded-full bg-surface-container-high"><div className="h-full rounded-full bg-outline" style={{ width: `${Math.min(100, f.internalMax)}%` }} /></div>
-            <div className="mt-3 grid grid-cols-4 gap-2">{PARTS.map((p, i) => (
-              <label key={p} className="rounded border border-outline-variant/60 p-2 text-center text-xs text-outline">{p}
-                <input aria-label={`${p} marks`} type="number" min={0} className="mt-1 block w-full rounded border-0 bg-transparent text-center text-sm font-semibold text-on-surface focus:outline-2 focus:outline-secondary/30" value={f.internalParts[i]} onChange={(e) => set("internalParts", f.internalParts.map((v, j) => (j === i ? Number(e.target.value) : v)))} /></label>))}
-            </div>
-            {errors.parts && <p className="mt-1 text-xs text-error">{errors.parts}</p>}
-          </div>
-        </div>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <Field label="Grading Scale & Benchmark" hint="Standardized CBSE Secondary Norms"><Select value={f.scale} onChange={(e) => set("scale", e.target.value)}><option>CBSE 9-Point Scale (A1 to E2)</option><option>Percentage only</option><option>5-Point Letter Scale</option></Select></Field>
-          <Field label="Pass Benchmark Rule"><Select value={f.passRule} onChange={(e) => set("passRule", e.target.value)}><option>Min 33% independently in Theory & Practical (Bylaws §14.2)</option><option>Min 33% aggregate</option></Select></Field>
-          <Field label="Grace Marks & Moderation" hint="Subject to Principal Committee sign-off"><Select value={f.grace} onChange={(e) => set("grace", e.target.value)}><option>Up to 5 Marks (Council Approval Req.)</option><option>No grace marks</option><option>Up to 2 Marks per subject</option></Select></Field>
-        </div>
-        {errors.weight && <p className="mt-2 text-xs text-error">{errors.weight}</p>}
-      </Step>
-
-      <Step n={4} title="Timetable, Paper Schedule & Hall Allocations" badge={<Badge tone="success">{slots.length} PAPERS SCHEDULED</Badge>} desc="Manage dates, session timings, venue allocations, chief invigilators, and clash verifications.">
-        <div className="mb-4 flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => csvRef.current?.click()}><Upload size={14} />Import Schedule CSV</Button>
-          <input ref={csvRef} type="file" accept=".csv" className="hidden" aria-label="Import schedule CSV" onChange={(e) => importCsv(e.target.files?.[0])} />
-          <Button variant="outline" size="sm" className="text-secondary" onClick={addSlot}><Plus size={14} />Add Subject Paper Slot</Button>
-        </div>
-        {slots.length === 0 && <p className="rounded-lg border border-dashed border-outline-variant p-6 text-center text-on-surface-variant">No paper slots yet. Add one to build the timetable.</p>}
-        <div className="space-y-3">
-          {slots.map((s, i) => (
-            <div key={s.key} className="grid items-end gap-2 rounded-lg border border-outline-variant/60 p-3 md:grid-cols-12">
-              <Field label="Subject" className="md:col-span-3"><Input value={s.subject} onChange={(e) => upd(s.key, { subject: e.target.value })} placeholder="Mathematics" /></Field>
-              <Field label="Code" className="md:col-span-2"><Input value={s.code} onChange={(e) => upd(s.key, { code: e.target.value.toUpperCase() })} placeholder="MATH-041" /></Field>
-              <Field label="Grade" className="md:col-span-1"><Select value={s.grade} onChange={(e) => upd(s.key, { grade: e.target.value })}>{ALL_GRADES.map((g) => <option key={g}>{g}</option>)}</Select></Field>
-              <Field label="Date" className="md:col-span-2"><Input type="date" value={s.date} onChange={(e) => upd(s.key, { date: e.target.value })} /></Field>
-              <Field label="Start" className="md:col-span-1"><Input type="time" value={s.start} onChange={(e) => upd(s.key, { start: e.target.value })} /></Field>
-              <Field label="Hours" className="md:col-span-1"><Input type="number" step="0.5" min="0.5" value={s.duration} onChange={(e) => upd(s.key, { duration: Number(e.target.value) })} /></Field>
-              <div className="flex justify-end md:col-span-2"><Button variant="ghost" size="sm" aria-label={`Remove paper ${i + 1}`} onClick={() => setSlots((x) => x.filter((y) => y.key !== s.key))}><Trash2 size={16} className="text-error" /></Button></div>
-              <Field label="Venue / Room" className="md:col-span-6"><Input value={s.venue} onChange={(e) => upd(s.key, { venue: e.target.value })} placeholder="Exam Hall 1 & 2" /></Field>
-              <Field label="Chief Invigilator" className="md:col-span-6">
-                <Select value={s.invigilatorId || staff.find((t) => t.name === s.invigilator)?.id || ""} onChange={(e) => upd(s.key, { invigilatorId: e.target.value, invigilator: staff.find((t) => t.id === e.target.value)?.name ?? "" })}>
-                  <option value="">{s.invigilator && !staff.some((t) => t.name === s.invigilator) ? `${s.invigilator} (not on staff list)` : "Select a teacher"}</option>
-                  {staff.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.department}</option>)}
-                </Select>
-              </Field>
-            </div>))}
-        </div>
-        {errors.slots && <p className="mt-2 text-xs text-error">{errors.slots}</p>}
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          {([["qr", "Auto-Generate QR Admit Cards", "Issued via Student & Parent Portal"], ["sealed", "Sealed Paper Delivery Protocol", "Dual key sign-off at 08:15 AM"], ["biometric", "Biometric Gate Verification", "Facial/RFID check at main foyer"]] as const).map(([k, t, d]) => (
-            <div key={k} className="flex items-center justify-between gap-3 rounded-lg border border-outline-variant/60 p-4"><div><p className="font-semibold">{t}</p><p className="text-xs text-outline">{d}</p></div><Switch checked={f[k]} onChange={(v) => set(k, v)} label={t} /></div>))}
-        </div>
-        <div className={cn("mt-4 flex items-center justify-between rounded-lg border px-4 py-3 text-sm", clashes ? "border-error/40 bg-error-container/40 text-error" : "border-success/30 bg-success-container/60 text-success")}>
-          <span>{clashes ? `${clashes} slot(s) have a cohort, room or invigilator clash. Adjust date, time, venue or invigilator.` : `Conflict Check Complete: no cohort, room or invigilator clashes across ${slots.length} subject slot${slots.length === 1 ? "" : "s"}.`}</span>
-          <b>{slots.length - clashes} of {slots.length} Ready</b>
-        </div>
-      </Step>
-
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-outline-variant bg-surface-container-lowest/95 px-6 py-3 backdrop-blur lg:left-72">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-on-surface-variant"><b className="text-on-surface">{f.title || "Untitled cycle"}</b> · {f.grades.length} Grades ({[...f.grades].sort((a, b) => +a - +b).join(", ")}) · <b className="text-on-surface">{candidates}</b> Candidates · <b className="text-on-surface">{slots.length}</b> Subject Papers · {clashes} Clashes</p>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => { if (!dirty || window.confirm("Discard your unsaved changes?")) router.push("/exams"); }}>Discard Changes</Button>
-            {(!cycleId || initStatus === "Draft") && <Button variant="outline" disabled={saving} onClick={() => save("Draft")}>Save as Draft</Button>}
-            <Button disabled={saving} onClick={() => save("Scheduled")}>{cycleId && initStatus !== "Draft" ? "Save Changes" : "Schedule & Publish Exam Cycle"}</Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+type Term = { id: string; name: string };
+const gradeNumber = (grade: string) => Number(grade);
+/** quick selections by school stage; non-numeric grades (LKG, UKG) count as primary */
+const PRESETS: { label: string; test: (grade: string) => boolean }[] = [
+  { label: "All classes", test: () => true },
+  {
+    label: "Primary 1–5",
+    test: (grade) => Number.isNaN(gradeNumber(grade)) || gradeNumber(grade) <= 5,
+  },
+  {
+    label: "Middle 6–8",
+    test: (grade) => gradeNumber(grade) >= 6 && gradeNumber(grade) <= 8,
+  },
+  {
+    label: "Secondary 9–10",
+    test: (grade) => gradeNumber(grade) >= 9 && gradeNumber(grade) <= 10,
+  },
+  {
+    label: "Senior 11–12",
+    test: (grade) => gradeNumber(grade) >= 11 && gradeNumber(grade) <= 12,
+  },
+];
+const classGroupTitle = (row: AcademicClass) =>
+  "Grade " + row.grade + (classStream(row) ? " · " + (row.stream || streamName(classStream(row))) : "");
 
 export function CycleForm({ cycleId }: { cycleId?: string }) {
   const cycles = useCollection<Cycle>("exm_cycles");
   const papers = useCollection<Paper>("exm_papers");
-  if (!cycleId) return <CycleFormInner initF={blank} initSlots={[]} />;
-  if (!cycles.ready || !papers.ready) return <p className="text-on-surface-variant">Loading…</p>;
-  const c = cycles.rows.find((x) => x.id === cycleId);
-  if (!c) return <p className="text-on-surface-variant">Exam cycle not found. <Link className="text-secondary underline" href="/exams">Back to exams</Link></p>;
-  const slots = papers.rows.filter((p) => p.cycleId === cycleId).map((p) => ({ key: p.id, id: p.id, subject: p.subject, code: p.code, grade: p.grade, date: p.date, start: p.start, duration: p.duration, venue: p.venue, invigilator: p.invigilator, invigilatorId: p.invigilatorId }));
-  return <CycleFormInner key={cycleId} cycleId={cycleId} initF={{ ...blank, ...c }} initSlots={slots} initStatus={c.status} />;
+  const classes = useCollection<AcademicClass>("classes");
+  const students = useCollection<StudentRow>("students");
+  const candidates = useCollection<Candidate>("exm_candidates");
+  const staff = useCollection<StaffRef>("staff");
+  const assignments = useCollection<Assignment>("assignments");
+  const school = useCollection<{ id: string; academicYear?: string }>("school");
+  const catalog = useSchoolSubjects();
+  const regional = useCollection<{ id: string; timezone?: string }>("set_config");
+  const examTypes = useCollection<ExamType>("set_exam_types");
+  const schemes = useCollection<SubjectScheme>("set_subject_schemes");
+  const terms = useCollection<Term>("set_terms");
+  if (
+    !catalog.ready ||
+    ![
+      cycles,
+      papers,
+      classes,
+      students,
+      candidates,
+      staff,
+      assignments,
+      school,
+      regional,
+      examTypes,
+      schemes,
+      terms,
+    ].every((collection) => collection.ready)
+  )
+    return <p role="status">Loading examination setup…</p>;
+  const cycle = cycles.rows.find(({ id }) => id === cycleId);
+  if (cycleId && !cycle)
+    return (
+      <p>
+        Exam not found. <Link href="/exams">Back to exams</Link>
+      </p>
+    );
+  return (
+    <ExamSetupForm
+      key={cycleId ?? "new"}
+      cycle={cycle}
+      papers={papers.rows}
+      classes={classes.rows}
+      students={students.rows}
+      candidates={candidates.rows}
+      staff={teachingStaff(staff.rows)}
+      assignments={assignments.rows}
+      subjectCatalog={catalog.subjects.filter((subject) => subject.active).map((subject) => subject.name)}
+      academicYear={school.rows[0]?.academicYear ?? ""}
+      timeZone={regional.rows.find((row) => row.id === "regional")?.timezone ?? "Asia/Kolkata"}
+      examTypes={examTypes.rows
+        .filter((type) => type.active || type.id === cycle?.examTypeId)
+        .sort((a, b) => a.order - b.order)}
+      schemes={schemes.rows}
+      terms={terms.rows}
+    />
+  );
+}
+
+function ExamSetupForm({
+  cycle,
+  papers,
+  classes,
+  students,
+  candidates,
+  staff,
+  assignments,
+  academicYear,
+  subjectCatalog,
+  timeZone,
+  examTypes,
+  schemes,
+  terms,
+}: {
+  cycle?: Cycle;
+  papers: Paper[];
+  classes: AcademicClass[];
+  students: StudentRow[];
+  candidates: Candidate[];
+  staff: StaffRef[];
+  assignments: Assignment[];
+  academicYear: string;
+  subjectCatalog: string[];
+  timeZone: string;
+  examTypes: ExamType[];
+  schemes: SubjectScheme[];
+  terms: Term[];
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const [setup, setSetup] = useState(() => ({
+    ...initialSetup(
+      cycle,
+      papers.filter((paper) => paper.cycleId === cycle?.id),
+      classes,
+      academicYear,
+    ),
+    timeZone: cycle?.publicationTimezone ?? timeZone,
+  }));
+  const [step, setStep] = useState(0);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [studentSearch, setStudentSearch] = useState("");
+  const id = useRef<string | undefined>(cycle?.id);
+  const locked = !!cycle && cycle.status !== "Draft";
+  const set = <K extends keyof ExamSetup>(key: K, value: ExamSetup[K]) =>
+    setSetup((old) => ({ ...old, [key]: value }));
+  const rule = <K extends keyof ExamRules>(key: K, value: ExamRules[K]) =>
+    setSetup((old) => ({ ...old, rules: { ...old.rules, [key]: value } }));
+  const update = (key: string, patch: Partial<Assessment>) =>
+    set(
+      "assessments",
+      setup.assessments.map((paper) => (paper.key === key ? { ...paper, ...patch } : paper)),
+    );
+  const groups = [...new Set(classes.map(classKey))]
+    .map((key) => ({
+      key,
+      rows: classes.filter((row) => classKey(row) === key).sort((a, b) => a.section.localeCompare(b.section)),
+    }))
+    .sort((a, b) => compareGrades(a.rows[0].grade, b.rows[0].grade) || a.key.localeCompare(b.key));
+  const selected = classes.filter(({ id }) => setup.classIds.includes(id));
+  const count = participants(setup, students).length;
+  const selectedStudents = students.filter(
+    (student) => isActiveStudent(student) && setup.classIds.includes(studentClass(student)),
+  );
+  const otherPapers = papers.filter((paper) => paper.cycleId !== cycle?.id && paper.setupPlanned !== false);
+  const excluded = selectedStudents.filter((student) => setup.excludedStudentIds.includes(student.id));
+  const suggestions = selectedStudents
+    .filter(
+      (student) =>
+        !setup.excludedStudentIds.includes(student.id) &&
+        (student.name + " " + student.grn).toLowerCase().includes(studentSearch.trim().toLowerCase()),
+    )
+    .slice(0, 8);
+
+  const schemeOf = (key: string) => schemes.find((scheme) => scheme.id === schemeId(key));
+  const groupOf = (classId: string) => {
+    const row = classes.find((row) => row.id === classId);
+    return row ? classKey(row) : "";
+  };
+  /** The subjects a class group gets from its scheme, scaled to the chosen exam type. */
+  const schemeAssessments = (
+    scheme: SubjectScheme,
+    key: string,
+    grade: string,
+    classIds: string[],
+    examTypeId: string,
+  ) =>
+    assessmentsFromScheme(
+      scheme,
+      examTypes.find((type) => type.id === examTypeId),
+      { key, grade, classIds },
+      assignments,
+    );
+  function selectClasses(ids: string[]) {
+    setSetup((old) => {
+      const added = ids.filter((id) => !old.classIds.includes(id));
+      // divisions added to a group join the subjects already configured for that group
+      const assessments = old.assessments.map((paper) => {
+        const extra = added.filter((id) => groupOf(id) === paper.groupKey && !paper.classIds.includes(id));
+        return {
+          ...paper,
+          classIds: [...paper.classIds.filter((id) => ids.includes(id)), ...extra],
+          evaluatorIds: {
+            ...paper.evaluatorIds,
+            ...Object.fromEntries(extra.map((id) => [id, subjectTeacherId(assignments, paper.subject, id)])),
+          },
+        };
+      });
+      // a group selected for the first time is pre-filled from its subject scheme
+      for (const { key, rows } of groups) {
+        const groupIds = rows.filter((row) => ids.includes(row.id)).map((row) => row.id);
+        const scheme = schemeOf(key);
+        if (!groupIds.length || !scheme || assessments.some((paper) => paper.groupKey === key)) continue;
+        assessments.push(...schemeAssessments(scheme, key, rows[0].grade, groupIds, old.examTypeId));
+      }
+      return { ...old, classIds: ids, assessments };
+    });
+  }
+  function applyScheme(key: string, grade: string, classIds: string[]) {
+    const scheme = schemeOf(key);
+    if (!scheme) return;
+    set("assessments", [
+      ...setup.assessments.filter((paper) => paper.groupKey !== key),
+      ...schemeAssessments(scheme, key, grade, classIds, setup.examTypeId),
+    ]);
+  }
+  function chooseExamType(examTypeId: string) {
+    const type = examTypes.find((row) => row.id === examTypeId);
+    setSetup((old) => ({
+      ...old,
+      examTypeId: type?.id ?? "",
+      examType: type?.name ?? old.examType,
+      termId: type?.termId ?? "",
+    }));
+  }
+  function toggleClass(id: string, checked: boolean) {
+    selectClasses(checked ? [...setup.classIds, id] : setup.classIds.filter((value) => value !== id));
+  }
+  async function save(mode: "draft" | "publish" | "schedule") {
+    if (saving || locked) return;
+    const found =
+      mode === "draft"
+        ? !setup.title.trim()
+          ? { title: "Examination name is required" }
+          : {}
+        : setupErrors(setup, classes, otherPapers);
+    setErrors(found);
+    if (Object.keys(found).length) {
+      setStep(mode === "draft" ? 0 : 5);
+      return;
+    }
+    setSaving(true);
+    try {
+      id.current ??= "cyc_" + crypto.randomUUID();
+      await saveExamSetup(setup, mode, {
+        id: id.current,
+        cycle,
+        papers,
+        classes,
+        students,
+        candidates,
+        staff,
+        assignments,
+      });
+      toast(
+        mode === "draft"
+          ? "Exam draft saved"
+          : mode === "schedule"
+            ? "Exam publication scheduled"
+            : "Exam and timetable published",
+      );
+      router.push("/exams");
+    } catch (error) {
+      setErrors({
+        save: error instanceof Error ? error.message : "Could not save the exam",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+  function number(
+    paper: Assessment,
+    key:
+      | "theory"
+      | "practical"
+      | "internal"
+      | "passMarks"
+      | "theoryPass"
+      | "practicalPass"
+      | "internalPass"
+      | "weight",
+    label: string,
+  ) {
+    return (
+      <Field key={key} label={label}>
+        <Input
+          type="number"
+          min={0}
+          value={paper[key]}
+          onChange={(event) => update(paper.key, { [key]: Number(event.target.value) })}
+        />
+      </Field>
+    );
+  }
+  const teacherSelect = (value: string, change: (id: string) => void) => (
+    <Select value={value} onChange={(event) => change(event.target.value)}>
+      <option value="">Not assigned</option>
+      {value && !staff.some(({ id }) => id === value) && <option value={value}>Previous staff member</option>}
+      {staff.map((teacher) => (
+        <option key={teacher.id} value={teacher.id}>
+          {teacher.name}
+        </option>
+      ))}
+    </Select>
+  );
+
+  return (
+    <div className="space-y-5 pb-8">
+      <PageHeader
+        title={cycle ? "Examination Setup" : "Create Examination"}
+        subtitle="Configure participants, assessments, timetable and publication."
+      />
+      <nav aria-label="Examination setup steps" className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        {SETUP_STEPS.map((title, index) => (
+          <Button
+            key={title}
+            variant={step === index ? "primary" : "outline"}
+            onClick={() => setStep(index)}
+            aria-current={step === index ? "step" : undefined}
+            className="h-auto min-h-12 whitespace-normal text-left"
+          >
+            {index + 1}. {title}
+          </Button>
+        ))}
+      </nav>
+      {locked && (
+        <p role="status" className="rounded-lg bg-info-container p-3 text-sm">
+          This exam is published. Its participant and assessment configuration is locked.
+        </p>
+      )}
+      <Card className="p-5 sm:p-6">
+        <h2 className="mb-5 text-lg font-semibold">{SETUP_STEPS[step]}</h2>
+        <fieldset disabled={saving || locked} className="min-w-0 space-y-5">
+          {step === 0 && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Examination name" required error={errors.title}>
+                <Input value={setup.title} onChange={(e) => set("title", e.target.value)} />
+              </Field>
+              <Field
+                label="Exam type"
+                required
+                hint={
+                  examTypes.length
+                    ? "Sets the term, weightage and marks pattern (Settings → Assessment Scheme)"
+                    : "Add exam types under Settings → Assessment Scheme to set term weightage"
+                }
+              >
+                {examTypes.length ? (
+                  <Select value={setup.examTypeId} onChange={(e) => chooseExamType(e.target.value)}>
+                    {!setup.examTypeId && <option value="">{setup.examType || "Select exam type…"}</option>}
+                    {examTypes.map((type) => (
+                      <option key={type.id} value={type.id}>
+                        {type.name}
+                        {type.termId && terms.some((term) => term.id === type.termId)
+                          ? " · " + terms.find((term) => term.id === type.termId)!.name
+                          : ""}
+                        {type.pattern === "single" ? " · out of " + type.singleMax : ""}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Select value={setup.examType} onChange={(e) => set("examType", e.target.value)}>
+                    {EXAM_TYPES.map((type) => (
+                      <option key={type}>{type}</option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+              <Field label="Academic year" required error={errors.academicYear}>
+                <Input
+                  value={setup.academicYear}
+                  onChange={(e) => set("academicYear", e.target.value)}
+                  placeholder="2026–27"
+                />
+              </Field>
+              <Field label="Description">
+                <Textarea value={setup.description} onChange={(e) => set("description", e.target.value)} />
+              </Field>
+              <Field label="Exam start date" required error={errors.start}>
+                <Input type="date" value={setup.start} onChange={(e) => set("start", e.target.value)} />
+              </Field>
+              <Field label="Exam end date" required error={errors.end}>
+                <Input type="date" value={setup.end} onChange={(e) => set("end", e.target.value)} />
+              </Field>
+              <Field label="Instructions" className="sm:col-span-2">
+                <Textarea value={setup.instructions} onChange={(e) => set("instructions", e.target.value)} />
+              </Field>
+            </div>
+          )}
+          {step === 1 && (
+            <div className="grid gap-5 xl:grid-cols-[3fr_2fr]">
+              <section className="space-y-4" aria-label="Divisions sitting this exam">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="font-semibold">Which divisions sit this exam?</h3>
+                  <span className="text-xs text-outline">Combine stages, grades and divisions; each click adds or removes</span>
+                </div>
+                {!classes.length && (
+                  <p>Configure classes and divisions in Settings before creating an exam.</p>
+                )}
+                {classes.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {PRESETS.filter(({ test }) => groups.some(({ rows }) => test(rows[0].grade))).map(
+                      ({ label, test }) => {
+                        const ids = classes.filter((row) => test(row.grade)).map((row) => row.id);
+                        const on = ids.length > 0 && ids.every((id) => setup.classIds.includes(id));
+                        return (
+                          <Button
+                            key={label}
+                            size="sm"
+                            variant={on ? "primary" : "outline"}
+                            aria-pressed={on}
+                            onClick={() =>
+                              selectClasses(
+                                on
+                                  ? setup.classIds.filter((id) => !ids.includes(id))
+                                  : [...new Set([...setup.classIds, ...ids])],
+                              )
+                            }
+                          >
+                            {label}
+                          </Button>
+                        );
+                      },
+                    )}
+                    <Button size="sm" variant="ghost" onClick={() => selectClasses([])}>
+                      Clear
+                    </Button>
+                  </div>
+                )}
+                {[
+                  {
+                    title: "Classes LKG to 10",
+                    list: groups.filter(({ rows }) => !isSeniorGrade(rows[0].grade)),
+                  },
+                  {
+                    title: "Senior secondary 11 and 12",
+                    list: groups.filter(({ rows }) => isSeniorGrade(rows[0].grade)),
+                  },
+                ]
+                  .filter(({ list }) => list.length)
+                  .map(({ title, list }) => (
+                    <section key={title} aria-label={title} className="space-y-2">
+                      <h4 className="text-sm font-semibold text-on-surface-variant">{title}</h4>
+                      <div className="divide-y divide-outline-variant/60 rounded-lg border border-outline-variant/60">
+                        {list.map(({ key, rows }) => {
+                          const all = rows.every((row) => setup.classIds.includes(row.id));
+                          const scheme = schemeOf(key);
+                          return (
+                            <div
+                              key={key}
+                              className="grid items-center gap-3 px-3 py-2 sm:grid-cols-[11rem_1fr]"
+                            >
+                              <button
+                                type="button"
+                                aria-pressed={all}
+                                aria-label={"Select all " + classGroupTitle(rows[0])}
+                                onClick={() =>
+                                  selectClasses(
+                                    all
+                                      ? setup.classIds.filter((id) => !rows.some((row) => row.id === id))
+                                      : [...new Set([...setup.classIds, ...rows.map((row) => row.id)])],
+                                  )
+                                }
+                                className="flex items-center gap-2 text-left text-sm font-semibold hover:underline"
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className={"size-2 rounded-full " + (scheme ? "bg-success" : "bg-warning")}
+                                />
+                                {classGroupTitle(rows[0])}
+                                <span className="sr-only">
+                                  {scheme ? ", scheme ready" : ", no subject scheme"}
+                                </span>
+                              </button>
+                              <div className="flex flex-wrap gap-2">
+                                {rows.map((row) => {
+                                  const on = setup.classIds.includes(row.id);
+                                  const size = students.filter(
+                                    (student) => isActiveStudent(student) && studentClass(student) === row.id,
+                                  ).length;
+                                  return (
+                                    <button
+                                      key={row.id}
+                                      type="button"
+                                      aria-pressed={on}
+                                      aria-label={className(row)}
+                                      onClick={() => toggleClass(row.id, !on)}
+                                      className={
+                                        "inline-flex h-8 items-center gap-1.5 rounded border px-2.5 text-sm " +
+                                        (on
+                                          ? "border-secondary bg-info-container text-secondary"
+                                          : "border-outline-variant bg-surface-container-lowest")
+                                      }
+                                    >
+                                      {on ? (
+                                        <Check size={14} aria-hidden="true" />
+                                      ) : (
+                                        <Plus size={14} aria-hidden="true" />
+                                      )}
+                                      {row.section}
+                                      <span className="text-xs text-outline">{size}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                <p className="flex flex-wrap gap-4 text-xs text-on-surface-variant">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true" className="size-2 rounded-full bg-success" />
+                    scheme ready
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true" className="size-2 rounded-full bg-warning" />
+                    no subject scheme yet
+                  </span>
+                </p>
+              </section>
+              <aside className="space-y-4" aria-label="Selection summary">
+                <div className="grid grid-cols-2 gap-3">
+                  <Card className="p-4">
+                    <p className="text-sm">Divisions</p>
+                    <strong className="text-2xl">{selected.length}</strong>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-sm">Participating students</p>
+                    <strong className="text-2xl">{count}</strong>
+                  </Card>
+                </div>
+                <Card className="space-y-2 p-4 text-sm">
+                  <h3 className="font-semibold">Selected</h3>
+                  {!selected.length && <p className="text-on-surface-variant">Nothing selected yet.</p>}
+                  {groups
+                    .filter(({ rows }) => rows.some((row) => setup.classIds.includes(row.id)))
+                    .map(({ key, rows }) => (
+                      <p key={key}>
+                        {classGroupTitle(rows[0])} ·{" "}
+                        {rows
+                          .filter((row) => setup.classIds.includes(row.id))
+                          .map((row) => row.section)
+                          .join(", ")}
+                        {!schemeOf(key) && (
+                          <span className="text-warning"> · no scheme, add subjects manually in step 3</span>
+                        )}
+                      </p>
+                    ))}
+                </Card>
+                <Card className="space-y-3 p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold">Excluded students</h3>
+                    <span className="text-xs text-outline">{excluded.length} excluded</span>
+                  </div>
+                  <Field
+                    label="Find student to exclude"
+                    hint={
+                      selected.length
+                        ? "Name or admission number, within the selected divisions"
+                        : "Select a division first"
+                    }
+                  >
+                    <Input
+                      type="search"
+                      value={studentSearch}
+                      disabled={!selected.length}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                    />
+                  </Field>
+                  {studentSearch.trim() && (
+                    <div className="flex max-h-48 flex-col gap-1 overflow-y-auto">
+                      {suggestions.map((student) => (
+                        <Button
+                          key={student.id}
+                          size="sm"
+                          variant="outline"
+                          className="justify-start"
+                          onClick={() => {
+                            set("excludedStudentIds", [...setup.excludedStudentIds, student.id]);
+                            setStudentSearch("");
+                          }}
+                        >
+                          Exclude {student.name} · {student.grn}
+                        </Button>
+                      ))}
+                      {!suggestions.length && (
+                        <p className="text-xs text-outline">No matching student in the selected divisions.</p>
+                      )}
+                    </div>
+                  )}
+                  {excluded.length > 0 && (
+                    <ul className="flex flex-wrap gap-2">
+                      {excluded.map((student) => (
+                        <li key={student.id}>
+                          <button
+                            type="button"
+                            aria-label={"Remove exclusion " + student.name}
+                            onClick={() =>
+                              set(
+                                "excludedStudentIds",
+                                setup.excludedStudentIds.filter((id) => id !== student.id),
+                              )
+                            }
+                            className="inline-flex h-8 items-center gap-1.5 rounded border border-outline-variant px-2.5 text-sm"
+                          >
+                            {student.name}
+                            <span className="text-xs text-outline">
+                              {classes.find((row) => row.id === studentClass(student))?.section ?? ""}
+                            </span>
+                            <X size={13} aria-hidden="true" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Card>
+              </aside>
+            </div>
+          )}
+          {step === 2 && (
+            <>
+              {!selected.length && <p>Select classes and divisions in step 2.</p>}
+              {groups
+                .filter(({ rows }) => rows.some((row) => setup.classIds.includes(row.id)))
+                .map(({ key, rows }) => {
+                  const groupClasses = rows.filter((row) => setup.classIds.includes(row.id));
+                  const configuredSubjects = [
+                    ...new Set(
+                      groupClasses.flatMap((row) => [
+                        ...(row.subjects ?? []),
+                        ...assignments.filter((a) => a.classId === row.id).map((a) => a.subject),
+                      ]),
+                    ),
+                  ].sort();
+                  const subjects = configuredSubjects.length ? configuredSubjects : subjectCatalog;
+                  const scheme = schemeOf(key);
+                  return (
+                    <section key={key} className="space-y-3 rounded-lg bg-surface-container-low p-4">
+                      <h3 className="font-semibold">{classGroupTitle(rows[0])}</h3>
+                      {scheme ? (
+                        <div className="flex flex-wrap items-center gap-3 text-sm">
+                          <span>
+                            Subject scheme: {scheme.subjects.length} subject
+                            {scheme.subjects.length === 1 ? "" : "s"}
+                            {examTypes.find((type) => type.id === setup.examTypeId)?.pattern === "single"
+                              ? " · single paper out of " +
+                                examTypes.find((type) => type.id === setup.examTypeId)!.singleMax
+                              : ""}
+                          </span>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              applyScheme(
+                                key,
+                                rows[0].grade,
+                                groupClasses.map((row) => row.id),
+                              )
+                            }
+                          >
+                            Reset to {classGroupTitle(rows[0])} scheme
+                          </Button>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-on-surface-variant">
+                          No subject scheme for {classGroupTitle(rows[0])}. Add one under Settings →
+                          Assessment Scheme to pre-fill subjects next time.
+                        </p>
+                      )}
+                      <Field label={"Add subject for " + classGroupTitle(rows[0])}>
+                        <Select
+                          value=""
+                          onChange={(event) => {
+                            if (!event.target.value) return;
+                            const subject = event.target.value;
+                            const ids = groupClasses.map((row) => row.id);
+                            const assessment = newAssessment(
+                              crypto.randomUUID(),
+                              rows[0].grade,
+                              ids,
+                              subject,
+                            );
+                            assessment.groupKey = key;
+                            assessment.evaluatorIds = Object.fromEntries(
+                              ids.map((id) => [id, subjectTeacherId(assignments, subject, id)]),
+                            );
+                            set("assessments", [...setup.assessments, assessment]);
+                          }}
+                        >
+                          <option value="">Select configured subject…</option>
+                          {subjects.map((subject) => (
+                            <option key={subject}>{subject}</option>
+                          ))}
+                        </Select>
+                      </Field>
+                      {!subjects.length && (
+                        <p className="text-sm">Add subjects while setting up a grade or department under Settings → Classes &amp; Sections.</p>
+                      )}
+                    </section>
+                  );
+                })}
+              {setup.assessments.map((paper) => (
+                <section
+                  key={paper.key}
+                  className="space-y-4 rounded-lg border border-outline-variant p-4"
+                  aria-label={paper.subject + " assessment"}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-semibold">
+                      {paper.subject} · Grade {paper.grade}
+                    </h3>
+                    <Button
+                      variant="ghost"
+                      aria-label={"Remove " + paper.subject}
+                      onClick={() =>
+                        set(
+                          "assessments",
+                          setup.assessments.filter((p) => p.key !== paper.key),
+                        )
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-4">
+                    {selected
+                      .filter((row) => row.grade === paper.grade && classKey(row) === paper.groupKey)
+                      .map((row) => (
+                        <label key={row.id} className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            checked={paper.classIds.includes(row.id)}
+                            onChange={(event) =>
+                              update(paper.key, {
+                                classIds: event.target.checked
+                                  ? [...paper.classIds, row.id]
+                                  : paper.classIds.filter((id) => id !== row.id),
+                              })
+                            }
+                          />
+                          {className(row)}
+                        </label>
+                      ))}
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Assessment type">
+                      <Select
+                        value={paper.mode}
+                        onChange={(e) =>
+                          update(paper.key, {
+                            mode: e.target.value as Assessment["mode"],
+                          })
+                        }
+                      >
+                        <option value="marks">Marks</option>
+                        <option value="grade">Grade only</option>
+                      </Select>
+                    </Field>
+                    <Field label="Subject code">
+                      <Input
+                        value={paper.code}
+                        onChange={(e) => update(paper.key, { code: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Exam duration (minutes)">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={360}
+                        value={paper.duration * 60}
+                        onChange={(e) =>
+                          update(paper.key, {
+                            duration: Number(e.target.value) / 60,
+                          })
+                        }
+                      />
+                    </Field>
+                    {paper.mode === "marks" ? (
+                      <>
+                        {number(paper, "theory", "Theory maximum")}
+                        {number(paper, "practical", "Practical maximum")}
+                        {number(paper, "internal", "Internal maximum")}
+                        {number(paper, "passMarks", "Pass marks")}
+                        <p className="self-center text-sm">
+                          Maximum marks: {paper.theory + paper.practical + paper.internal}
+                        </p>
+                        {setup.rules.passCriteria === "components" && (
+                          <>
+                            {number(paper, "theoryPass", "Theory pass marks")}
+                            {number(paper, "practicalPass", "Practical pass marks")}
+                            {number(paper, "internalPass", "Internal pass marks")}
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <Field label="Grades or descriptors" hint="One per line">
+                        <Textarea
+                          value={paper.gradeOptions.join("\n")}
+                          onChange={(e) =>
+                            update(paper.key, {
+                              gradeOptions: e.target.value.split("\n"),
+                            })
+                          }
+                        />
+                      </Field>
+                    )}
+                    {setup.rules.calculation === "weighted" && number(paper, "weight", "Result weight")}
+                  </div>
+                  {paper.classIds.map((id) => (
+                    <Field
+                      key={id}
+                      label={
+                        "Marks entry teacher · " +
+                        (classes.find((row) => row.id === id)
+                          ? className(classes.find((row) => row.id === id)!)
+                          : id)
+                      }
+                    >
+                      {teacherSelect(paper.evaluatorIds[id] ?? "", (teacherId) =>
+                        update(paper.key, {
+                          evaluatorIds: {
+                            ...paper.evaluatorIds,
+                            [id]: teacherId,
+                          },
+                        }),
+                      )}
+                    </Field>
+                  ))}
+                </section>
+              ))}
+            </>
+          )}
+          {step === 3 && (
+            <>
+              {!setup.assessments.length && <p>Add subjects in step 3 to configure their timetable.</p>}
+              {setup.assessments.map((paper) => (
+                <section
+                  key={paper.key}
+                  aria-label={paper.subject + " timetable"}
+                  className="space-y-3 rounded-lg border border-outline-variant p-4"
+                >
+                  <h3 className="font-semibold">
+                    {paper.subject} ·{" "}
+                    {paper.classIds
+                      .map((id) => {
+                        const row = classes.find((row) => row.id === id);
+                        return row ? className(row) : id;
+                      })
+                      .join(", ")}
+                  </h3>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Paper date">
+                      <Input
+                        type="date"
+                        min={setup.start}
+                        max={setup.end}
+                        value={paper.date}
+                        onChange={(e) => update(paper.key, { date: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Start time">
+                      <Input
+                        type="time"
+                        value={paper.start}
+                        onChange={(e) => update(paper.key, { start: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="End time" hint="Calculated from the subject duration">
+                      <Input type="time" value={paperEnd(paper)} readOnly />
+                    </Field>
+                    <Field label="Examination room">
+                      <Input
+                        value={paper.venue}
+                        onChange={(e) => update(paper.key, { venue: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Invigilator">
+                      {teacherSelect(paper.invigilatorId, (invigilatorId) =>
+                        update(paper.key, { invigilatorId }),
+                      )}
+                    </Field>
+                    <Field label="Paper instructions">
+                      <Textarea
+                        value={paper.instructions}
+                        onChange={(e) => update(paper.key, { instructions: e.target.value })}
+                      />
+                    </Field>
+                  </div>
+                </section>
+              ))}
+            </>
+          )}
+          {step === 4 && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Grading scheme">
+                <Select value={setup.scale} onChange={(e) => set("scale", e.target.value)}>
+                  {[
+                    "Percentage only",
+                    "CBSE 9-Point Scale (A1 to E2)",
+                    "5-Point Letter Scale",
+                    "GPA (4 point)",
+                  ].map((scale) => (
+                    <option key={scale}>{scale}</option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Pass criteria">
+                <Select
+                  value={setup.rules.passCriteria}
+                  onChange={(e) => rule("passCriteria", e.target.value as ExamRules["passCriteria"])}
+                >
+                  <option value="aggregate">Overall subject pass marks</option>
+                  <option value="components">Overall and component pass marks</option>
+                </Select>
+              </Field>
+              <Field label="Result calculation method">
+                <Select
+                  value={setup.rules.calculation}
+                  onChange={(e) => rule("calculation", e.target.value as ExamRules["calculation"])}
+                >
+                  <option value="total">Total obtained / total maximum</option>
+                  <option value="average">Average subject percentage</option>
+                  <option value="weighted">Weighted subject percentage</option>
+                </Select>
+              </Field>
+              <Field label="Rounding">
+                <Select
+                  value={setup.rules.rounding}
+                  onChange={(e) => rule("rounding", e.target.value as ExamRules["rounding"])}
+                >
+                  <option value="none">No rounding</option>
+                  <option value="whole">Whole number</option>
+                  <option value="one-decimal">One decimal place</option>
+                  <option value="two-decimal">Two decimal places</option>
+                </Select>
+              </Field>
+              <Field label="Rank calculation">
+                <Select
+                  value={setup.rules.rankScope}
+                  onChange={(e) => rule("rankScope", e.target.value as ExamRules["rankScope"])}
+                >
+                  <option value="none">Disabled</option>
+                  <option value="division">Within division</option>
+                  <option value="class-course">Within class and course</option>
+                </Select>
+              </Field>
+              <Field label="Absent marks">
+                <Select
+                  value={setup.rules.absentRule}
+                  onChange={(e) => rule("absentRule", e.target.value as ExamRules["absentRule"])}
+                >
+                  <option value="incomplete">Keep the overall result incomplete</option>
+                  <option value="zero">Count as zero</option>
+                </Select>
+              </Field>
+              <p className="text-sm text-on-surface-variant">
+                Exempt subjects are excluded from numeric totals. Missing marks remain incomplete. Grade-only
+                subjects retain their descriptors.
+              </p>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={setup.rules.requireApproval}
+                  onChange={(e) => rule("requireApproval", e.target.checked)}
+                />
+                Require result approval before publication
+              </label>
+              {setup.rules.calculation === "weighted" && (
+                <p className="text-sm">Set each subject’s relative result weight in step 3.</p>
+              )}
+            </div>
+          )}
+          {step === 5 && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Card className="p-4">
+                  <p className="text-sm">Participating divisions</p>
+                  <strong className="text-2xl">{selected.length}</strong>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-sm">Participating students</p>
+                  <strong className="text-2xl">{count}</strong>
+                </Card>
+                <Card className="p-4">
+                  <p className="text-sm">Subject papers</p>
+                  <strong className="text-2xl">{setup.assessments.length}</strong>
+                </Card>
+              </div>
+              <p>
+                {setup.title || "Untitled examination"} · {setup.academicYear} · {setup.examType}
+              </p>
+              <p className="text-sm">
+                {setup.start || "Start date required"} — {setup.end || "End date required"}
+              </p>
+              <ul className="space-y-2 text-sm">
+                {selected.map((row) => (
+                  <li key={row.id}>
+                    {className(row)} ·{" "}
+                    {
+                      participants(setup, students).filter((student) => studentClass(student) === row.id)
+                        .length
+                    }{" "}
+                    students ·{" "}
+                    {setup.assessments
+                      .filter((paper) => paper.classIds.includes(row.id))
+                      .map((paper) => paper.subject)
+                      .join(", ") || "No subjects"}
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm">
+                {
+                  setup.excludedStudentIds.filter((id) =>
+                    selectedStudents.some((student) => student.id === id),
+                  ).length
+                }{" "}
+                students excluded · {setup.scale} · Result approval{" "}
+                {setup.rules.requireApproval ? "required" : "optional"}
+              </p>
+              <Button variant="outline" onClick={() => setErrors(setupErrors(setup, classes, otherPapers))}>
+                Check configuration and conflicts
+              </Button>
+              <Field
+                label="Schedule publication"
+                hint={setup.timeZone + ". Leave blank to publish immediately."}
+              >
+                <Input
+                  type="datetime-local"
+                  value={setup.publishAt}
+                  onChange={(e) => set("publishAt", e.target.value)}
+                />
+              </Field>
+              <p className="text-sm text-on-surface-variant">
+                Publishing releases the examination setup and timetable. Marks and report cards are published
+                separately after review.
+              </p>
+            </>
+          )}
+        </fieldset>
+        {Object.keys(errors).length > 0 && (
+          <ul
+            role="alert"
+            className="mt-5 list-inside list-disc space-y-1 rounded-lg bg-error-container/40 p-4 text-sm text-error"
+          >
+            {[...new Set(Object.values(errors))].map((error) => (
+              <li key={error}>{error}</li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Button variant="ghost" onClick={() => router.push("/exams")}>
+          <ArrowLeft size={15} />
+          Back to exams
+        </Button>
+        <div className="flex flex-wrap gap-2">
+          {!locked && (
+            <Button variant="outline" disabled={saving} onClick={() => save("draft")}>
+              Save as Draft
+            </Button>
+          )}
+          {step > 0 && (
+            <Button variant="outline" disabled={saving} onClick={() => setStep(step - 1)}>
+              Previous
+            </Button>
+          )}
+          {step < 5 ? (
+            <Button disabled={saving} onClick={() => setStep(step + 1)}>
+              Next
+              <ArrowRight size={15} />
+            </Button>
+          ) : (
+            !locked && (
+              <Button disabled={saving} onClick={() => save(setup.publishAt ? "schedule" : "publish")}>
+                {saving ? "Saving…" : setup.publishAt ? "Schedule Publication" : "Publish Exam"}
+              </Button>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }

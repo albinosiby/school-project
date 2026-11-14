@@ -1,3 +1,4 @@
+const { requireAdminSession } = require("./adminSession");
 const { randomBytes } = require("node:crypto");
 const { getAuth } = require("firebase-admin/auth");
 const { getFirestore } = require("firebase-admin/firestore");
@@ -36,6 +37,7 @@ async function staffScope(actorUid) {
 }
 
 async function createSchoolStaff(req) {
+  await requireAdminSession(req);
   const actorUid = req.auth?.uid;
   if (!actorUid) throw new HttpsError("unauthenticated", "Sign in to add staff.");
   const name = clean(req.data?.name);
@@ -119,6 +121,7 @@ async function createSchoolStaff(req) {
 }
 
 async function resendSchoolStaffInvite(req) {
+  await requireAdminSession(req);
   const actorUid = req.auth?.uid;
   if (!actorUid) throw new HttpsError("unauthenticated", "Sign in to send staff invitations.");
   const staffId = clean(req.data?.staffId);

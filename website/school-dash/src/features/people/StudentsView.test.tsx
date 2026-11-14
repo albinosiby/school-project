@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import StudentsPage from "@/app/(app)/students/page";
 import * as admissionDocuments from "@/features/admissions/admissionDocuments";
 import { blankAdmission } from "@/features/admissions/admissionDetails";
+import { AdmissionForm } from "@/features/admissions/AdmissionForm";
 import { StudentDetailsView } from "./StudentDetailsView";
 import { StudentsView } from "./StudentsView";
 import { ADMIN_UID, authState, callableCalls, dialog, field, fieldError, getRow, renderUI, router, screen, seed, setUrl, userEvent, within, writes, writesTo } from "@/test/render";
@@ -15,9 +16,7 @@ const aarav = { id: "stu_101", name: "Aarav Sharma", grn: "GIS-9200", grade: "10
 const ananya = { id: "stu_102", name: "Ananya Reddy", grn: "GIS-9201", grade: "10", section: "B", classId: "cls_10B", roll: 2, guardian: "Mrs. Reddy", phone: "+91 98100 00002", status: "Active", attendance: 90 };
 
 async function openAdd() {
-  const r = renderUI(<StudentsView />);
-  await r.user.click(screen.getByRole("button", { name: /Add Student/ }));
-  return r;
+  return renderUI(<AdmissionForm mode="add" onClose={() => {}} />);
 }
 const save = () => within(dialog("Add Student")).getByRole("button", { name: /^Add Student(?: and enable parent access)?$/ });
 

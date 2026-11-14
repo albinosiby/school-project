@@ -40,8 +40,8 @@ export function Composer({ open, onClose, notice }: { open: boolean; onClose: ()
     const status = statusOf(mode);
     const keepLive = notice?.status === "Published" && mode === "now";
     const sentAt = keepLive ? notice!.sentAt : mode === "schedule" ? new Date(f.when).toISOString() : new Date().toISOString();
-    // no delivery receipts exist yet: a published notice counts as delivered to the app feed of every recipient
-    const delivered = mode === "now" ? recipients : 0;
+    // Functions resolve registered recipients and count feed availability after publication.
+    const delivered = 0;
     // nobody has read/acknowledged a notice at the moment it is sent — don't invent engagement.
     // parentVisible is never sent: the onNoticeForParents function owns it (contract 13.6)
     const body = {
@@ -49,12 +49,12 @@ export function Composer({ open, onClose, notice }: { open: boolean; onClose: ()
       author: `${me.name}${me.title ? ` (${me.title})` : ""}`, channels: f.channels, delivered, acked: 0, read: 0, body: f.body.trim(),
     } as Omit<Notice, "id">;
     // editing an already published notice must keep the live counters (parents' acks drive `acked`/`read` via a function)
-    if (notice?.status === "Published") { const keep = body as Partial<Notice>; delete keep.acked; delete keep.read; }
+    if (notice?.status === "Published") { const keep = body as Partial<Notice>; delete keep.acked; delete keep.read; delete keep.delivered; delete keep.recipients; }
     const run = async () => {
       let id = notice?.id;
       if (notice) await update(notice.id, body); else id = (await create(body)).id;
       if (mode === "now" && !keepLive) await log.create({ noticeId: id, action: "Sent", audience: f.audience, channels: f.channels, recipients, at: new Date().toISOString() });
-      toast(mode === "now" ? (keepLive ? "Notice updated" : `Notice sent to ${recipients} recipients (simulated)`) : mode === "schedule" ? "Notice scheduled" : "Draft saved");
+      toast(mode === "now" ? (keepLive ? "Notice updated" : "Notice published. Firebase push notifications are queued for registered devices.") : mode === "schedule" ? "Notice scheduled" : "Draft saved");
       onClose();
     };
     setBusy(true);
@@ -111,7 +111,7 @@ export function Composer({ open, onClose, notice }: { open: boolean; onClose: ()
 function init(n?: Notice | null) {
   return {
     title: n?.title ?? "", category: n?.category ?? "General", audience: n?.audience && AUDIENCES.some((a) => a.label === n.audience) ? n.audience : "All School",
-    grades: n?.grades ?? [], body: n?.body ?? "", channels: n?.channels ?? ["Mobile App"], when: n?.status === "Scheduled" ? localInput(n.sentAt) : "", urgent: n?.urgent ?? false,
+    grades: n?.grades ?? [], body: n?.body ?? "", channels: ["Mobile App"], when: n?.status === "Scheduled" ? localInput(n.sentAt) : "", urgent: n?.urgent ?? false,
   };
 }
 

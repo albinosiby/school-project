@@ -100,15 +100,16 @@ async function notify(sid, staffIds, n) {
 }
 
 // A circular / notice for staff is published (created as Published, or a draft/scheduled one goes live).
-exports.onNoticePublished = onDocumentWritten("schools/{sid}/com_notices/{id}", async (e) => {
+exports.onNoticePublished = onDocumentWritten({ document: "schools/{sid}/com_notices/{id}", retry: true, timeoutSeconds: 540, memory: "512MiB" }, async (e) => {
   const before = e.data?.before?.data(), after = e.data?.after?.data();
-  if (!after || after.status !== "Published" || before?.status === "Published") return;
-  if (!STAFF_AUDIENCE.test(after.audience ?? "")) return;
-  await notify(e.params.sid, null, {
-    type: "circular", category: "Academic", tag: after.urgent ? "Urgent Circular" : "Circular", urgent: after.urgent === true,
-    title: after.urgent ? (/^urgent\b/i.test(after.title ?? "") ? after.title : `Urgent: ${after.title}`) : `New circular: ${after.title}`,
-    body: String(after.body ?? "").replace(/\s+/g, " ").slice(0, 140), route: "/circulars",
-  });
+  if (!after || after.deleted || after.status !== "Published" || before?.status === "Published") return;
+  const { appMessaging } = require("./appMessaging");
+  const recipients = await appMessaging().broadcast(e.params.sid, `notice:${e.params.id}`, {
+    type: "notice", title: after.urgent && !/^urgent\b/i.test(after.title || "") ? `Urgent: ${after.title}` : String(after.title || "School notice"),
+    body: String(after.body || "").replace(/\s+/g, " ").slice(0, 240), route: "/notifications", urgent: after.urgent === true,
+  }, after.audience || "", after.grades || []);
+  // Availability in the app feed is counted separately from FCM device acceptance.
+  await e.data.after.ref.update({ recipients, delivered: recipients, deliveryStatus: "Queued", deliveryUpdatedAt: new Date().toISOString() });
 });
 
 // The admin assigns a substitute (new row, or the substitute changes).
@@ -195,6 +196,7 @@ const addHours = (hhmm, hours) => {
  * duty holders are told when the date or time moved.
  */
 async function syncPaperDuties(sid, paperId, before, after) {
+  if (after?.operationId && after.operationId !== before?.operationId) return;
   const snap = await db.collection("schools").doc(sid).collection("exm_duties").where("paperId", "==", paperId).get();
   if (snap.empty) return;
   if (!after) { await Promise.all(snap.docs.map((d) => d.ref.delete())); logger.info("duties removed with their paper", { sid, paperId, n: snap.size }); return; }
@@ -227,7 +229,7 @@ exports.onExamPaperChanged = onDocumentWritten("schools/{sid}/exm_papers/{id}", 
   // exam duty: a (new) chief invigilator
   const inv = await invigilatorId(sid, after);
   const invBefore = e.data?.before?.exists ? await invigilatorId(sid, before) : null;
-  if (inv && inv !== invBefore) {
+  if (inv && inv !== invBefore && !(after.operationId && after.operationId !== before.operationId)) {
     await notify(sid, [inv], {
       type: "exam", category: "Duties", tag: "Exam Duty", title: "Exam invigilation duty assigned",
       body: `Grade ${after.grade} ${after.subject} · ${when} · ${after.venue ?? ""}`.trim(), route: "/exam-duties",
@@ -256,14 +258,13 @@ exports.onExamPaperChanged = onDocumentWritten("schools/{sid}/exm_papers/{id}", 
 // ---------------------------------------------------------------------------
 
 // A calendar event is published with "notify in app" on (new, or a draft that gets published).
-exports.onCalendarEventPublished = onDocumentWritten("schools/{sid}/calendar_events/{id}", async (e) => {
+exports.onCalendarEventPublished = onDocumentWritten({ document: "schools/{sid}/calendar_events/{id}", retry: true, timeoutSeconds: 540, memory: "512MiB" }, async (e) => {
   const before = e.data?.before?.data(), after = e.data?.after?.data();
-  if (!after || after.status !== "published" || after.notifyApp === false || before?.status === "published") return;
-  const range = after.end && after.end !== after.start ? `${after.start} to ${after.end}` : after.start;
-  await notify(e.params.sid, null, {
-    type: "event", category: "Academic", tag: "School Calendar", title: `New event: ${after.title}`,
-    body: `${range}${after.startTime ? ` · ${after.startTime}` : ""}${after.venue ? ` · ${after.venue}` : ""}`, route: "/notifications",
-  });
+  if (!after || after.deleted || after.status !== "published" || after.notifyApp === false || before?.status === "published") return;
+  await require("./appMessaging").appMessaging().broadcast(e.params.sid, `event:${e.params.id}`, {
+    type: "event", title: `New event: ${after.title}`,
+    body: `${after.start}${after.end && after.end !== after.start ? ` to ${after.end}` : ""}${after.startTime ? ` · ${after.startTime}` : ""}${after.venue ? ` · ${after.venue}` : ""}`.slice(0, 240), route: "/notifications", urgent: false,
+  }, "All School", after.grades || []);
 });
 
 // ---------------------------------------------------------------------------
@@ -366,7 +367,7 @@ async function publishDueNotices(now = Date.now()) {
     const done = await db.runTransaction(async (tx) => {
       const cur = await tx.get(d.ref);
       if (cur.get("status") !== "Scheduled") return false; // the admin web got there first
-      tx.update(d.ref, { status: "Published", delivered: Number(cur.get("recipients")) || 0, read: 0, acked: 0, updatedAt: new Date().toISOString(), updatedBy: "functions" });
+      tx.update(d.ref, { status: "Published", delivered: 0, read: 0, acked: 0, updatedAt: new Date().toISOString(), updatedBy: "functions" });
       tx.set(db.collection("schools").doc(sid).collection("com_log").doc(), {
         noticeId: d.id, action: "Sent (scheduled)", audience: cur.get("audience") ?? "", channels: cur.get("channels") ?? [],
         recipients: Number(cur.get("recipients")) || 0, at: new Date().toISOString(), by: "functions",
@@ -419,3 +420,22 @@ Object.assign(exports, require("./owner"));
 Object.assign(exports, require("./staff"));
 
 Object.assign(exports, require("./classRolls"));
+Object.assign(exports, require("./feePayments"));
+Object.assign(exports, require("./teachingAccess"));
+
+exports.onAppPushQueued = require("./appMessaging").onAppPushQueued;
+exports.sendCalendarAppReminders = require("./eventReminders").sendCalendarAppReminders;
+
+exports.manageAdminMfa = require("./adminMfa").manageAdminMfa;
+
+exports.manageAcademicRollover = require("./academicRollover").manageAcademicRollover;
+exports.onAcademicRolloverStarted = require("./academicRollover").onAcademicRolloverStarted;
+
+Object.assign(exports, require("./examPublication")({ db, ...shared }));
+exports.manageExamination = require("./examManagement").manageExamination;
+exports.downloadExamReport = require("./examReportPdf").downloadExamReport;
+exports.openExamReport = require("./examReportPdf").openExamReport;
+for (const [name, handler] of Object.entries(require("./examEvents"))) if (handler?.__endpoint) exports[name] = handler;
+// Mark sheets and class results (EXAMS_SHEETS_RESULTS_CONTRACT.md): the actions live in manageExamination; the
+// triggers (syncExamSheetSummary, auditExamSheet, notifyExamSheetReviewed) are exported by the loop above and the
+// scheduled class-result publication runs inside publishScheduledExams.

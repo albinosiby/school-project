@@ -33,7 +33,7 @@ export function bandsError(bands: BandLike[]): string {
   return "";
 }
 
-type School = { name?: string; short?: string; affiliation?: string; term?: string; academicYear?: string };
+type School = { name?: string; short?: string; affiliation?: string; term?: string; academicYear?: string; city?: string };
 /** The school/school fields that change (empty values never overwrite a stored one); null when nothing changes. */
 export function schoolPatch(cur: School | undefined, next: School): School | null {
   const out: School = {};

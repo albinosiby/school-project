@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState } from "react";
 import { writeBatch } from "firebase/firestore";
 import { CheckCircle2, Download, FileText, MessageCircle, Plus, Printer, Receipt, Send, X } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, PageHeader, Select, Tabs, useToast, type Column } from "@/components/ui";
@@ -7,11 +7,13 @@ import { cn } from "@/lib/cn";
 import { fmtDate, inr, inrFull } from "@/lib/format";
 import { db } from "@/lib/firebase";
 import { useCollection } from "@/lib/useCollection";
+import { useSchoolClock } from "@/lib/useSchoolClock";
 import { isActiveStudent } from "@/features/exams/logic";
 import { downloadCsv } from "./csv";
-import { CASH, applyPayment, createStamp, balanceOf, invoiceErrors, invoiceStatus, newId, nextInvoiceNos, nextReceiptNo, normRef, paymentAmountError, paymentMode, reminderDoc, remindable, schoolDoc, shownStatus, stamp, type InvoiceDraft } from "./logic";
+import { CASH, createStamp, balanceOf, invoiceErrors, invoiceStatus, newId, nextInvoiceNos, normRef, paymentAmountError, reminderDoc, remindable, schoolDoc, shownStatus, type InvoiceDraft } from "./logic";
 import { ReceiptModal } from "./ReceiptModal";
 import { PaymentVerification } from "./PaymentVerification";
+import { recordFeePayment } from "./paymentService";
 import { feeTotal, todayIso, type Concession, type Invoice, type Payment, type Reminder, type Structure } from "./types";
 import { useMyName } from "@/lib/useMe";
 import { BatchInvoiceDialog } from "./BatchInvoiceDialog";
@@ -22,7 +24,6 @@ import { feeScopesForClasses, parseFeeScope, streamName, type AcademicClass } fr
 type Student = { id: string; name: string; grn: string; grade: string; section: string; classId?: string; streamId?: string; stream?: string; guardian: string; phone: string; status?: string; deleted?: boolean };
 const tone = { Paid: "success", Pending: "info", Overdue: "danger", Partial: "warning" } as const;
 const MODES = ["Cash", "UPI QR", "Card", "Cheque", "NetBank"];
-const noopSub = () => () => {};
 
 export function FeesPage() {
   const toast = useToast();
@@ -49,6 +50,7 @@ export function FeesPage() {
   const [ref, setRef] = useState("");
   const [payErr, setPayErr] = useState<{ amount?: string; ref?: string }>({});
   const [busy, setBusy] = useState(false);
+  const [paymentRequestId, setPaymentRequestId] = useState(() => crypto.randomUUID());
   const [receipt, setReceipt] = useState<Payment | null>(null);
   const [newInv, setNewInv] = useState(false);
   const [batch, setBatch] = useState(false);
@@ -58,7 +60,7 @@ export function FeesPage() {
   const [newCon, setNewCon] = useState(false);
 
   // client-only "today" without setState-in-effect (server snapshot is empty)
-  const t = useSyncExternalStore(noopSub, todayIso, () => "");
+  const { date: t } = useSchoolClock();
   const todayPays = pay.rows.filter((p) => p.date === t);
   // mode is "Cash" or "{mode} · {reference}"; cash, cheques and cash deposits are not digital collections
   const digital = (p: Payment) => !["Cash", "Cheque", "Cash deposit at bank"].includes((p.mode ?? "").split(" · ")[0]);
@@ -78,7 +80,7 @@ export function FeesPage() {
   const counts = { all: inv.rows.length, due: inv.rows.filter((i) => stOf(i) !== "Paid").length, paid: inv.rows.filter((i) => stOf(i) === "Paid").length };
 
   const curInv = inv.rows.find((i) => i.id === cur) ?? null;
-  const pickInvoice = (i: Invoice) => { setCur(i.id); setAmt(null); setRef(""); setPayErr({}); };
+  const pickInvoice = (i: Invoice) => { setCur(i.id); setAmt(null); setRef(""); setPayErr({}); setPaymentRequestId(crypto.randomUUID()); };
   const curBal = curInv ? balanceOf(curInv) : 0;
   const shownAmt = amt ?? (curInv ? String(curBal) : "");
   const needsRef = mode !== CASH;
@@ -94,15 +96,11 @@ export function FeesPage() {
     if (e.amount || e.ref) return;
     setBusy(true);
     try {
-      const no = nextReceiptNo(pay.rows);
       const day = t || todayIso();
-      const p: Payment = { id: newId("pay"), receiptNo: no, invoiceId: curInv.id, invoiceNo: curInv.no, student: curInv.student, grade: curInv.grade, grn: curInv.grn, amount: a, mode: paymentMode(mode, needsRef ? ref : ""), date: day, by: me.name, ...(needsRef ? { reference: normRef(ref) } : {}) };
-      const b = writeBatch(db); const st = stamp();
-      b.set(schoolDoc("fee_payments", p.id), { ...p, ...createStamp() });
-      b.update(schoolDoc("fee_invoices", curInv.id), { ...applyPayment(curInv, a, day), ...st });
-      await b.commit();
-      setAmt(null); setRef(""); setReceipt(p); toast(`Payment of ${inrFull(a)} recorded · ${no}`);
-    } catch { toast("Could not record payment", "error"); } finally { setBusy(false); }
+      const p = await recordFeePayment({ requestId: paymentRequestId, invoiceId: curInv.id, amount: a, mode, reference: needsRef ? normRef(ref) : "", date: day });
+      setPaymentRequestId(crypto.randomUUID());
+      setAmt(null); setRef(""); setReceipt(p); toast(`Payment of ${inrFull(p.amount)} recorded · ${p.receiptNo}`);
+    } catch (error) { toast(error instanceof Error ? error.message : "Could not record payment", "error"); } finally { setBusy(false); }
   };
 
   /** fee_reminders rows: each one pushes "Fee reminder" to the invoice's guardians in the parent app (contract 13.4) */

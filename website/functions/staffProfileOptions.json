@@ -8,7 +8,19 @@
   "workShifts": ["Morning", "Day", "Evening", "Night", "Rotating"],
   "qualificationLevels": ["Secondary", "Higher Secondary", "Certificate", "Diploma", "Bachelor's", "Master's", "Doctorate", "Other"],
   "teachingQualifications": ["B.Ed", "D.El.Ed", "Both", "Other"],
-  "teachingDesignations": ["Teacher", "Head of Department", "PGT", "TGT", "PRT", "Pre-Primary Teacher", "Physical Education Teacher", "Other"],
+  "teachingDesignations": ["Teacher", "Head of Department", "Pre-Primary Teacher", "Physical Education Teacher", "Other"],
   "nonTeachingDesignations": ["Principal", "Vice Principal", "Administrator", "Office Manager", "Clerk", "Receptionist", "Office Assistant", "Accountant", "Cashier", "Driver", "Bus Attendant", "Librarian", "Assistant Librarian", "Lab Assistant", "Lab Technician", "IT Administrator", "Technical Support", "Security Guard", "Electrician", "Plumber", "Maintenance Staff", "Cleaner", "Housekeeping Staff", "Nurse", "Medical Assistant", "Coach", "Physical Education Assistant", "Other"],
+  "designationAppRoles": {
+    "Principal": "principal",
+    "Vice Principal": "vice_principal",
+    "Administrator": "office_administrator",
+    "Office Manager": "office_staff",
+    "Clerk": "office_staff",
+    "Receptionist": "office_staff",
+    "Office Assistant": "office_staff",
+    "Accountant": "accountant",
+    "Driver": "driver",
+    "Bus Attendant": "helper"
+  },
   "departments": ["Academics", "Accounts", "Administration", "English", "Healthcare", "Hindi", "Housekeeping", "IT", "Laboratory", "Library", "Maintenance", "Mathematics", "Office", "Physical Education", "Science", "Security", "Social Science", "Sports", "Transport"]
 }

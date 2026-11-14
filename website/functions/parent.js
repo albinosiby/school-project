@@ -7,6 +7,7 @@
 // Loop safety: every function that writes back into a collection it is triggered by compares first and writes only on a
 // change (classes.classTeacher, com_notices / calendar_events.parentVisible); message counters are applied once per message
 // (msg_messages.counted, in a transaction). Projections (par_*) and users docs trigger nothing.
+const { assessMark } = require("./examAssessment");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { logger } = require("firebase-functions/v2");
@@ -318,14 +319,17 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
 
   const markStudentId = (m) => m?.studentId || String(m?.candId ?? "").replace(/^cand_/, "") || null;
 
-  function resultDoc(paper, paperId, cycleTitle, classId, studentId, m) {
+  function resultDoc(paper, paperId, cycleTitle, classId, studentId, m, expectedPapers) {
     const theory = typeof m.theory === "number" ? m.theory : null, internal = typeof m.internal === "number" ? m.internal : null;
     const theoryMax = Number(paper.theory ?? 80), internalMax = Number(paper.internal ?? 20);
+    const assessment = assessMark(m, { ...paper, theory: theoryMax, internal: internalMax });
     return {
       studentId, paperId, classId, cycleId: paper.cycleId ?? "", exam: cycleTitle ?? "", subject: paper.subject ?? "", code: paper.code ?? "",
-      date: paper.date ?? "", theory, internal, theoryMax, internalMax,
-      obtained: theory === null && internal === null ? null : (theory ?? 0) + (internal ?? 0), max: theoryMax + internalMax,
+      date: paper.date ?? "", theory, internal, theoryMax, internalMax, practical: m.practical ?? null, practicalMax: paper.practical ?? 0,
+      grade: assessment.grade, percent: assessment.pct, assessmentMode: paper.assessmentMode ?? "marks", status: m.status ?? "Present", resultRules: paper.resultRules ?? {}, weight: paper.weight ?? 1, scale: paper.scale ?? "",
+      obtained: assessment.total, max: theoryMax + internalMax + (paper.practical ?? 0),
       medical: m.medical === true, updatedAt: nowIso(),
+      ...(expectedPapers === undefined ? {} : { expectedPapers }),
     };
   }
 
@@ -336,16 +340,17 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   }
 
   /** Writes the class's results of one paper; returns the students that got a result. */
-  async function writeClassResults(sid, paperId, paper, label) {
-    const classId = labelToClassId(label);
-    const [roster, marks, exam] = await Promise.all([
+  async function writeClassResults(sid, paperId, paper, label, storedClassId) {
+    const classId = storedClassId || labelToClassId(label);
+    const [roster, marks, exam, examPapers] = await Promise.all([
       classRoster(sid, classId), S(sid).collection("exm_marks").where("paperId", "==", paperId).get(), cycleTitle(sid, paper.cycleId),
+      S(sid).collection("exm_papers").where("cycleId", "==", paper.cycleId).get(),
     ]);
     const byStudent = new Map(marks.docs.map((d) => [markStudentId(d.data()), d.data()]));
-    const got = roster.filter((s) => byStudent.has(s.id));
+    const got = roster.filter((s) => byStudent.has(s.id) && (!Array.isArray(paper.studentIds) || paper.studentIds.includes(s.id)));
     for (const part of chunk(got, 450)) {
       const b = db.batch();
-      for (const s of part) b.set(S(sid).collection("par_results").doc(`${s.id}_${paperId}`), resultDoc(paper, paperId, exam, classId, s.id, byStudent.get(s.id)));
+      for (const s of part) b.set(S(sid).collection("par_results").doc(`${s.id}_${paperId}`), resultDoc(paper, paperId, exam, classId, s.id, byStudent.get(s.id), examPapers.docs.filter((p) => require("./examOperations").participates({ ...p.data(), id: p.id }, s)).length));
       await b.commit();
     }
     return { got, exam };
@@ -355,17 +360,18 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
     const sid = e.params.sid, id = e.params.id;
     const before = e.data?.before?.data(), after = e.data?.after?.data();
     if (!after) { await deleteWhere(S(sid).collection("par_results").where("paperId", "==", id)); return; }
-    const pubBefore = uniq(before?.published), pubAfter = uniq(after.published);
+    const classKeys = (p) => uniq([...(p?.publishedClassIds || []), ...uniq(p?.published).map(labelToClassId)]);
+    const pubBefore = classKeys(before), pubAfter = classKeys(after);
     const newly = pubAfter.filter((c) => !pubBefore.includes(c)), removed = pubBefore.filter((c) => !pubAfter.includes(c));
-    const detailsChanged = !!before && ["subject", "code", "date", "theory", "internal", "cycleId"].some((k) => before[k] !== after[k]);
+    const detailsChanged = !!before && ["subject", "code", "date", "theory", "internal", "cycleId", "practical", "assessmentMode", "gradeOptions", "scale", "resultRules", "passMarks", "studentIds"].some((k) => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
     // unpublished (e.g. the admin edits marks again): hide that class's results until it is published again
     if (removed.length) {
-      const gone = new Set(removed.map(labelToClassId));
+      const gone = new Set(removed);
       const snap = await S(sid).collection("par_results").where("paperId", "==", id).get();
       await Promise.all(snap.docs.filter((d) => gone.has(d.get("classId"))).map((d) => d.ref.delete()));
     }
     for (const label of detailsChanged ? pubAfter : newly) {
-      const { got, exam } = await writeClassResults(sid, id, after, label);
+      const { got, exam } = await writeClassResults(sid, id, after, label, label);
       if (!newly.includes(label)) continue;
       await notifyParents(sid, guardiansOf(got).map(({ uid, student }) => ({
         id: `res_${id}_${student.id}_${uid}`, uid, studentId: student.id, type: "results",
@@ -384,10 +390,12 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
     const [paperSnap, student] = await Promise.all([S(sid).collection("exm_papers").doc(String(m.paperId)).get(), studentDoc(sid, studentId)]);
     if (!paperSnap.exists || !student?.classId) return;
     const paper = paperSnap.data();
-    if (!uniq(paper.published).includes(clsLabel(student.classId))) return;
+    if (!uniq(paper.publishedClassIds).includes(student.classId) && !uniq(paper.published).includes(clsLabel(student.classId))) return;
+    if (Array.isArray(paper.studentIds) && !paper.studentIds.includes(studentId)) return;
     const ref = S(sid).collection("par_results").doc(`${studentId}_${m.paperId}`);
     if (!after) { await ref.delete(); return; }
-    await ref.set(resultDoc(paper, m.paperId, await cycleTitle(sid, paper.cycleId), student.classId, studentId, after));
+    const examPapers = await S(sid).collection("exm_papers").where("cycleId", "==", paper.cycleId).get();
+    await ref.set(resultDoc(paper, m.paperId, await cycleTitle(sid, paper.cycleId), student.classId, studentId, after, examPapers.docs.filter((p) => require("./examOperations").participates({ ...p.data(), id: p.id }, { ...student, id: studentId })).length));
   }));
 
   // ---------------------------------------------------------------------------
@@ -412,11 +420,8 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
     const vis = noticeVisible(after);
     if (after.parentVisible !== vis) await e.data.after.ref.update({ parentVisible: vis });
     if (!vis || noticeVisible(before)) return;
-    const parents = await schoolParents(sid, after.grades);
-    await notifyParents(sid, parents.map((u) => ({
-      id: `ntc_${id}_${u.id}`, uid: u.id, studentId: "", type: "notice", title: after.urgent && !/^urgent\b/i.test(after.title ?? "") ? `Urgent: ${after.title}` : after.title ?? "New notice",
-      body: String(after.body ?? "").replace(/\s+/g, " ").slice(0, 140), route: "/notifications",
-    })));
+    // App feed notifications and Firebase Messaging jobs are owned by onNoticePublished.
+
   }));
 
   const onCalendarForParents = onDocumentWritten("schools/{sid}/calendar_events/{id}", safe("onCalendarForParents", async (e) => {

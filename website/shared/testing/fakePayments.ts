@@ -1,0 +1,25 @@
+import { ADMIN_UID, getRow, guard, rawSet, rawUpdate, rowsOf } from "./fakeDb";
+import { applyPayment, nextReceiptNo, normRef, paymentMode } from "@/features/fees/logic";
+import type { Invoice, Payment } from "@/features/fees/types";
+
+/** UI-test stand-in only. Production concurrency and replay checks run against the emulator. */
+export function fakeRecordPayment(input: { requestId: string; invoiceId: string; amount: number; mode?: string; reference?: string; date?: string; claimId?: string }) {
+  guard();
+  const claim = input.claimId ? getRow<Record<string, string>>("fee_claims", input.claimId) : undefined;
+  const id = claim?.paymentId || `pay_${input.requestId}`;
+  const previous = getRow<Payment>("fee_payments", id);
+  if (previous) return { payment: previous, replayed: true };
+  const invoice = getRow<Invoice>("fee_invoices", input.invoiceId);
+  if (!invoice) throw new Error("The invoice was not found.");
+  const date = claim?.paidOn || input.date || "2026-11-03";
+  const reference = normRef(claim?.reference || input.reference);
+  const receiptNo = nextReceiptNo(rowsOf<Payment>("fee_payments"));
+  const now = new Date().toISOString(), stamp = { updatedAt: now, updatedBy: ADMIN_UID };
+  const payment: Payment = { id, receiptNo, invoiceId: invoice.id, invoiceNo: invoice.no, student: invoice.student, grade: invoice.grade, grn: invoice.grn,
+    amount: input.amount, mode: paymentMode(claim?.mode || input.mode || "Cash", reference), date, by: "School Admin", ...(reference ? { reference } : {}), ...(input.claimId ? { claimId: input.claimId } : {}) };
+  const patch = applyPayment(invoice, input.amount, date);
+  rawSet("fee_payments", id, { ...payment, ...stamp });
+  rawUpdate("fee_invoices", invoice.id, { ...patch, ...stamp });
+  if (input.claimId) rawUpdate("fee_claims", input.claimId, { status: "Verified", amount: input.amount, receiptNo, paymentId: id, verifiedBy: payment.by, verifiedByUid: ADMIN_UID, verifiedAt: now, ...stamp });
+  return { payment, replayed: false };
+}

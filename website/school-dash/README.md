@@ -19,6 +19,65 @@ In **School setup → Classes & Sections**, configure LKG–10 by class. For Gra
 Commerce, and/or Humanities independently, then set each stream's section count and seats per section. Letters
 restart within each stream: 11 Science A and 11 Commerce A are separate classes. Save this step before fees.
 
+In **Settings → Classes & Sections**, use **Add grade** for LKG/UKG and Grades 1–10. The three steps are:
+enter the grade's total seats; choose its section count and adjust each section's seats to match that total;
+then select at least one subject. Section seats start with an even split and can be changed individually.
+Each section also has an optional **Room number** field in step 2. The room is saved to that section's class
+record and appears on its class details page; room numbers must be distinct and at most 20 characters.
+Choose **Add a new subject** to create one in the shared subject list, just as in the senior department form.
+These subjects automatically appear in the teacher profile's **Subject** dropdown and **Additional subjects** list.
+Subject and department setup lives under **Classes & Sections**; there is no separate **Subjects & Departments** tab.
+Use **Back** to review or change an earlier step before creating the grade. Open an existing grade
+and choose **Edit sections and capacity** to add sections or change their seats. Saving updates the grade total,
+individual class capacities and admissions capacity together. A section cannot be reduced below its enrollment,
+and the grade total must cover enrolled students, live admission offers and reserved seats. Removing an empty
+section deletes its class record, subject-teacher assignments and weekly timetable; historical attendance,
+exam results and student records are retained. Existing admissions reservation settings are preserved.
+For configured regular grades, **Edit admissions seats** links to the grade page to keep capacities consistent.
+Previously configured grades are synchronized when their sections and capacity are next saved.
+
+On a grade's **Subjects and teachers** table, select a teacher in each subject/division cell. Choices come from
+teaching profiles' primary and additional subjects and match by subject name regardless of capitalization or
+extra spaces. Each change saves automatically to the shared class assignments; choose **Not assigned** to clear
+one. A teacher can cover several divisions. Existing assignments remain visible if the teacher's profile no
+longer qualifies, with guidance to update the profile or choose a replacement. Class-teacher responsibility is
+managed separately on the class details page.
+
+On **Classes & Assignments → class details → Teachers**, each row has an **Unassign** action.
+**Unassign teaching** removes that teacher's subject assignments for the class and clears their identity from
+its weekly timetable slots together. The slots, subjects, recorded attendance and other classes are kept.
+For the class teacher, **Unassign class teacher** removes only that role; teaching duties can be removed separately.
+The dialog reviews the affected counts, and changed assignments must be reviewed again before removal.
+
+Use **Assign room** or **Change room** in the class details header to update its home room. Room names/numbers
+are limited to 20 characters and cannot match another class's home room (ignoring case and extra spaces).
+Leave the field blank and save to unassign the room.
+
+Configured breaks, including lunch, appear between periods in the daily timetable, weekly timetable and
+timetable editor, using the names and timings from the school's bell schedule. Break rows cannot be assigned
+teachers or substitutes; teaching period numbers stay the same.
+On configured days off, saved lessons and attendance remain visible with regular bell timings for reference
+and a **Non-working day** notice. An empty day off does not create scheduled periods.
+Weekly, daily and editable timetables use the bell schedule's configured period count. Saved lessons beyond
+that count are listed separately for review, and their historical attendance is retained. Below the timetable,
+use **School hours & breaks → Edit school timings** to change opening/closing times, daily period count/length
+and named breaks including lunch. The editor previews the resulting day and totals for school, teaching and
+break hours; overlapping breaks or a schedule running past closing time cannot be saved. This changes bells
+for all classes. Academic Year shows the live summary and links to this same editor.
+
+On a teacher's **Staff & HR → staff details** page, **Teacher timetable** shows their recurring weekly
+lessons across classes, with subjects, class links, rooms, and shared bell timings including lunch and breaks.
+Empty slots show **Free** and simultaneous lessons are flagged as overlaps. The timetable updates when
+weekly lessons or school bells change. Teacher IDs determine ownership; legacy name-only lessons appear
+only when that name identifies one staff member. Non-teaching profiles do not show this timetable.
+
+On **Students & Guardians → student details**, use **Assign division** (or **Change division**) to choose a
+configured division in the student's existing grade. Senior students can choose only within their assigned
+department. The picker shows available seats and rechecks enrollment and the division's configured capacity
+before saving. A changed division clears the old roll number for the new class teacher to assign; guardian,
+transport and historical attendance records are retained. Legacy divisions without an individual capacity can
+still be assigned; set their seat limits through **Classes & Sections** to enforce a limit.
+
 Fee setup uses the configured classes and streams. Add separate fee items when Science and Commerce have
 different amounts; select their class + stream under **Applicable classes**. Grade 12 is configured independently.
 Students & Guardians requires the configured stream for senior students. CSV imports have a final `stream`

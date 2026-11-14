@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useMemo, useState } from "react";
 import { ArrowRight, Bus, CheckCheck, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Download, MessageSquare, TrendingUp, UserX, UserCheck, AlertTriangle } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, Checkbox, EmptyState, Field, Modal, ProgressBar, Select, Tabs, useToast } from "@/components/ui";
@@ -7,18 +8,19 @@ import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { inr } from "@/lib/format";
 import { GROUPS, groupOfGrade } from "@/features/admissions/types";
+import { isTeachingStaff } from "@/features/people/staffProfiles";
 import { DashHeader } from "./DashHeader";
 import { ReasonModal, useApprovalActions } from "./approvals-shared";
 import {
-  catOf, downloadCsv, errMsg, useHydrated, eventsOn, fmtDay, fmtSubmitted, KIND_LABEL, KIND_ORDER, MON, MONTHS, monthGrid, parse, pctOf, TODAY, upcomingEvents, useApprovals, useEvents,
+  catOf, downloadCsv, errMsg, useHydrated, eventsOn, fmtDay, fmtSubmitted, KIND_LABEL, KIND_ORDER, MON, MONTHS, monthGrid, parse, pctOf, upcomingEvents, useApprovals, useEvents,
   type Alert, type Notif, type Staff, nowLocal } from "./data";
-import { dayAttendance, deriveAlerts, isOverdue, staffOnLeave, type AttRec, type BusLite, type InvoiceLite, type LeaveLite, type LiveAlert, type PeriodLite, type SubLite } from "./logic";
+import { admittedStudents, checkedInStaff, openAdmissionEnquiries, latestDayRecords, dayAttendance, deriveAlerts, isOverdue, staffOnLeave, type AttRec, type BusLite, type InvoiceLite, type LeaveLite, type LiveAlert, type PeriodLite, type SubLite } from "./logic";
 
-type Student = { id: string; status: string };
+type Student = { id: string; status?: string; deleted?: boolean; admissionNumber?: string; admissionDate?: string; offerId?: string; grade?: string; section?: string; classId?: string };
 type Payment = { id: string; amount: number; date: string };
 type Invoice = InvoiceLite;
-type Enq = { id: string };
-type App = { id: string; grade: string; status: string; testSlotId?: string; interviewSlotId?: string; panelStatus?: string | null };
+type Enq = { id: string; stage?: string; studentId?: string; applicationId?: string };
+type App = { id: string; enquiryId?: string; studentId?: string; grade: string; status: string; testSlotId?: string; interviewSlotId?: string; panelStatus?: string | null };
 type Seat = { id: string; grade: string; capacity: number };
 
 /* ---------------- KPI strip (all derived from live collections) ---------------- */
@@ -31,18 +33,24 @@ const K = ({ label, icon, value, unit, tag, tone, href }: { label: string; icon:
 };
 
 function Kpis() {
+  const { date: TODAY } = useSchoolClock();
   const { rows: students } = useCollection<Student>("students");
   const { rows: staff } = useCollection<Staff>("staff");
-  const { rows: att } = useCollection<AttRec>("ops_attendance");
-  const { rows: pays } = useCollection<Payment>("fee_payments");
-  const { rows: invs } = useCollection<Invoice>("fee_invoices");
+  const { rows: att } = useCollection<AttRec>("ops_attendance", true, [["date", "==", TODAY]]);
+  const { rows: pays } = useCollection<Payment>("fee_payments", true, [["date", "==", TODAY]]);
+  const { rows: invs } = useCollection<Invoice>("fee_invoices", true, [["balance", ">", 0]]);
   const { rows: enq } = useCollection<Enq>("adm_enquiries");
   const { rows: apps } = useCollection<App>("adm_applications");
   const { rows: leaves } = useCollection<LeaveLite>("staff_leaves");
   const { rows: approvals } = useApprovals();
-  const active = students.filter((s) => s.status === "Active").length;
+  const activeStudents = students.filter((s) => !s.deleted && (!s.status || s.status === "Active"));
+  const active = activeStudents.length;
+  const staffAttendance = useCollection<{ id: string; staffId?: string; date?: string; in?: string; out?: string; status?: string }>("staff_attendance", true, [["date", "==", TODAY]]);
+  const checkedIn = checkedInStaff(staff, staffAttendance.rows, TODAY);
+  const classIds = new Set(activeStudents.map((student) => student.classId || (student.grade && student.section ? `cls_${student.grade}${student.section}` : "")).filter(Boolean));
+  const marked = [...latestDayRecords(att, TODAY).keys()].filter((id) => classIds.has(id)).length;
   // today's roll: per class the latest submitted record (contract 9: newest updatedAt, ties higher period)
-  const { absent, pct: attPct } = dayAttendance(att, TODAY);
+  const { absent, pct: attPct } = dayAttendance(activeStudents.length ? (classIds.size ? att.filter((record) => classIds.has(record.classId)) : att) : [], TODAY);
   // fee_payments.date is the LOCAL yyyy-mm-dd (fees todayIso), same as TODAY
   const feesToday = pays.filter((p) => p.date === TODAY).reduce((a, p) => a + (Number(p.amount) || 0), 0);
   const overdue = invs.filter((i) => isOverdue(i, TODAY));
@@ -50,73 +58,56 @@ function Kpis() {
   // status "On leave" or an approved staff_leaves row covering today
   const onLeave = staffOnLeave(staff, leaves, TODAY).size;
   const pending = approvals.filter((a) => a.status === "pending").length;
-  const enrolled = apps.filter((a) => a.status === "enrolled").length;
+  const enrolled = admittedStudents(students).length;
+  const openEnquiries = openAdmissionEnquiries(enq, apps).length;
   return (
     <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-      <K label="Today's Attendance" href="/attendance" icon={<UserCheck size={16} className="text-success" />} value={attPct === null ? "—" : `${attPct.toFixed(1)}%`}
-        tag={attPct === null ? (active ? "Not marked yet" : "No students") : `${absent} Absent`} tone={attPct === null ? "neutral" : absent ? "danger" : "success"} />
+      <K label="Today's Attendance" icon={<UserCheck size={16} className="text-success" />} value={attPct === null ? "—" : `${attPct.toFixed(1)}%`}
+        tag={classIds.size ? `${marked} / ${classIds.size} classes marked` : attPct === null ? (active ? "Not marked yet" : "No students") : `${absent} Absent`} tone={attPct === null ? "neutral" : absent ? "danger" : "success"} />
       <K label="Fee Collections" href="/fees" icon={<CircleDollarSign size={16} />} value={inr(feesToday)} tag="Today" tone="success" />
       <K label="Fees Overdue" href="/fees" icon={<AlertTriangle size={16} className="text-error" />} value={inr(overdueAmt)} tag={`${overdue.length} Account${overdue.length === 1 ? "" : "s"}`} tone={overdue.length ? "danger" : "success"} />
-      <K label="Admissions Enquiries" href="/admissions" icon={<TrendingUp size={16} className="text-secondary" />} value={enq.length} tag={`${enrolled} Enrolled`} tone="success" />
-      <K label="Staff on Leave" href="/staff" icon={<UserX size={16} className="text-warning" />} value={onLeave} unit={`/${staff.length}`} tag={`${Math.max(0, staff.length - onLeave)} On duty`} tone={onLeave ? "warning" : "success"} />
+      <K label="Admissions Enquiries" href="/admissions" icon={<TrendingUp size={16} className="text-secondary" />} value={openEnquiries} tag={`${enrolled} Enrolled`} tone="success" />
+      <K label="Staff on Leave" href="/staff" icon={<UserX size={16} className="text-warning" />} value={onLeave} unit={`/${staff.length}`} tag={`${checkedIn} Checked in`} tone={onLeave ? "warning" : "success"} />
       <K label="Pending Approvals" href="/approvals" icon={<ClipboardList size={16} />} value={pending} tag={pending ? "Action needed" : "All clear"} tone={pending ? "danger" : "success"} />
     </div>
   );
 }
 
 /* ---------------- admissions pipeline (adm_enquiries / adm_applications / adm_seats) ---------------- */
-const AFTER_TEST = ["test_scheduled", "tested", "shortlisted", "waitlisted", "offered", "enrolled"];
 function Pipeline() {
-  const enq = useCollection<Enq>("adm_enquiries");
-  const apps = useCollection<App>("adm_applications");
+  const enquiries = useCollection<Enq>("adm_enquiries");
+  const applications = useCollection<App>("adm_applications");
+  const students = useCollection<Student>("students");
   const seats = useCollection<Seat>("adm_seats");
   const toast = useToast();
-  const ready = useHydrated() && enq.ready && apps.ready && seats.ready;
+  const ready = useHydrated() && enquiries.ready && applications.ready && students.ready && seats.ready;
   if (!ready) return <Card className="mb-6 min-h-64" />;
-  const a = apps.rows;
-  const exam = a.filter((x) => x.testSlotId || AFTER_TEST.includes(x.status)).length;
-  const interview = a.filter((x) => x.interviewSlotId || x.panelStatus || x.status === "offered" || x.status === "enrolled").length;
-  const enrolledN = a.filter((x) => x.status === "enrolled").length;
-  const steps = [
-    { k: "STEP 1: ENQUIRIES", n: enq.rows.length, base: enq.rows.length, note: "Walk-ins, calls & web enquiries" },
-    { k: "STEP 2: ENTRANCE TEST", n: exam, base: enq.rows.length, note: "Scheduled for or sat the test" },
-    { k: "STEP 3: INTERVIEW", n: interview, base: exam, note: "Interview / panel stage" },
-    { k: "STEP 4: ENROLLED", n: enrolledN, base: interview, note: "Seat confirmed" },
-  ];
-  const capacity = GROUPS.map((g) => {
-    const cap = seats.rows.filter((s) => groupOfGrade(s.grade) === g.id).reduce((t, s) => t + (Number(s.capacity) || 0), 0);
-    const enrolled = a.filter((x) => x.status === "enrolled" && groupOfGrade(x.grade) === g.id).length;
-    return { label: `${g.label} (${g.sub})`, enrolled, cap };
-  }).filter((c) => c.cap > 0 || c.enrolled > 0);
-  const enrolled = capacity.reduce((t, c) => t + c.enrolled, 0), cap = capacity.reduce((t, c) => t + c.cap, 0);
-  const tones = ["brand", "success", "brand", "muted"] as const;
-  const conv = (n: number, base: number) => pctOf(n, base).toFixed(1);
-  return (
-    <Card className="mb-6 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3"><h2 className="t-headline-md !text-[18px]">Admissions Pipeline & Conversion</h2></div>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" disabled={!enq.rows.length && !a.length} onClick={() => { downloadCsv("admissions-funnel.csv", [["Stage", "Count", "Conversion %"], ...steps.map((s) => [s.k.replace(/^STEP \d: /, ""), s.n, conv(s.n, s.base)])]); toast("Funnel exported"); }}><Download size={14} />Export Funnel</Button>
-          <Link href="/admissions"><Button size="sm" variant="secondary">Manage Inquiries</Button></Link></div>
-      </div>
-      <p className="mt-1 text-on-surface-variant">Live status of prospective candidates across intake stages.</p>
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {steps.map((s, i) => (
-          <div key={s.k} className={cn("rounded-lg border p-4", i === 3 ? "border-secondary/30 bg-info-container/60" : "border-outline-variant/60 bg-surface-container-low")}>
-            <p className={cn("font-mono text-[11px] tracking-wide", i === 3 ? "text-secondary" : "text-outline")}>{s.k}</p>
-            <div className="mt-2 flex items-baseline justify-between"><span className="t-headline-md !text-2xl">{s.n}</span>{i > 0 && <span className="font-mono text-xs text-success">{conv(s.n, s.base)}%</span>}</div>
-            <p className="mt-2 text-xs text-on-surface-variant">{s.note}</p>
-          </div>))}
-      </div>
-      <div className="mt-6 flex items-baseline justify-between"><h3 className="font-semibold">Grade Intake Capacity Utilization</h3>{cap > 0 && <span className="font-mono text-xs text-outline">{enrolled} / {cap} Total Seats</span>}</div>
-      {capacity.length === 0 ? <p className="mt-3 rounded-lg bg-surface-container-low p-3 text-sm text-outline">No intake seats configured yet. <Link href="/admissions/seats" className="font-semibold text-secondary">Set up seats</Link></p> : (
-        <div className="mt-3 space-y-3">
-          {capacity.map((c, i) => { const pct = Math.round(pctOf(c.enrolled, c.cap)); return (
-            <div key={c.label}><div className="flex justify-between gap-2 text-sm"><span>{c.label}</span><span className="shrink-0 font-mono text-xs">{c.enrolled} / {c.cap} Enrolled ({pct}%)</span></div>
-              <ProgressBar value={pct} tone={tones[i % 4]} className="mt-1" /></div>); })}
-        </div>)}
-    </Card>
-  );
+  const open = openAdmissionEnquiries(enquiries.rows, applications.rows);
+  const admitted = admittedStudents(students.rows);
+  const capacity = GROUPS.map((group) => ({
+    label: `${group.label} (${group.sub})`,
+    enrolled: admitted.filter((student) => (!student.status || student.status === "Active") && groupOfGrade(student.grade || "") === group.id).length,
+    cap: seats.rows.filter((seat) => groupOfGrade(seat.grade) === group.id).reduce((total, seat) => total + (Number(seat.capacity) || 0), 0),
+  })).filter((row) => row.cap > 0 || row.enrolled > 0);
+  return <Card className="mb-6 p-5">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold">Admissions overview</h2>
+      <div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => {
+        downloadCsv("admissions-overview.csv", [["Metric", "Count"], ["Open enquiries", open.length], ["Admitted students", admitted.length]]);
+        toast("Admissions overview exported");
+      }}><Download size={14} />Export overview</Button><Link href="/admissions"><Button size="sm" variant="secondary">Manage admissions</Button></Link></div>
+    </div>
+    <p className="mt-1 text-sm text-on-surface-variant">Admission requests and students saved through the current admission process.</p>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <Link href="/admissions" className="rounded-lg border border-outline-variant/60 bg-surface-container-low p-4 hover:border-secondary/30"><p className="text-xs font-semibold text-on-surface-variant">Open enquiries</p><p className="mt-2 text-2xl font-semibold">{open.length}</p><p className="mt-2 text-xs text-on-surface-variant">Converted admission requests are excluded.</p></Link>
+      <Link href="/admissions/admission" className="rounded-lg border border-secondary/20 bg-info-container/40 p-4 hover:border-secondary/40"><p className="text-xs font-semibold text-on-surface-variant">Admitted students</p><p className="mt-2 text-2xl font-semibold">{admitted.length}</p><p className="mt-2 text-xs text-on-surface-variant">Includes direct admissions and converted enquiries.</p></Link>
+    </div>
+    <h3 className="mt-6 font-semibold">Admission intake capacity</h3>
+    {!capacity.length ? <p className="mt-3 text-sm text-on-surface-variant">No intake capacity configured.</p> : <div className="mt-3 space-y-3">{capacity.map((row) => <div key={row.label}>
+      <div className="flex flex-wrap justify-between gap-2 text-sm"><span>{row.label}</span><span className="text-xs tabular-nums">{row.enrolled} / {row.cap || "Not configured"} active admitted students</span></div>
+      {row.cap > 0 && <ProgressBar value={Math.min(100, Math.round(pctOf(row.enrolled, row.cap)))} tone={row.enrolled > row.cap ? "muted" : "brand"} className="mt-1" />}
+    </div>)}</div>}
+  </Card>;
 }
 
 /* ---------------- approvals inbox ---------------- */
@@ -167,6 +158,7 @@ function ApprovalsInbox() {
 
 /* ---------------- urgent alerts ---------------- */
 function Alerts() {
+  const { date: TODAY } = useSchoolClock();
   // dash_alerts holds only demo / legacy rows (nothing in the live system writes it); the real alerts are derived
   const { rows: legacy, update } = useCollection<Alert>("dash_alerts");
   const { rows: staff } = useCollection<Staff>("staff");
@@ -175,7 +167,7 @@ function Alerts() {
   const { rows: subs } = useCollection<SubLite>("ops_substitutions");
   const { rows: invoices } = useCollection<InvoiceLite>("fee_invoices");
   const { rows: buses } = useCollection<BusLite>("tr_buses");
-  const live = useMemo(() => deriveAlerts({ today: TODAY, staff, leaves, periods, subs, invoices, buses }), [staff, leaves, periods, subs, invoices, buses]);
+  const live = useMemo(() => deriveAlerts({ today: TODAY, staff, leaves, periods, subs, invoices, buses }), [TODAY, staff, leaves, periods, subs, invoices, buses]);
   const rows: (Alert | LiveAlert)[] = [...live, ...legacy];
   const { create: notify } = useCollection<Notif>("notifications");
   const toast = useToast();
@@ -187,7 +179,7 @@ function Alerts() {
     try { await fn(); toast(ok); return true; } catch (e) { toast(errMsg(e), "error"); return false; } finally { setBusy(false); }
   };
   const open = rows.filter((a) => a.status === "open").length;
-  const teachers = staff.filter((s) => s.status === "Active" && /PGT|TGT|PRT|HOD/.test(s.role));
+  const teachers = staff.filter((s) => s.status === "Active" && isTeachingStaff(s));
   const icon = { substitute: UserX, fee: CircleDollarSign, transit: Bus } as const;
   const tint = { substitute: "border-warning/30 bg-warning-container/60", fee: "border-error/20 bg-error-container/50", transit: "border-outline-variant/60 bg-surface-container-low" } as const;
   return (
@@ -228,13 +220,14 @@ function Alerts() {
 
 /* ---------------- academic milestones ---------------- */
 function Milestones() {
+  const { date: TODAY } = useSchoolClock();
   const { rows: events } = useEvents();
   const [mode, setMode] = useState<"month" | "agenda">("month");
   const [ym, setYm] = useState(() => { const d = parse(TODAY); return { y: d.getFullYear(), m: d.getMonth() }; });
   const [pick, setPick] = useState<string | null>(null);
   const grid = useMemo(() => monthGrid(ym.y, ym.m), [ym]);
   const published = events.filter((e) => e.status === "published");
-  const list = pick ? eventsOn(published, pick) : upcomingEvents(published).slice(0, 5);
+  const list = pick ? eventsOn(published, pick) : upcomingEvents(published, TODAY).slice(0, 5);
   const shift = (d: number) => setYm((x) => { const n = x.m + d; return n < 0 ? { y: x.y - 1, m: 11 } : n > 11 ? { y: x.y + 1, m: 0 } : { ...x, m: n }; });
   return (
     <Card className="p-5">

@@ -1,0 +1,12 @@
+{
+  "identity": "Identity proof",
+  "address": "Address proof",
+  "education": "Educational certificate",
+  "experience": "Experience certificate",
+  "resume": "Resume / CV",
+  "appointment": "Appointment letter",
+  "pan": "PAN card",
+  "bank": "Bank proof",
+  "professional": "Professional certificate",
+  "other": "Other document"
+}

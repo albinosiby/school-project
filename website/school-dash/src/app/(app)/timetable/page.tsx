@@ -1,2 +1,2 @@
-import { TimetableView } from "@/features/ops/TimetableView";
-export default function Page() { return <TimetableView />; }
+import { redirect } from "next/navigation";
+export default function Page() { redirect("/settings?section=timetable"); }

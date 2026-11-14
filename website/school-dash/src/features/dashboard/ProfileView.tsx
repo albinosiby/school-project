@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
 import { Building2, Camera, Check, FileText, GraduationCap, Pencil, ShieldCheck, Users } from "lucide-react";
-import { Avatar, Badge, Button, Card, EmptyState, Field, Input, Modal, Select, Switch, Textarea, useToast } from "@/components/ui";
+import { Avatar, Badge, Button, Card, EmptyState, Field, Input, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { errMsg, useHydrated } from "./data";
+import { AdminPasskeyCard } from "@/features/auth/AdminPasskeyCard";
 import { ChangePasswordCard } from "./ChangePasswordCard";
 
 type Me = { id: string; name: string; title: string; role: string; email: string; phone: string; altEmail?: string; extension?: string; office?: string; degree?: string; specialization?: string; bio?: string };
@@ -29,7 +30,6 @@ export function ProfileView() {
   const updPrefs = (patch: Partial<Prefs>) => (prefs[0] ? updPrefsRaw(prefs[0].id, patch) : createPrefs({ ...PREF_DEFAULTS, ...patch, id: "me" }));
   const [edits, setEdits] = useState<Partial<Fields>>({});
   const [errs, setErrs] = useState<Record<string, string>>({});
-  const [mfa, setMfa] = useState(false);
   const [saving, setSaving] = useState(false);
   const base: Fields = (() => {
     if (!m) return { first: "", last: "", email: "", altEmail: "", phone: "", extension: "", office: "", degree: "", specialization: "", bio: "" };
@@ -125,8 +125,7 @@ export function ProfileView() {
               <p className="mt-2 font-semibold">Super Administrator / Head of Institution</p><p className="mt-1 text-xs text-on-surface-variant">Unrestricted privilege over academic records, fee matrices, roster schedules, and staff rosters.</p></div>
             <p className="mb-2 mt-4 text-sm font-semibold">Active Cryptographic Scopes</p>
             <ul className="space-y-2">{[["Admissions & Enrollment", "Full Root"], ["Academic Term Gradebook", "Root Lock"], ["Fee Matrix & Ledger Audit", "Full Admin"], ["Audit Ledger Export", "Full Access"]].map(([a, b]) => <li key={a} className="flex items-center justify-between gap-2 rounded-lg border border-outline-variant/60 px-3 py-2 text-sm"><span className="flex items-center gap-2"><Check size={13} className="text-secondary" />{a}</span><Badge tone="brand">{b}</Badge></li>)}</ul>
-            <div className="mt-4 rounded-lg border border-outline-variant/60 p-4"><p className="font-semibold">Hardware MFA (FIDO2)</p><p className="mt-1 text-xs text-on-surface-variant">{p.mfaDevice ? `${p.mfaDevice} paired (simulated).` : "No security key paired."}</p>
-              <Button variant="outline" size="sm" className="mt-3 w-full" onClick={() => setMfa(true)}>{p.mfaDevice ? "Reconfigure MFA Device" : "Pair MFA Device"}</Button></div>
+            <AdminPasskeyCard />
           </Card>
           <Card className="p-5">
             {head(<Pencil size={18} />, "System Preferences", "Session filters and critical alert triggers")}
@@ -140,8 +139,7 @@ export function ProfileView() {
           </Card>
         </aside>
       </div>
-      <Modal open={mfa} onClose={() => setMfa(false)} title="Reconfigure MFA device" subtitle="FIDO2 hardware token" footer={<><Button variant="outline" onClick={() => setMfa(false)}>Cancel</Button><Button onClick={async () => { await pref({ mfaDevice: "Security key" }, "MFA device paired (simulated)"); setMfa(false); }}>Start pairing</Button></>}>
-        <p className="text-on-surface-variant">Insert your security key and touch it when prompted. Hardware MFA is simulated in this build — no key is actually registered.</p></Modal>
+
     </div>
   );
 }

@@ -57,7 +57,8 @@ describe("Counter payment", () => {
     await user.type(field("Amount Received (₹)"), "10000");
     await user.type(field("Reference no."), "utr 4417");
     await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    const p = rowsOf<Record<string, unknown>>("fee_payments")[0];
+    expect(await screen.findByText("Payment of ₹10,000 recorded · RCP-20456")).toBeInTheDocument();
+    const p = rowsOf<Record<string, unknown>>("fee_payments").find((payment) => payment.invoiceId === "inv_1");
     expect(p).toMatchObject({ receiptNo: "RCP-20456", invoiceId: "inv_1", invoiceNo: "INV-2026-0901", student: "Aarav Sharma", grade: "10", grn: "GIS-9200", amount: 10000, mode: "UPI QR · UTR4417", reference: "UTR4417", date: "2026-11-03" });
     expect(getRow("fee_invoices", "inv_1")).toMatchObject({ paid: 22000, balance: 20000, status: "Partial" });
     expect(await screen.findByText("Payment of ₹10,000 recorded · RCP-20456")).toBeInTheDocument();
@@ -71,7 +72,7 @@ describe("Counter payment", () => {
     await user.click(screen.getByRole("tab", { name: "Cash" }));
     failNextWrite();
     await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    expect(await screen.findByText("Could not record payment")).toBeInTheDocument();
+    expect(await screen.findByText("Could not confirm the payment. Retry to check its receipt without recording it twice.")).toBeInTheDocument();
     expect(writes).toHaveLength(0);
     expect(getRow("fee_invoices", "inv_1")).toMatchObject({ paid: 12000, balance: 30000 });
   });

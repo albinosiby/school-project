@@ -5,7 +5,14 @@ service firebase.storage {
     function me() { return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data; }
     // a product owner (contract 16) works on every school like its admin
     function isOwner() { return request.auth != null && firestore.exists(/databases/(default)/documents/platform_admins/$(request.auth.uid)); }
-    function isAdmin(sid) { return request.auth != null && (isOwner() || (me().schoolId == sid && me().role == 'admin')); }
+    function adminSession(profile) {
+      return !profile.keys().hasAny(['mfaVersion']) || (request.auth.token.firebase.sign_in_provider == 'custom'
+        && request.auth.token.get('adminMfaVersion', '') == profile.mfaVersion
+        && request.auth.token.get('adminMfaAt', 0) * 1000 <= request.time.toMillis() + 30000
+        && request.time.toMillis() - request.auth.token.get('adminMfaAt', 0) * 1000 < 43200000);
+    }
+    function adminProfile(sid, profile) { return profile.schoolId == sid && profile.role == 'admin' && adminSession(profile); }
+    function isAdmin(sid) { return request.auth != null && (adminProfile(sid, me()) || isOwner()); }
     function parentSession(profile) {
       return !profile.keys().hasAny(['parentCredentialVersion'])
         || (request.auth.token.firebase.sign_in_provider == 'custom'
@@ -34,7 +41,7 @@ service firebase.storage {
     match /schools/{sid}/admission-documents/{studentId}/{type}/{file} {
       function authorized() {
         let school = /databases/(default)/documents/platform_schools/$(sid);
-        return request.auth != null && me().schoolId == sid && me().role == 'admin'
+        return request.auth != null && me().schoolId == sid && me().role == 'admin' && adminSession(me())
           && (!firestore.exists(school) || firestore.get(school).data.status != 'suspended');
       }
       allow get, delete: if authorized();
@@ -43,6 +50,12 @@ service firebase.storage {
         && type.matches('photo|birth|transfer|marksheet|parentId|caste|disability|medical')
         && request.resource.size > 0 && request.resource.size < 10 * 1024 * 1024
         && (request.resource.contentType.matches('image/(png|jpeg)') || (type != 'photo' && request.resource.contentType == 'application/pdf'));
+    }
+    match /schools/{sid}/calendar-documents/{file} {
+      allow get, delete: if isAdmin(sid);
+      allow create: if isAdmin(sid) && file.matches('[a-f0-9-]{36}')
+        && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.contentType in ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     }
     match /{all=**} {
       allow read, write: if false;

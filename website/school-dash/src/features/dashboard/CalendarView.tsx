@@ -1,4 +1,5 @@
 "use client";
+import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
@@ -6,13 +7,14 @@ import { Badge, Button, Card, Modal, ProgressBar, Select, useToast } from "@/com
 import { cn } from "@/lib/cn";
 import { AddEventPanel } from "./AddEventPanel";
 import { DashHeader } from "./DashHeader";
-import { addDays, CATS, catOf, errMsg, eventsOn, fmtDay, MON, MONTHS, monthGrid, parse, TODAY, useEvents, type CalEvent, type CatId } from "./data";
+import { addDays, CATS, catOf, errMsg, eventsOn, fmtDay, MON, MONTHS, monthGrid, parse, useEvents, type CalEvent, type CatId } from "./data";
 import { ayOf, spanDays, timeRange, workingDaysIn } from "./logic";
 
 type View = "month" | "week" | "agenda";
 const DOW = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
 export function CalendarView() {
+  const { date: TODAY } = useSchoolClock();
   const { rows, update, remove } = useEvents();
   const toast = useToast();
   const [view, setView] = useState<View>("month");
@@ -122,7 +124,7 @@ export function CalendarView() {
         <aside className="space-y-5">
           <Card className="p-5"><div className="flex items-start justify-between gap-2"><div><h2 className="font-semibold">Instructional Days Tracker</h2><p className="text-xs text-outline">AY {ay.y}–{String(ay.y + 1).slice(2)} · Mon–Sat minus calendar holidays</p></div><Badge tone={t1 + t2 >= 220 ? "success" : "warning"}>{t1 + t2 >= 220 ? "Meets 220-day minimum" : "Below 220 days"}</Badge></div>
             <div className="mt-4 flex items-center gap-4"><div className="grid size-24 shrink-0 place-items-center rounded-full border-8 border-secondary/80"><div className="text-center"><p className="text-xl font-bold leading-5">{t1 + t2}</p><p className="text-[10px] text-outline">Days Available</p></div></div>
-              <div className="flex-1 space-y-3 text-xs"><div><div className="flex justify-between"><span>Term 1 (Apr–Oct){t1Done ? " · done" : ""}</span><b>{t1} Days</b></div><ProgressBar value={t1Done ? 100 : Math.round((workingDaysIn(ay.start, TODAY, holidays) / Math.max(1, t1)) * 100)} className="mt-1 !h-1.5" /></div>
+              <div className="flex-1 space-y-3 text-xs"><div><div className="flex justify-between"><span>Term 1 (Apr–Oct){t1Done ? " · done" : ""}</span><b>{t1} Days</b></div><ProgressBar value={t1Done ? 100 : Math.round((workingDaysIn(ay.start, TODAY < ay.t2 ? TODAY : addDays(ay.t2, -1), holidays) / Math.max(1, t1)) * 100)} className="mt-1 !h-1.5" /></div>
                 <div><div className="flex justify-between"><span>Term 2 (Nov–Mar)</span><b>{t2} Days</b></div><ProgressBar value={t1Done ? Math.round((workingDaysIn(ay.t2, TODAY < ay.end ? TODAY : ay.end, holidays) / Math.max(1, t2)) * 100) : 0} tone="success" className="mt-1 !h-1.5" /></div></div></div>
             <ul className="mt-4 space-y-2 border-t border-outline-variant/60 pt-3 text-sm">{[["Statutory CBSE Minimum", "220 Days"], ["Holidays & Breaks on calendar", `${holidayDays} Day${holidayDays === 1 ? "" : "s"}`], ["Margin over minimum", `${t1 + t2 - 220} Days`]].map(([a, b]) => <li key={a} className="flex justify-between"><span className="text-on-surface-variant">{a}</span><b>{b}</b></li>)}</ul></Card>
           <Card className="p-5"><div className="flex items-start justify-between gap-2"><div><h2 className="font-semibold">Upcoming Examinations</h2><p className="text-xs text-outline">Published exam events on this calendar</p></div><Link href="/exams" className="text-xs font-semibold text-secondary">Exams →</Link></div>
@@ -140,7 +142,7 @@ export function CalendarView() {
           <Button variant="outline" onClick={() => { setEditing(evOpen); setAddOpen(true); closeEv(); }}><Pencil size={14} />Edit</Button>
           {evOpen.status === "draft" && <Button disabled={busy} onClick={() => act(() => update(evOpen.id, { status: "published" }), "Event published to master calendar")}>Publish</Button>}
           <Button variant="outline" onClick={closeEv}>Close</Button></>)}>
-        {evOpen && <dl className="space-y-3 text-sm">{[["Date", evOpen.start === evOpen.end ? fmtDay(evOpen.start) : `${fmtDay(evOpen.start)} – ${fmtDay(evOpen.end)}`], ["Time", timeRange(evOpen)], ["Venue", evOpen.venue], ["Term", evOpen.term], ["Faculty lead", evOpen.lead || "—"], ["Grades", evOpen.grades?.length ? evOpen.grades.join(", ") : "All"], ["Instructional credit", evOpen.instructional ? "Yes" : "No"], ["Status", evOpen.status === "draft" ? "Unapproved draft" : "Published"], ["Notes", evOpen.desc || "—"], ["Circular", evOpen.circular || "—"]].map(([k, v]) => <div key={k} className="flex justify-between gap-4"><dt className="text-outline">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}</dl>}
+        {evOpen && <dl className="space-y-3 text-sm">{[["Date", evOpen.start === evOpen.end ? fmtDay(evOpen.start) : `${fmtDay(evOpen.start)} – ${fmtDay(evOpen.end)}`], ["Time", timeRange(evOpen)], ["Venue", evOpen.venue], ["Term", evOpen.term], ["Faculty lead", evOpen.lead || "—"], ["Grades", evOpen.grades?.length ? evOpen.grades.join(", ") : "All"], ["Instructional credit", evOpen.instructional ? "Yes" : "No"], ["Status", evOpen.status === "draft" ? "Unapproved draft" : "Published"], ["Notes", evOpen.desc || "—"], ["Circular", evOpen.circular || "—"]].map(([k, v]) => <div key={k} className="flex justify-between gap-4"><dt className="text-outline">{k}</dt><dd className="text-right font-medium">{v}</dd></div>)}</dl>}{evOpen?.circularUrl && <a className="mt-4 inline-block font-semibold text-secondary" href={evOpen.circularUrl} target="_blank" rel="noopener noreferrer">Preview circular</a>}
       </Modal>
     </>
   );

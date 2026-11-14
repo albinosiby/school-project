@@ -1,6 +1,7 @@
 import { classIdOf, seniorClassParts, streamName } from "@/lib/academicStreams";
 export { classIdOf } from "@/lib/academicStreams";
 export const GRADES = Array.from({ length: 12 }, (_, i) => String(i + 1));
+export const CLASS_GRADES = ["LKG", "UKG", ...GRADES];
 /** contract section 9: sections are A-D */
 export const SECTIONS = ["A", "B", "C", "D"];
 export const SUBJECTS = ["Mathematics", "English", "Science", "Social Science", "Hindi", "Physical Education", "Physics", "Remedial Lab"];
@@ -12,7 +13,16 @@ export const clsLabel = (id: string) => {
   const senior = seniorClassParts(String(id ?? ""));
   return senior ? `Grade ${senior[1]} · ${streamName(senior[2])} · ${senior[3]}` : String(id ?? "").replace(/^cls_(\d+)(.*)$/, "Grade $1-$2");
 };
-export type StaffRef = { id: string; name: string; department: string; role?: string; staffRole?: string; category?: string };
+export type StaffRef = { id: string; name: string; department: string; role?: string; staffRole?: string; category?: string; subjects?: string; subjectNames?: string[] };
+/** Teacher pickers show saved primary/additional subjects, with no department fallback. */
+export function teacherOptionLabel(teacher: Pick<StaffRef, "name" | "subjects" | "subjectNames">) {
+  const subjects = new Map<string, string>();
+  for (const value of teacher.subjectNames ?? (teacher.subjects ?? "").split(",")) {
+    const name = value.trim();
+    if (name && !subjects.has(name.toLowerCase())) subjects.set(name.toLowerCase(), name);
+  }
+  return `${teacher.name} (${subjects.size ? [...subjects.values()].join(", ") : "Subject not assigned"})`;
+}
 /** staff who can be put on a timetable (everyone except pure administration) */
 export const teachingStaff = <T extends StaffRef>(staff: T[]) => staff.filter((s) => {
   if (s.category) return s.category === "Teaching";

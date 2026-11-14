@@ -4,14 +4,13 @@ import { studentProfileHref } from "./studentLogic";
 import { recordedAttendance, type StudentAttendanceMonth } from "./studentAttendance";
 import { useId, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Download, ListFilter, Plus, Search, UserCheck, Users, TriangleAlert, Percent } from "lucide-react";
+import { Download, ListFilter, Search, UserCheck, Users, TriangleAlert, Percent } from "lucide-react";
 import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, PageHeader, ProgressBar, Select, SlideOver, Stat, Tabs, type Column } from "@/components/ui";
 import { SECTIONS } from "@/features/ops/shared";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "@/features/communication/csv";
 import { defaultMissingDocuments, useAdmissionDocuments } from "@/features/admissions/admissionDocuments";
 import { GuardiansDirectory } from "./GuardiansDirectory";
-import { AdmissionForm } from "@/features/admissions/AdmissionForm";
 import type { Tone } from "@/components/ui";
 import { consentMap, consentState, useSchoolUsers, type Consent, type ConsentState } from "@/lib/parentAccount";
 import { StudentLeavesPanel } from "./StudentLeavesPanel";
@@ -41,7 +40,6 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   const rows = useMemo(() => all.rows.filter((s) => s.deleted !== true), [all.rows]);
   const [q, setQ] = useState(initialQ);
   const [grade, setGrade] = useState(""); const [section, setSection] = useState(""); const [status, setStatus] = useState("");
-  const [adding, setAdding] = useState(false);
   const [consent, setConsent] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(Boolean(initialQ));
@@ -106,8 +104,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   return (
     <div>
       <PageHeader title="Students & Guardians" subtitle="Manage student records, guardian contacts and enrolment status."
-        actions={<><Button variant="outline" onClick={() => downloadCsv("students", ["GRN", "Name", "Grade", "Section", "Roll", "Guardian", "Phone", "Status", "Attendance %", "Parent app"], view.map((s) => [s.grn, s.name, s.grade, s.section, s.roll ?? "", s.guardian, s.phone, s.status, pctOf(s) ?? "", CONSENT.find((c) => c.v === cstate(s))!.label]))}><Download size={16} />Export CSV</Button>
-          <Button onClick={() => setAdding(true)}><Plus size={16} />Add Student</Button></>} />
+        actions={<Button variant="outline" onClick={() => downloadCsv("students", ["GRN", "Name", "Grade", "Section", "Roll", "Guardian", "Phone", "Status", "Attendance %", "Parent app"], view.map((s) => [s.grn, s.name, s.grade, s.section, s.roll ?? "", s.guardian, s.phone, s.status, pctOf(s) ?? "", CONSENT.find((c) => c.v === cstate(s))!.label]))}><Download size={16} />Export CSV</Button>} />
       <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Total students" value={rows.length} icon={<Users size={16} />} />
         <Stat label="Active" value={rows.filter((s) => s.status === "Active").length} icon={<UserCheck size={16} />} />
@@ -141,7 +138,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
           {ready ? <>
             <p role="status" className="px-5 py-3 text-sm text-on-surface-variant">{view.length} of {rows.length} students</p>
             <DataTable rows={view} columns={cols} pageSize={10} onRowClick={(student) => router.push(studentProfileHref(student.id))}
-              empty={<EmptyState title={rows.length ? "No students match" : "No students yet"} hint={rows.length ? "Try changing your search or filters." : "Add a student to get started."} />} />
+              empty={<EmptyState title={rows.length ? "No students match" : "No students yet"} hint={rows.length ? "Try changing your search or filters." : "Add a student through Admissions to get started."} />} />
           </> : <p role="status" className="p-5 text-on-surface-variant">Loading students…</p>}
         </Card>
         <SlideOver open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter students"
@@ -177,8 +174,6 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
           </div>
         </SlideOver>
       </>}
-
-      {adding && <AdmissionForm mode="add" onClose={() => setAdding(false)} />}
     </div>
   );
 }

@@ -1,0 +1,947 @@
+SCHOOL ADMIN WEB — DEVELOPMENT AUDIT
+Date: 13 November 2026
+Source: https://docs.google.com/spreadsheets/d/1JsaT2nJbegkXNJe0avsaR2YtDhKDTi2LIDIpKz6Np44/edit#gid=106
+Scope: All 133 ADM rows in School Admin Web. HR/Finance tabs, other applications and production deployment are outside this review.
+Method: Read the source checklist through the authenticated Google Drive connector; compare routes, feature code, backend paths and existing test cases in the current local workspace. No sheet edits or production data mutations.
+Important: This is a source review, not full end-to-end acceptance testing. A component or test existing does not prove deployment, real provider delivery, security certification or completion of every requirement.
+Tracker: 66 Completed (49.6%); 67 Not started (50.4%). All rows have blank Owner and Target date.
+Phases: MVP 38/47 marked Completed (80.9%); Growth 28/51 (54.9%); Pro 0/34; Enterprise 0/1.
+Source-review categories: {"Partial":59,"Core exists":17,"Not found":55,"Unreachable":2}
+Core exists = main workflow has code; acceptance and edge cases can remain.
+Partial = implementation exists but the stated content summary has material scope gaps.
+Unreachable = component code exists but the current app does not expose the route/workflow.
+Not found = no matching school-admin implementation found in reviewed sources; not a claim about other apps or future branches.
+Do not treat these categories or an arbitrary half-credit calculation as a verified completion percentage.
+
+PATHS: Evidence paths below are relative to website/school-dash; ../functions and ../firestore.rules are shared backend sources.
+
+ADM-01 — School dashboard
+Sheet row: 5 | Module: Dashboard & Setup | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Today's attendance %, absentees list, fees collected today / dues, admissions funnel, staff on leave + uncovered periods, incidents, approvals queue, upcoming events, system alerts
+Findings / remaining work: Core dashboard with live operational data exists; incident widgets and full module coverage depend on unfinished modules; some fee reminder actions are simulated.
+Evidence: src/features/dashboard/DashboardView.tsx
+
+ADM-02 — Setup wizard (first run)
+Sheet row: 6 | Module: Dashboard & Setup | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Steps: school profile → academic year & terms → grades/sections → subjects → periods & holidays → grading scale → fee heads → roles → branding → import → invite
+Findings / remaining work: Six-step setup exists; original data import and parent-invite steps are explicitly retired. Reconcile the checklist with the current six-step scope; add import/bulk invite if still required.
+Evidence: src/features/onboarding/logic.ts
+
+ADM-03 — Approvals inbox
+Sheet row: 7 | Module: Dashboard & Setup | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Leave requests, fee concessions, marks locks, certificate requests, purchase orders, outpasses; approve/reject with comment
+Findings / remaining work: Approval inbox and batch decisions exist. Validate each producer and downstream action; PO/outpass modules and integrated certificate approvals are not all present.
+Evidence: src/features/dashboard/ApprovalsView.tsx
+
+ADM-04 — School calendar
+Sheet row: 8 | Module: Dashboard & Setup | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Academic calendar, holidays, exams, events, PTMs; publish to apps
+Findings / remaining work: Calendar CRUD, event categories, app visibility and reminder code exist; complete live acceptance of publishing and reminders.
+Evidence: src/features/dashboard/CalendarView.tsx;../functions/eventReminders.js
+
+ADM-10 — Enquiries board
+Sheet row: 9 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Kanban stages: New → Contacted → Visit booked → Applied → Test/Interview → Offered → Enrolled / Lost; cards with child name, grade, source, owner, next follow-up
+Findings / remaining work: Enquiry listing, stage changes, search and follow-ups exist; current Overview is a table rather than the specified Kanban board.
+Evidence: src/features/admissions/Overview.tsx
+
+ADM-11 — Enquiry detail
+Sheet row: 10 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Contact, child, source, activity timeline, notes, tasks, documents, convert to application
+Findings / remaining work: Enquiry detail editing, contact, notes and follow-up exist; full task management and activity timeline are not evidenced.
+Evidence: src/features/admissions/Overview.tsx;src/features/admissions/EnquirySlideOver.tsx
+
+ADM-12 — Applications list
+Sheet row: 11 | Module: Admissions & Enrolment | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Table: applicant, grade, status, fee paid, test score, decision
+Findings / remaining work: Applications list, review state and filtering exist; verify against current admission business rules.
+Evidence: src/features/admissions/Applications.tsx
+
+ADM-13 — Application detail & review
+Sheet row: 12 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Form answers, documents viewer, checklist, test/interview scores, decision (offer/waitlist/reject), offer letter generate
+Findings / remaining work: Review, document viewing/checklists and offer decisions exist; finish/verify generated offer letters and the complete review workflow.
+Evidence: src/features/admissions/Applications.tsx;src/features/admissions/AdmissionDocumentsPanel.tsx
+
+ADM-14 — Admission form builder
+Sheet row: 13 | Module: Admissions & Enrolment | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Drag fields, sections, document requirements, fees, conditional logic, publish URL/QR
+Findings / remaining work: Draft/publish schema, field editing/reordering and validation exist; review full conditional logic, fee collection and genuinely public portal delivery.
+Evidence: src/features/admissions/FormBuilder.tsx;src/features/admissions/DynamicForm.tsx
+
+ADM-15 — Entrance tests & interviews
+Sheet row: 14 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Sessions, slots, capacity, applicant allocation, score entry
+Findings / remaining work: Sessions, capacity allocation and scores exist; WhatsApp time-slot delivery is explicitly simulated.
+Evidence: src/features/admissions/Tests.tsx
+
+ADM-16 — Seat capacity & waitlist
+Sheet row: 15 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Capacity per grade/section, filled, offered, waitlist order, sibling priority
+Findings / remaining work: Capacity, offers, waitlist and reserved seats exist; recent grade-capacity validation and synchronization are implemented. Validate sibling ordering against policy.
+Evidence: src/features/admissions/Seats.tsx;src/features/settings/saveRegularGrade.ts
+
+ADM-17 — Offers & enrolment conversion
+Sheet row: 16 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Offers sent/accepted, pending fees, convert to student (creates record, guardians, fee plan, transport/hostel options, parent invite)
+Findings / remaining work: Offers and student conversion exist; complete real offer/reminder delivery and all fee-plan, guardian-invite and transport/hostel conversion steps in the original scope.
+Evidence: src/features/admissions/Offers.tsx;src/features/admissions/AdmissionForm.tsx
+
+ADM-18 — Re-enrolment campaign
+Sheet row: 17 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Bulk send contracts, status tracker, reminders, e-sign
+Findings / remaining work: Campaign and status tracking exist; reminders are simulated and e-signature/contracts are not evidenced.
+Evidence: src/features/admissions/Reenrol.tsx
+
+ADM-19 — Admissions reports
+Sheet row: 18 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Funnel, source ROI, counsellor performance, time-in-stage
+Findings / remaining work: Live funnel, sources/CAC and capacity reports exist; CBSE PDF is simulated; counsellor performance and time-in-stage need completion/verification.
+Evidence: src/features/admissions/Reports.tsx
+
+ADM-20 — Admissions settings
+Sheet row: 19 | Module: Admissions & Enrolment | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Stages, sources, fees, templates, counsellor assignment rules, public portal branding
+Findings / remaining work: Admission configuration and form safeguards exist; review the complete settings scope, automated counsellor rules and portal branding.
+Evidence: src/features/admissions/FormBuilder.tsx;src/features/admissions/PublicFormPortal.tsx
+
+ADM-30 — Student directory
+Sheet row: 20 | Module: Students & Guardians | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Table: photo, name, admission no, class/section, guardian phone, status, fee status, attendance %, tags; filters; bulk: message, promote, assign fee/transport, print ID
+Findings / remaining work: Student directory, filters, guardian contacts, attendance and CSV export exist; bulk message/promote/fee/transport/ID actions and the full fee/tag columns are not all implemented.
+Evidence: src/features/people/StudentsView.tsx
+
+ADM-31 — Student profile
+Sheet row: 21 | Module: Students & Guardians | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Header (photo, name, class, admission no, status, house, roll no). Tabs: Overview, Guardians, Attendance, Academics, Fees, Transport, Hostel, Library, Health, Behaviour, Documents, Timeline
+Findings / remaining work: Student details, admission fields, documents, parent access and transport exist; the specified full Attendance/Academics/Fees/Hostel/Library/Behaviour/Timeline tab suite is not present.
+Evidence: src/features/people/StudentDetailsView.tsx
+
+ADM-32 — Add / edit student
+Sheet row: 22 | Module: Students & Guardians | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Sections: personal, contact, guardians (link existing), previous school, documents, categories, custom fields
+Findings / remaining work: Student form, validation, editing and guardian-account linking exist; verify generic custom fields against ADM-202 separately.
+Evidence: src/features/people/StudentForm.tsx
+
+ADM-33 — Bulk import students
+Sheet row: 23 | Module: Students & Guardians | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Not found
+Checklist scope: Upload, column mapping, validation (missing DOB, duplicate phone), preview, commit
+Findings / remaining work: No school-admin upload, column mapping, validation, preview and commit workflow found. Setup data-import steps were retired.
+Evidence: src/features/onboarding/logic.ts;src/features/people/StudentsView.tsx
+
+ADM-34 — Guardian directory
+Sheet row: 24 | Module: Students & Guardians | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Table: name, relation, children, phone, app installed?, last active, comms prefs
+Findings / remaining work: Guardian directory is derived from students and linked accounts; app-install status, last active and communication preferences are missing from the directory.
+Evidence: src/features/people/GuardiansDirectory.tsx
+
+ADM-35 — Guardian profile
+Sheet row: 25 | Module: Students & Guardians | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Contact, children, consents, communication log, payments, access settings
+Findings / remaining work: No dedicated guardian detail/profile workflow found; contact and login/consent management are embedded in student details only.
+Evidence: src/features/people/GuardiansDirectory.tsx;src/features/people/ParentLoginSection.tsx
+
+ADM-36 — Promotion / transfer / withdrawal
+Sheet row: 26 | Module: Students & Guardians | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Promote wizard (rules, exceptions, detainees), section transfer, withdrawal with TC and dues check
+Findings / remaining work: Division transfers and academic rollover/promotion exist; full withdrawal/TC/dues-check workflow and detailed exceptions/detention rules need reconciliation with the specification.
+Evidence: src/features/people/StudentDivisionPicker.tsx;src/features/settings/YearRollover.tsx
+
+ADM-37 — ID cards
+Sheet row: 27 | Module: Students & Guardians | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Template picker, batch select, preview, print PDF; QR token for bus boarding (Driver spec R-23)
+Findings / remaining work: No ID-card template picker, batch print/PDF and bus QR issuance workflow found.
+Evidence: src/features/people/StudentsView.tsx
+
+ADM-38 — Houses, clubs & tags
+Sheet row: 28 | Module: Students & Guardians | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: House allocation, points totals, tag manager
+Findings / remaining work: No dedicated house/club/tag administration and house-points workflow found.
+Evidence: src/features/people/StudentsView.tsx
+
+ADM-39 — Alumni directory
+Sheet row: 29 | Module: Students & Guardians | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Table, profile, events, donations
+Findings / remaining work: Alumni-pending/graduation statuses exist, but no alumni directory/profile/events/donations module found.
+Evidence: src/features/people/StudentsView.tsx;src/features/settings/YearRollover.tsx
+
+ADM-40 — Attendance overview (today)
+Sheet row: 30 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Marked vs unmarked classes, school %, absentees list with reasons, late arrivals, device sync status, nudge teachers
+Findings / remaining work: Dashboard/class cards show current attendance; full school-wide marked/unmarked, device-sync and teacher-nudge workflow is not complete.
+Evidence: src/features/ops/ClassesView.tsx;src/features/dashboard/DashboardView.tsx
+
+ADM-41 — Daily register by class
+Sheet row: 31 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Unreachable
+Checklist scope: UI-08 (web variant as grid) with codes (P/A/L/H/E or UK AM/PM codes)
+Findings / remaining work: A daily register component exists, but /attendance redirects to /dashboard and no production import of AttendanceView was found. Restore a reachable workflow if daily admin marking is required.
+Evidence: src/features/ops/AttendanceView.tsx;src/app/(app)/attendance/page.tsx
+
+ADM-42 — Period attendance
+Sheet row: 32 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Grid by period × student
+Findings / remaining work: Class details has the student-by-period attendance grid and historical records; validate teacher-app attendance synchronization live.
+Evidence: src/features/ops/ClassAttendance.tsx
+
+ADM-43 — Attendance calendar (student/class)
+Sheet row: 33 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Month heatmap, legend, notes
+Findings / remaining work: Class attendance month selection/history exists; the specified student/class month heatmap, notes and full calendar experience are not implemented.
+Evidence: src/features/ops/ClassAttendance.tsx
+
+ADM-44 — Leave requests queue
+Sheet row: 34 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Requests from parent app with reason, attachments; approve/reject; auto-mark
+Findings / remaining work: Parent leave queue, approve/reject and parent synchronization code exist; verify approved leave auto-marking end to end.
+Evidence: src/features/people/StudentLeavesPanel.tsx;../functions/parent.js
+
+ADM-45 — Devices & sync
+Sheet row: 35 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Not found
+Checklist scope: Biometric/RFID/face devices, last sync, errors, mapping to gates/buses
+Findings / remaining work: No biometric/RFID/face device registration, sync errors or gate/bus mapping administration found.
+Evidence: src/features/ops/AttendanceView.tsx
+
+ADM-46 — Attendance reports & statutory
+Sheet row: 36 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Below-threshold, chronic absence, monthly summary, statutory export (country pack)
+Findings / remaining work: Attendance-derived report generation and low-attendance checks exist; full chronic-absence/statutory country exports are not complete.
+Evidence: src/features/communication/reportData.ts
+
+ADM-47 — Attendance settings
+Sheet row: 37 | Module: Attendance | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Not found
+Checklist scope: Codes, thresholds, notification timing, escalation ladder, exam eligibility rule
+Findings / remaining work: No dedicated student attendance codes, notification timing, escalation ladder and exam eligibility policy editor found. Staff leave policy is a separate feature.
+Evidence: src/features/settings/SettingsPage.tsx
+
+ADM-50 — Timetable master grid
+Sheet row: 38 | Module: Timetable & Scheduling | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: View by class / teacher / room; colour by subject; conflicts highlighted
+Findings / remaining work: Class weekly/daily grids, teacher links and conflicts exist; teacher-wide and room-wide timetable views are not present.
+Evidence: src/features/ops/ClassTimetable.tsx;src/features/ops/TimetableView.tsx
+
+ADM-51 — Timetable builder
+Sheet row: 39 | Module: Timetable & Scheduling | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Drag subjects into slots, teacher availability overlay, room constraints, conflict panel
+Findings / remaining work: Click-to-edit weekly slots and double-booking warnings exist; drag/drop builder, teacher availability overlay and room constraints are not implemented.
+Evidence: src/features/ops/TimetableView.tsx
+
+ADM-52 — Auto-generate (AI)
+Sheet row: 40 | Module: Timetable & Scheduling | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Constraints form, run, result quality score, lock cells, re-run
+Findings / remaining work: No timetable generation engine, constraints run, quality score, locking and rerun workflow found.
+Evidence: src/features/ops/TimetableView.tsx
+
+ADM-53 — Substitutions
+Sheet row: 41 | Module: Timetable & Scheduling | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Absent teachers, uncovered periods, suggested substitutes (free + subject match), confirm, notify
+Findings / remaining work: Date/class/period substitutions, availability checks and backend notification paths exist; verify subject-match suggestions and real device delivery.
+Evidence: src/features/ops/SubstitutionsPanel.tsx;../functions/index.js
+
+ADM-54 — Rooms & resources booking
+Sheet row: 42 | Module: Timetable & Scheduling | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Rooms, labs, AV; calendar booking
+Findings / remaining work: No room/lab/AV resource booking calendar or booking conflict workflow found.
+Evidence: src/features/ops/TimetableView.tsx
+
+ADM-55 — Exam timetable & seating
+Sheet row: 43 | Module: Timetable & Scheduling | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Exam slots, rooms, seating plan generator, invigilators
+Findings / remaining work: Exam scheduling, venues and invigilator allocation exist; seating-plan generation is not evidenced.
+Evidence: src/features/exams/ScheduleManager.tsx;src/features/exams/ExamDuties.tsx
+
+ADM-56 — Timetable settings
+Sheet row: 44 | Module: Timetable & Scheduling | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Periods, bells, days, workload caps
+Findings / remaining work: Bell periods, named breaks/lunch and working-week settings exist; workload caps and complete per-day scheduling rules need implementation.
+Evidence: src/features/onboarding/BellScheduleEditor.tsx;src/features/settings/SettingsPage.tsx
+
+ADM-60 — Subjects & curriculum
+Sheet row: 45 | Module: Academics | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Subjects per grade, units/chapters, learning outcomes
+Findings / remaining work: Grade subjects, shared subject catalog and teacher assignments exist; curriculum units, chapters, learning outcomes and curriculum packs are not present.
+Evidence: src/features/settings/GradeDetailsView.tsx
+
+ADM-61 — Lesson plans
+Sheet row: 46 | Module: Academics | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Plans by teacher/class/week, status (draft/submitted/approved), completion %
+Findings / remaining work: No admin lesson-plan list, submission/approval and completion workflow found.
+Evidence: src/features/ops/AcademicsView.tsx
+
+ADM-62 — Homework overview
+Sheet row: 47 | Module: Academics | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Unreachable
+Checklist scope: Homework by class/date, submission rates, overdue
+Findings / remaining work: Homework CRUD and submission overview component exists, but /academics redirects to /dashboard and no production import of AcademicsView was found.
+Evidence: src/features/ops/AcademicsView.tsx;src/app/(app)/academics/page.tsx
+
+ADM-63 — Resource library
+Sheet row: 48 | Module: Academics | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Folders, files, videos, links; permissions by class
+Findings / remaining work: No dedicated resource library with folders/files/videos/links and class permissions found.
+Evidence: src/features/ops/AcademicsView.tsx
+
+ADM-64 — Syllabus completion tracker
+Sheet row: 49 | Module: Academics | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: % completed per subject/class vs plan
+Findings / remaining work: No syllabus plan-versus-completion tracker found.
+Evidence: src/features/ops/AcademicsView.tsx
+
+ADM-70 — Exams list
+Sheet row: 50 | Module: Examinations & Report Cards | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Exams/assessments per term, status (setup/marks entry/moderation/published)
+Findings / remaining work: Exam cycles, state filters, operational overview and exam details exist.
+Evidence: src/features/exams/ExamsPage.tsx;src/features/exams/ExamDetailPage.tsx
+
+ADM-71 — Exam setup
+Sheet row: 51 | Module: Examinations & Report Cards | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Name, type, classes, subjects, max marks, weightage, grading scale, dates, co-scholastic areas
+Findings / remaining work: Exam setup, participation, subjects, assessment configuration and validation exist; run live school acceptance before release sign-off.
+Evidence: src/features/exams/CycleForm.tsx;src/features/exams/examSetup.ts
+
+ADM-72 — Marks entry (admin view)
+Sheet row: 52 | Module: Examinations & Report Cards | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Grid by class/subject, entry status per teacher, lock/unlock
+Findings / remaining work: Marks sheets, entry, submit/return/approve, locking/reopening and teacher ownership checks exist.
+Evidence: src/features/exams/SheetBoard.tsx;../functions/examManagement.js
+
+ADM-73 — Moderation & approval
+Sheet row: 53 | Module: Examinations & Report Cards | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Distribution charts, outliers, approve by HOD/principal
+Findings / remaining work: Verification and approval/sign-off workflows exist; the specified distribution charts, outlier analysis and complete HOD/principal moderation scope are not all evidenced.
+Evidence: src/features/exams/SheetBoard.tsx;src/features/exams/ClassResultsPanel.tsx
+
+ADM-74 — Grading scales & templates
+Sheet row: 54 | Module: Examinations & Report Cards | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Scales (marks→grade/GPA), descriptors, report-card templates (CBSE/IB/UK/US), remark bank
+Findings / remaining work: Grading scales, report-template configuration and remarks exist; validate all requested CBSE/IB/UK/US formats and descriptor/remark-bank coverage.
+Evidence: src/features/settings/SettingsPage.tsx;src/features/exams/ReportCards.tsx
+
+ADM-75 — Report card generation
+Sheet row: 55 | Module: Examinations & Report Cards | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Select exam/class, template, preview, generate, publish, notify, hold for dues
+Findings / remaining work: Report preview, submit/approve/publish, PDF and backend publication/notification paths exist; verify dues holds and deployed PDF/notification workflows against acceptance criteria.
+Evidence: src/features/exams/ReportCards.tsx;../functions/examReportPdf.js
+
+ADM-76 — Results analytics
+Sheet row: 56 | Module: Examinations & Report Cards | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Class/subject averages, pass %, top/bottom, teacher-wise, trend vs last term, at-risk list
+Findings / remaining work: Cohort average, pass rates, results and ranks already exist; teacher-wise analysis, term trends and at-risk analytics remain.
+Evidence: src/features/exams/ExamsPage.tsx;src/features/exams/ExamSummary.tsx
+
+ADM-77 — Re-evaluation requests
+Sheet row: 57 | Module: Examinations & Report Cards | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Requests, assigned checker, outcome
+Findings / remaining work: Marks reopening/return is implemented, but a re-evaluation request, checker assignment and outcome workflow is not found.
+Evidence: src/features/exams/SheetBoard.tsx
+
+ADM-78 — Transcripts & consolidated marksheets
+Sheet row: 58 | Module: Examinations & Report Cards | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Multi-year, board formats
+Findings / remaining work: Per-exam consolidated class results/report cards exist; multi-year transcripts and board-specific consolidated formats remain.
+Evidence: src/features/exams/ClassResultsPanel.tsx;src/features/exams/ReportCards.tsx
+
+ADM-79 — Online tests (LMS-lite)
+Sheet row: 59 | Module: Examinations & Report Cards | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Question bank, test builder, auto-grade, results
+Findings / remaining work: No question bank, online test builder or automatic test grading module found.
+Evidence: src/features/exams/ExamDetailPage.tsx
+
+ADM-80 — Compose message
+Sheet row: 60 | Module: Communication | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: Channel (push/SMS/WhatsApp/email), audience builder (class, section, role, custom list, individual), template, attachments, schedule, cost estimate, preview per channel
+Findings / remaining work: Message/notice composer, audience selection, templates, scheduling and mobile-app notifications exist; SMS/WhatsApp/email, arbitrary individual audiences, attachments and channel cost/preview scope remain.
+Evidence: src/features/communication/Composer.tsx;src/features/communication/types.ts
+
+ADM-81 — Sent log & analytics
+Sheet row: 61 | Module: Communication | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: Delivered/read stats per message, failures, resend
+Findings / remaining work: Message log and read/ack counters exist; full per-recipient delivery failures and real resend across channels are incomplete.
+Evidence: src/features/communication/NoticesView.tsx
+
+ADM-82 — Notices & circulars
+Sheet row: 62 | Module: Communication | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: UI-09 management view, pin, expiry, read receipts
+Findings / remaining work: Notices, publish/edit/pin, scheduling, read acknowledgements and app push backend exist; expiry, attachment and resend completion need review.
+Evidence: src/features/communication/NoticesView.tsx;../functions/index.js
+
+ADM-83 — Chat inbox (staff)
+Sheet row: 63 | Module: Communication | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Threads with parents/staff, assignment, escalation, quiet hours
+Findings / remaining work: Live chat oversight exists but is explicitly read-only for admins; staff inbox reply/assignment/escalation/quiet-hours scope remains.
+Evidence: src/features/communication/MessagesView.tsx
+
+ADM-84 — PTM scheduling
+Sheet row: 64 | Module: Communication | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Core exists
+Checklist scope: Slot templates per teacher, bookings, reminders, attendance
+Findings / remaining work: PTM slot creation, bookings, cancellation, attendance/notes and backend reminder/notification paths exist; tracker should no longer say Not started.
+Evidence: src/features/people/MeetingsPanel.tsx;../functions/parent.js;../functions/eventReminders.js
+
+ADM-85 — Surveys & consent forms
+Sheet row: 65 | Module: Communication | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Builder, audience, responses, consent ledger
+Findings / remaining work: Basic parent consent records exist; survey/form builder, response analysis and general consent ledger workflows are not implemented.
+Evidence: src/features/people/ParentLoginSection.tsx
+
+ADM-86 — Templates & credits
+Sheet row: 66 | Module: Communication | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: WhatsApp approved templates, SMS templates, credit wallet, top-up
+Findings / remaining work: Applying stored notice templates exists; provider-approved templates, credit wallet and top-up are not implemented.
+Evidence: src/features/communication/Composer.tsx;src/features/communication/NoticesView.tsx
+
+ADM-87 — Emergency broadcast
+Sheet row: 67 | Module: Communication | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: One-screen "send to everyone now" with confirmation
+Findings / remaining work: Quick broadcast and urgent notice UI exist; dedicated confirmed emergency flow, true multi-channel delivery and delivery evidence remain. Some broadcast UI still labels delivery simulated.
+Evidence: src/features/communication/NoticesView.tsx
+
+ADM-88 — Gallery & media
+Sheet row: 68 | Module: Communication | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Albums by event/class, publish to apps, consent-aware (hide children without media consent)
+Findings / remaining work: No album/media publication and consent-aware child photo filtering module found.
+Evidence: src/features/communication/NoticesView.tsx
+
+ADM-90 — Transport overview / live map
+Sheet row: 69 | Module: Transport | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Partial
+Checklist scope: UI-11 all buses live, on-time status, alerts
+Findings / remaining work: Transport overview counters and trip states exist; live GPS map, on-time tracking and operational location alerts remain.
+Evidence: src/features/transport/TransportView.tsx
+
+ADM-91 — Routes & stops
+Sheet row: 70 | Module: Transport | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Route list, stops with map pins, timings, assigned vehicle/driver, students per stop
+Findings / remaining work: Buses, routes, stops and timings are editable; map pins and full geographic route management are not present.
+Evidence: src/features/transport/BusForm.tsx
+
+ADM-92 — Vehicles
+Sheet row: 71 | Module: Transport | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Partial
+Checklist scope: Vehicle list, documents (insurance, fitness) with expiry alerts, maintenance log, GPS device
+Findings / remaining work: Vehicle details, compliance/insurance fields, maintenance notes and expiry-reminder code exist; GPS device integration and full maintenance-history scope remain.
+Evidence: src/features/transport/BusDetailsView.tsx;src/features/transport/ExpiryReminderSettings.tsx
+
+ADM-93 — Drivers & attendants
+Sheet row: 72 | Module: Transport | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Core exists
+Checklist scope: Profiles, licences, assignments, app status
+Findings / remaining work: Drivers/attendants profiles, licence fields, assignments and app-access administration exist; verify real app activity/status against the original checklist.
+Evidence: src/features/transport/CrewPanel.tsx
+
+ADM-94 — Student allocation
+Sheet row: 73 | Module: Transport | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Core exists
+Checklist scope: Assign students to route/stop/pickup type; fee linkage
+Findings / remaining work: Bus/stop assignment, student transport controls and bus monthly fees exist; validate fee linkage and pickup variants end to end.
+Evidence: src/features/transport/BusAssignments.tsx;src/features/people/StudentTransportCard.tsx
+
+ADM-95 — Trip history & alerts
+Sheet row: 74 | Module: Transport | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Partial
+Checklist scope: Trips, boarding scans, deviations, speed alerts
+Findings / remaining work: Trip history, boarding/attendance and crew attendance exist; live deviations and speed alert processing remain.
+Evidence: src/features/transport/TripsPanel.tsx;src/features/transport/AttendancePanel.tsx
+
+ADM-96 — Transport settings
+Sheet row: 75 | Module: Transport | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Fees per slab, alert thresholds, parent notifications
+Findings / remaining work: Per-bus fees and expiry-reminder recipient settings exist; geographic fee slabs, live alert thresholds and the full parent-notification policy editor remain.
+Evidence: src/features/transport/BusForm.tsx;src/features/transport/ExpiryReminderSettings.tsx
+
+ADM-100 — Hostel overview
+Sheet row: 76 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Occupancy, roll-call status, outpasses, visitors today, incidents
+Findings / remaining work: No hostel occupancy/roll-call/outpass/visitor dashboard found. A student type value of Hostel is not this module.
+Evidence: src/features/admissions/AdmissionDetailsFields.tsx
+
+ADM-101 — Buildings, rooms & beds
+Sheet row: 77 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Hierarchy, bed map, occupancy
+Findings / remaining work: No hostel buildings/rooms/beds hierarchy and occupancy allocation UI found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-102 — Allocation
+Sheet row: 78 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Assign students, swap, history
+Findings / remaining work: No hostel student allocation, bed swaps and allocation history found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-103 — Roll call & night check
+Sheet row: 79 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: UI-08 per block, missing list, escalation
+Findings / remaining work: No hostel roll-call/night-check and missing-student escalation workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-104 — Outpass & leave
+Sheet row: 80 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Requests with parent approval status, gate verification QR
+Findings / remaining work: No complete hostel outpass/parent approval/gate QR verification workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-105 — Visitors log
+Sheet row: 81 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Check-in/out, ID capture, linked student
+Findings / remaining work: No hostel visitor check-in/out and ID capture workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-106 — Mess & menu
+Sheet row: 82 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Weekly menu, meal attendance, feedback
+Findings / remaining work: No mess/menu, meal attendance and feedback workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-107 — Hostel settings
+Sheet row: 83 | Module: Hostel / Boarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Fees, curfews, rules
+Findings / remaining work: No hostel fees/curfew/rules settings found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-110 — Library dashboard
+Sheet row: 84 | Module: Library | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Issued today, overdue, fines, popular titles
+Findings / remaining work: No library dashboard with circulation, overdue and fine analytics found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-111 — Catalogue
+Sheet row: 85 | Module: Library | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Books, ISBN lookup, copies, barcodes, categories
+Findings / remaining work: No book catalogue/ISBN/copy/barcode administration found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-112 — Circulation desk
+Sheet row: 86 | Module: Library | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Scan member → scan book → issue/return/renew; fines
+Findings / remaining work: No scan-based issue/return/renew circulation workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-113 — Members & fines
+Sheet row: 87 | Module: Library | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Member list, limits, fines ledger
+Findings / remaining work: No library membership, limits and fines ledger found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-114 — Reservations & requests
+Sheet row: 88 | Module: Library | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Queue, notify when available
+Findings / remaining work: No book reservations/request queue and availability notification workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-115 — Library reports & settings
+Sheet row: 89 | Module: Library | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Stock audit, lost books, rules
+Findings / remaining work: No library stock audit/lost-book/rules/report settings found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-120 — Inventory dashboard
+Sheet row: 90 | Module: Inventory, Assets & Procurement | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Low-stock alerts, pending POs, recent issues
+Findings / remaining work: No inventory stock/PO/issue dashboard found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-121 — Items & stock
+Sheet row: 91 | Module: Inventory, Assets & Procurement | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Items, categories, stock by location, reorder level
+Findings / remaining work: No inventory item/location/stock/reorder workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-122 — Purchase orders & vendors
+Sheet row: 92 | Module: Inventory, Assets & Procurement | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: PO create/approve/receive, vendor list
+Findings / remaining work: An approval category for purchase orders is not a full PO/vendor/create/receive module; that workflow was not found.
+Evidence: src/features/dashboard/data.ts
+
+ADM-123 — Issue / return
+Sheet row: 93 | Module: Inventory, Assets & Procurement | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Issue to dept/person, returns, approvals
+Findings / remaining work: No inventory issue/return/approval workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-124 — Asset register
+Sheet row: 94 | Module: Inventory, Assets & Procurement | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Assets, location, condition, depreciation, audit
+Findings / remaining work: No asset location/condition/depreciation/audit register found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-125 — Sales to parents (uniforms/books)
+Sheet row: 95 | Module: Inventory, Assets & Procurement | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Catalogue, orders from parent app, fulfilment
+Findings / remaining work: No parent uniform/book ordering and fulfilment workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-130 — Behaviour overview
+Sheet row: 96 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Incidents by type/class, house points leaderboard, trends
+Findings / remaining work: No behaviour incident dashboard, house leaderboard and trends found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-131 — Incident log & detail
+Sheet row: 97 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Incident form (type, students, staff, description, actions, parent notified), timeline, attachments
+Findings / remaining work: No complete incident entry/detail/attachments/action/parent-notice workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-132 — House points & rewards
+Sheet row: 98 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Points feed, leaderboard, award form
+Findings / remaining work: No house-points feed, award workflow and leaderboard found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-133 — Detentions & sanctions
+Sheet row: 99 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Schedule, attendance, parent notice
+Findings / remaining work: No detention/sanction scheduling, attendance and notice workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-134 — Counselling notes (restricted)
+Sheet row: 100 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Confidential notes, sessions, referrals; access audit
+Findings / remaining work: No restricted counselling case/session/referral notes with access audit found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-135 — SEN / IEP plans (restricted)
+Sheet row: 101 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Plans, targets, reviews, accommodations visible to teachers (summary only)
+Findings / remaining work: No SEN/IEP plans, targets, review and teacher-summary workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-136 — Safeguarding (restricted, UK/intl)
+Sheet row: 102 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Concerns, chronology, DSL actions, external referrals, strict audit
+Findings / remaining work: No safeguarding concern/chronology/DSL/referral workflow with restricted audit found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-137 — Behaviour settings
+Sheet row: 103 | Module: Behaviour, Wellbeing & Safeguarding | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Categories, point values, escalation policy
+Findings / remaining work: No behaviour category/point/escalation policy editor found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-140 — Health records
+Sheet row: 104 | Module: Health & Medical | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Partial
+Checklist scope: Allergies, conditions, medications, emergency contacts, consent
+Findings / remaining work: Student admission details expose basic blood group/conditions/assistance; full masked medical records, medication and medical access controls are not implemented as a module.
+Evidence: src/features/people/StudentDetailsView.tsx
+
+ADM-141 — Clinic visits & medication log
+Sheet row: 105 | Module: Health & Medical | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Visit form, medication administered, parent notified
+Findings / remaining work: No clinic visit/medication administration/parent notification workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-142 — Immunisation & check-ups
+Sheet row: 106 | Module: Health & Medical | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Records, due reminders, campaigns
+Findings / remaining work: No immunisation/check-up records, reminders and campaigns workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-143 — Health incident report
+Sheet row: 107 | Module: Health & Medical | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Injury form, actions, follow-up
+Findings / remaining work: No dedicated health injury/incident/follow-up workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-150 — Clubs & teams
+Sheet row: 108 | Module: Activities, Events & Trips | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Clubs, coaches, members, schedule, fees
+Findings / remaining work: No club/team membership, coach, schedule and fees module found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-151 — Events & trips
+Sheet row: 109 | Module: Activities, Events & Trips | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Partial
+Checklist scope: Event detail, consent form, payment, headcount, attendance
+Findings / remaining work: School calendar events exist; full trips with consent, payments, headcounts and trip attendance do not.
+Evidence: src/features/dashboard/CalendarView.tsx
+
+ADM-152 — Achievements & certificates
+Sheet row: 110 | Module: Activities, Events & Trips | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Partial
+Checklist scope: Awards per student, bulk certificate generation
+Findings / remaining work: General certificate issuance exists; achievement records, award management and bulk achievement-certificate generation remain.
+Evidence: src/features/people/CertificatesPanel.tsx
+
+ADM-160 — Certificate templates
+Sheet row: 111 | Module: Certificates & Documents | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: Bonafide, TC, character, fee, custom; editor with merge fields, signature, QR
+Findings / remaining work: Fixed printable certificate types exist; reusable custom template editor, merge fields, digital signatures and public QR validation remain.
+Evidence: src/app/certificate/page.tsx
+
+ADM-161 — Issue certificate
+Sheet row: 112 | Module: Certificates & Documents | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Core exists
+Checklist scope: Select student/type, preview, serial, sign, issue, log
+Findings / remaining work: Issue/request/reject, reference/date/signer, print, signed-file upload and parent notification paths exist; acceptance of digital signing is separate from manual signature/upload.
+Evidence: src/features/people/CertificatesPanel.tsx;../functions/parent.js
+
+ADM-162 — Requests queue
+Sheet row: 113 | Module: Certificates & Documents | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Parent/student requests, status, fees
+Findings / remaining work: Certificate request queue with issue/reject states exists; fee handling and the complete parent/student request scope remain.
+Evidence: src/features/people/CertificatesPanel.tsx
+
+ADM-163 — Verification page (public)
+Sheet row: 114 | Module: Certificates & Documents | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Not found
+Checklist scope: QR scan result: issued to, date, valid
+Findings / remaining work: Existing /certificate is an authenticated print page, not a public code/QR validity verification endpoint.
+Evidence: src/app/certificate/page.tsx
+
+ADM-170 — Site builder
+Sheet row: 115 | Module: Website / CMS | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Pages, sections, theme, domain, publish
+Findings / remaining work: No school-admin site/page/theme/domain publishing builder found. A separate landing app is not this workflow.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-171 — News, events & gallery publishing
+Sheet row: 116 | Module: Website / CMS | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: Publish from internal notices/gallery to site
+Findings / remaining work: No school-admin internal-to-public news/gallery publishing workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-172 — Web forms
+Sheet row: 117 | Module: Website / CMS | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Admission enquiry form embed, contact forms, submissions
+Findings / remaining work: Admission form-building and URL/QR portal code exist; CMS embeds, generic contact forms and a full public website submission system remain.
+Evidence: src/features/admissions/FormBuilder.tsx;src/features/admissions/PublicFormPortal.tsx
+
+ADM-180 — Reports catalogue
+Sheet row: 118 | Module: Reports & Statutory | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Not started | Source review: Partial
+Checklist scope: Standard reports by module, favourites, recent, scheduled
+Findings / remaining work: Report catalogue, filters, run previews and CSV exports exist; favourites, full format fidelity and scheduled execution need completion.
+Evidence: src/features/communication/ReportsView.tsx
+
+ADM-181 — Report builder
+Sheet row: 119 | Module: Reports & Statutory | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Not found
+Checklist scope: UI-15
+Findings / remaining work: Fixed report generators and parameter forms exist, but no general fields/filter/group/chart report builder found.
+Evidence: src/features/communication/reportData.ts
+
+ADM-182 — Scheduled reports
+Sheet row: 120 | Module: Reports & Statutory | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Not started | Source review: Partial
+Checklist scope: Cadence, recipients, format, history
+Findings / remaining work: Schedule configuration records can be saved and toggled; no report execution/delivery worker reading com_schedules was found in backend code.
+Evidence: src/features/communication/ReportsView.tsx
+
+ADM-183 — Statutory returns (country pack)
+Sheet row: 121 | Module: Reports & Statutory | Phase: Phase 4 Enterprise | Priority: P4
+Tracker status: Not started | Source review: Partial
+Checklist scope: UDISE+/CBSE, UK census/CTF, Ed-Fi, KHDA/ADEK, NEMIS: readiness checks, validation errors, generate, submit log
+Findings / remaining work: A few admission/statutory-style reports exist; country-pack validation, real UDISE+/CBSE/UK/Ed-Fi/KHDA/NEMIS exports and submission logs remain. CBSE admissions PDF is simulated.
+Evidence: src/features/admissions/Reports.tsx
+
+ADM-184 — Ask the MIS (AI query)
+Sheet row: 122 | Module: Reports & Statutory | Phase: Phase 3 Pro | Priority: P3
+Tracker status: Not started | Source review: Not found
+Checklist scope: Natural-language question → table/chart + explanation + "open as report", permission-scoped, audit
+Findings / remaining work: No permission-scoped natural-language MIS query/report assistant found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-185 — Data quality dashboard
+Sheet row: 123 | Module: Reports & Statutory | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Missing fields, duplicates, unlinked guardians, fix links
+Findings / remaining work: Derived student data exception checks and fix links exist; complete the wider duplicate/unlinked-guardian detection scope and validate all fix flows.
+Evidence: src/features/dashboard/SetupView.tsx;src/features/dashboard/logic.ts
+
+ADM-190 — School profile & branding
+Sheet row: 124 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Name, logo, colours, address, contacts, app branding preview
+Findings / remaining work: School profile/address/logo editing exists; official-seal upload/sample PDF remain simulated and full colours/app-branding preview scope is incomplete.
+Evidence: src/features/settings/SettingsPage.tsx;src/features/settings/SchoolLogoEditor.tsx
+
+ADM-191 — Academic years & terms
+Sheet row: 125 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Years, terms, current, rollover wizard
+Findings / remaining work: Academic years/terms and planned/server-backed rollover with archive/audit paths exist; complete live rollover recovery acceptance.
+Evidence: src/features/settings/YearRollover.tsx;../functions/academicRollover.js
+
+ADM-192 — Structure: grades, sections, subjects, periods, houses
+Sheet row: 126 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Editable lists with ordering
+Findings / remaining work: Grades, streams, capacity, subjects, teacher assignments and bell settings exist; house structure and generic ordering scope remain.
+Evidence: src/features/settings/GradeDetailsView.tsx;src/features/settings/SettingsPage.tsx
+
+ADM-193 — Roles & permissions
+Sheet row: 127 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Role matrix (module × action), custom roles, field-level restrictions
+Findings / remaining work: Fixed role ACL controls and assigned-class authorization exist; custom roles and generic field-level restrictions are not implemented.
+Evidence: src/features/settings/SettingsPage.tsx;../firestore.rules
+
+ADM-194 — Users (staff logins)
+Sheet row: 128 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Core exists
+Checklist scope: Invite, roles, status, MFA, last login, deactivate
+Findings / remaining work: Staff login creation/access enable-disable and admin MFA/passkeys exist; verify the full invitation, last-login and per-role MFA scope.
+Evidence: src/features/people/StaffAppLogin.tsx;src/features/auth/AdminPasskeyCard.tsx
+
+ADM-195 — Notifications & channels
+Sheet row: 129 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Which events send push/SMS/WhatsApp/email; quiet hours; language
+Findings / remaining work: App notification jobs and some user preferences exist; full per-event/channel/quiet-hours/language administration and external channels remain.
+Evidence: ../functions/appMessaging.js;src/features/settings/SettingsPage.tsx
+
+ADM-196 — Integrations
+Sheet row: 130 | Module: Settings & Administration | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Partial
+Checklist scope: Google/Microsoft, payment gateways, SMS/WhatsApp providers, accounting, LMS (OneRoster/LTI), biometric/GPS, Zapier
+Findings / remaining work: Integration enable/disable records exist; they do not constitute real Google/Microsoft/accounting/LMS/biometric/GPS/Zapier connection flows.
+Evidence: src/features/settings/SettingsPage.tsx
+
+ADM-197 — API keys & webhooks
+Sheet row: 131 | Module: Settings & Administration | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Keys, scopes, webhook endpoints, logs
+Findings / remaining work: No school-admin scoped API-key generation, revocation or webhook endpoint/log management found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-198 — Data import / export & backups
+Sheet row: 132 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Importers, full export, restore points
+Findings / remaining work: Module CSV exports and rollover archives exist; generic importers, complete school export, restore points and tested restore UI remain.
+Evidence: src/features/people/StudentsView.tsx;src/features/settings/YearRollover.tsx
+
+ADM-199 — Audit log
+Sheet row: 133 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Filterable log incl. reads of restricted data
+Findings / remaining work: Settings audit display and CSV export exist; general filtering and audited reads of all restricted data are not demonstrated.
+Evidence: src/features/settings/SettingsPage.tsx
+
+ADM-200 — Subscription & billing
+Sheet row: 134 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Not found
+Checklist scope: Plan, usage vs limits, invoices, add-ons, upgrade
+Findings / remaining work: No school-admin plan/usage/invoice/add-on/upgrade screen found. Platform-owner billing functionality is outside this tab's school-admin scope.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-201 — Sandbox environment
+Sheet row: 135 | Module: Settings & Administration | Phase: Phase 2 Growth | Priority: P2
+Tracker status: Completed | Source review: Not found
+Checklist scope: Clone data, reset, access link for training
+Findings / remaining work: No school-admin training sandbox clone/reset/access-link workflow found.
+Evidence: Reviewed school-admin feature and route inventory; no matching workflow found.
+
+ADM-202 — Custom fields & forms
+Sheet row: 136 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: Entity, field types, validation, visibility by role
+Findings / remaining work: Admission-specific custom form fields exist; generic per-entity custom fields, validation and role-based visibility are not implemented.
+Evidence: src/features/admissions/FormBuilder.tsx
+
+ADM-203 — Languages & localisation
+Sheet row: 137 | Module: Settings & Administration | Phase: Phase 1 MVP | Priority: P1
+Tracker status: Completed | Source review: Partial
+Checklist scope: UI languages, notice auto-translate, date/number formats
+Findings / remaining work: Regional language/date/time-zone/currency preferences can be stored; the UI is largely English and automatic notice translation is not implemented.
+Evidence: src/features/settings/SettingsPage.tsx

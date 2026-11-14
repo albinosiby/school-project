@@ -1,12 +1,13 @@
 "use client";
+import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useState } from "react";
-import { AlarmClock, CalendarDays, Check, CheckCircle2, Eye, Filter, Gauge, Lock, RefreshCw, Rocket, ScanFace, ShieldCheck, Undo2, UsersRound } from "lucide-react";
+import { AlarmClock, CalendarDays, Check, CheckCircle2, Eye, Filter, Gauge, Lock, RefreshCw, ScanFace, ShieldCheck, Undo2, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { Avatar, Badge, Button, Card, Checkbox, EmptyState, Modal, ProgressBar, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { DashHeader, useSetupProgress } from "./DashHeader";
-import { errMsg, fmtDay, parse, type Notif, type SetupExc, type Staff, nowLocal, TODAY } from "./data";
+import { errMsg, fmtDay, parse, type Notif, type SetupExc, type Staff, nowLocal } from "./data";
 import { dataExceptions, EXC_KIND_LABEL, type DataException } from "./logic";
 
 type Me = { id: string; name: string; title: string };
@@ -18,6 +19,7 @@ type Term = { id: string; name: string; start: string; end: string };
 const TEACHING = /PGT|TGT|PRT|HOD|teacher/i;
 
 export function SetupView() {
+  const { date: TODAY } = useSchoolClock();
   const { steps, done, total, pct } = useSetupProgress();
   const { update: updStep } = useCollection<{ id: string; done: boolean; doneAt: string }>("setup_steps");
   // setup_exceptions only holds demo / imported rows (nothing in the live system writes it): the real checks are derived
@@ -41,7 +43,6 @@ export function SetupView() {
   const [page, setPage] = useState(1);
   const [graph, setGraph] = useState(false);
   const [snap, setSnap] = useState(false);
-  const [sign, setSign] = useState(false);
 
   const excs: Exc[] = [...dataExceptions(students), ...legacyExcs];
   const current = steps.find((s) => !s.done);
@@ -194,9 +195,9 @@ export function SetupView() {
           </Card>
           <Card className="p-5">
             <h2 className="font-semibold">Rollover Authorization</h2>
-            <div className="mt-3 flex items-center gap-3 rounded-lg bg-surface-container-low p-3"><Avatar name={me[0]?.name ?? "—"} size={44} /><div><p className="font-semibold">{me[0]?.name ?? "—"}</p><p className="text-xs text-on-surface-variant">{me[0]?.title || "Head of Institution"}</p><p className="text-xs text-outline">DSC token signing is simulated</p></div></div>
+            <div className="mt-3 flex items-center gap-3 rounded-lg bg-surface-container-low p-3"><Avatar name={me[0]?.name ?? "—"} size={44} /><div><p className="font-semibold">{me[0]?.name ?? "—"}</p><p className="text-xs text-on-surface-variant">{me[0]?.title || "Head of Institution"}</p><p className="text-xs text-outline">Approval is recorded with the signed-in administrator account.</p></div></div>
             <dl className="mt-3 space-y-1 rounded-lg bg-surface-container-low p-3 text-xs">{[["Student records:", active.length.toLocaleString("en-IN")], ["Sections:", secs.reduce((a, x) => a + (x.sections?.length ?? 0), 0).toLocaleString("en-IN")]].map(([k, v]) => <div key={k} className="flex justify-between"><dt className="text-outline">{k}</dt><dd className="font-mono font-semibold">{v}</dd></div>)}</dl>
-            <Button className="mt-4 w-full" size="lg" disabled={!!current} onClick={() => setSign(true)}>Sign Session Rollover Authorization</Button>
+            <Link href="/settings?section=rollover" className="mt-4 inline-flex w-full items-center justify-center rounded bg-secondary px-4 py-3 text-sm font-semibold text-on-secondary">Review year-end rollover</Link>
             {current && <p className="mt-2 text-xs text-outline">Unlocks once all {total} phases are complete.</p>}
           </Card>
         </div>
@@ -215,9 +216,7 @@ export function SetupView() {
       <Modal open={snap} onClose={() => setSnap(false)} title="Snapshots" subtitle="Backups of live records" footer={<Button onClick={() => setSnap(false)}>Close</Button>}>
         <EmptyState title="No snapshots yet" hint="Automated backups and restore are not enabled for this school yet." />
       </Modal>
-      <Modal open={sign} onClose={() => setSign(false)} title="Sign rollover authorization" subtitle="Applies your DSC token to the AY 2026–27 roll-forward" footer={<><Button variant="outline" onClick={() => setSign(false)}>Cancel</Button><Button onClick={() => { setSign(false); toast("Rollover authorization signed (simulated)"); }}><Rocket size={14} />Sign now</Button></>}>
-        <p className="text-on-surface-variant">You are authorizing roll-forward of {active.length.toLocaleString("en-IN")} student records across {secs.reduce((a, x) => a + (x.sections?.length ?? 0), 0)} sections. Signing is simulated — no records are changed.</p>
-      </Modal>
+
     </>
   );
 }

@@ -1,15 +1,15 @@
 "use client";
 import { useState } from "react";
-import { setDoc, writeBatch } from "firebase/firestore";
+import { setDoc } from "firebase/firestore";
 import { Landmark, Pencil, TriangleAlert } from "lucide-react";
 import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Tabs, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { fmtDate, inrFull } from "@/lib/format";
 import { useMyName } from "@/lib/useMe";
-import { auth, db } from "@/lib/firebase";
 import { useCollection } from "@/lib/useCollection";
-import { applyPayment, balanceOf, createStamp, duplicateReference, newId, nextReceiptNo, normRef, paymentAmountError, paymentMode, round2, schoolDoc, stamp } from "./logic";
+import { balanceOf, duplicateReference, paymentAmountError, round2, schoolDoc, stamp } from "./logic";
 import type { Invoice, Payment } from "./types";
+import { recordFeePayment } from "./paymentService";
 
 /** fee_claims (data contract 13.8): payments parents made to the school account and reported in the parent app. */
 type Claim = { id: string; studentId: string; grn: string; studentName: string; classId?: string; invoiceId: string; invoiceNo?: string; amount: number; mode: string;
@@ -20,7 +20,7 @@ type School = { id: string; bank?: Bank };
 const tone = { Pending: "warning", Verified: "success", Rejected: "danger" } as const;
 const cls = (id = "") => id.replace(/^cls_(\d+)(\w)$/, "$1-$2");
 
-export function PaymentVerification({ invoices, payments, today }: { invoices: Invoice[]; payments: Payment[]; today: string }) {
+export function PaymentVerification({ invoices, payments }: { invoices: Invoice[]; payments: Payment[]; today: string }) {
   const toast = useToast();
   const me = useMyName();
   const claims = useCollection<Claim>("fee_claims");
@@ -44,15 +44,8 @@ export function PaymentVerification({ invoices, payments, today }: { invoices: I
     if (!inv) throw new Error("The invoice of this payment was not found.");
     const err = verifyAmountError(amount, balanceOf(inv));
     if (err) throw new Error(err);
-    const no = nextReceiptNo(payments);
-    const p: Payment = { id: newId("pay"), receiptNo: no, invoiceId: inv.id, invoiceNo: inv.no, student: inv.student, grade: inv.grade, grn: inv.grn, amount: round2(amount),
-      mode: paymentMode(c.mode, c.reference), reference: normRef(c.reference), claimId: c.id, date: c.paidOn || today, by: me.name };
-    const b = writeBatch(db); const st = stamp();
-    b.set(schoolDoc("fee_payments", p.id), { ...p, ...createStamp() });
-    b.update(schoolDoc("fee_invoices", inv.id), { ...applyPayment(inv, amount, today), ...st });
-    b.update(schoolDoc("fee_claims", c.id), { status: "Verified", amount: round2(amount), receiptNo: no, paymentId: p.id, verifiedBy: me.name, verifiedByUid: auth.currentUser?.uid ?? "", verifiedAt: new Date().toISOString(), ...st });
-    try { await b.commit(); } catch { throw new Error("Could not record the payment. Nothing was saved; try again."); }
-    toast(`Verified · receipt ${no} issued`);
+    const p = await recordFeePayment({ requestId: crypto.randomUUID(), invoiceId: inv.id, claimId: c.id, amount });
+    toast(`Verified · receipt ${p.receiptNo} issued`);
   }
 
   const cols: Column<Claim>[] = [

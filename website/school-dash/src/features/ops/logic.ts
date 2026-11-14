@@ -1,6 +1,6 @@
 // Pure rules behind the OPS screens (classes, attendance, timetable, substitutions, live classes, homework).
 // Kept free of React so they can be unit tested; the views call these and only render.
-import { DAY_NAMES, GRADES, SECTIONS, classIdOf, clsLabel, dayOfIso, studentClassId } from "./shared";
+import { CLASS_GRADES, DAY_NAMES, SECTIONS, classIdOf, clsLabel, dayOfIso, studentClassId } from "./shared";
 import { isSeniorGrade, streamIdOf } from "@/lib/academicStreams";
 
 type Errors = Record<string, string>;
@@ -37,7 +37,7 @@ export const roomTakenBy = (classes: ClassRow[], room: string, classId: string) 
 export function validateClass(v: { grade: string; section: string; streamId?: string; classTeacherId: string; room: string }, classes: ClassRow[], nameOf: (id: string) => string, editId?: string): Errors {
   const e: Errors = {};
   const grade = String(v.grade ?? "").trim(), section = String(v.section ?? "").trim();
-  if (!GRADES.includes(grade)) e.grade = "Grade must be 1–12";
+  if (!CLASS_GRADES.includes(grade)) e.grade = "Choose LKG, UKG or Grade 1–12";
   if (!SECTIONS.includes(section)) e.section = "Section must be A–D";
   if (!editId && isSeniorGrade(grade) && !streamIdOf(v.streamId)) e.streamId = "Choose a stream";
   const id = editId ?? classIdOf(grade, section, v.streamId);
@@ -144,10 +144,10 @@ export const findTeacherClash = (rows: Period[], c: Slot & { teacherId?: string;
 /** another period of the same class in the same slot */
 export const findSlotTaken = (rows: Period[], c: Slot) => rows.find((o) => o.id !== c.id && periodClass(o) === c.classId && o.day === c.day && Number(o.period) === c.period);
 
-export function validatePeriod(v: { day: string; period: number; subject: string; teacherId: string }): Errors {
+export function validatePeriod(v: { day: string; period: number; subject: string; teacherId: string }, periodCount = 8): Errors {
   const e: Errors = {};
   if (!DAY_NAMES.includes(v.day)) e.day = "Day must be Mon–Sat";
-  if (!(Number.isInteger(v.period) && v.period >= 1 && v.period <= 8)) e.period = "Period must be 1–8";
+  if (!(Number.isInteger(v.period) && v.period >= 1 && v.period <= periodCount)) e.period = `Period must be 1–${periodCount}`;
   if (!v.subject.trim()) e.subject = "Pick a subject";
   if (!v.teacherId) e.teacherId = "Pick a teacher";
   return e;

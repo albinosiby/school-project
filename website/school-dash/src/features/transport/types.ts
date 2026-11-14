@@ -28,7 +28,7 @@ export type VehicleDetails = {
 export type BusStatus = "Active" | "Maintenance" | "Inactive";
 /** tr_buses/{bus_01} */
 export type Bus = VehicleDetails & { id: string; number: string; regNo: string; capacity: number; model?: string; routeName: string; driverId?: string; driver?: string; attendantId?: string; attendant?: string;
-  stops: BusStop[]; pickupStart: string; dropStart: string; status: BusStatus; studentCount: number; note?: string;
+  stops: BusStop[]; pickupStart: string; dropStart: string; status: BusStatus; studentCount: number; note?: string; assignmentRevision?: number;
   /** Monthly amount per assigned student. Missing/null means not configured; 0 means free transport. */
   monthlyFee?: number | null };
 

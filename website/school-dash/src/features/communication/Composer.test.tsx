@@ -69,9 +69,9 @@ describe("Notice composer writes (contract 10 / 13.6)", () => {
     await user.click(within(d).getByRole("checkbox", { name: "Grade 8" }));
     expect(within(d).getByText("2 recipients · Shown in: Parent app")).toBeInTheDocument();
     await user.click(within(d).getByRole("button", { name: "Send Now" }));
-    expect(await screen.findByText("Notice sent to 2 recipients (simulated)")).toBeInTheDocument();
+    expect(await screen.findByText("Notice published. Firebase push notifications are queued for registered devices.")).toBeInTheDocument();
     const [n] = rowsOf<Record<string, unknown>>("com_notices");
-    expect(n).toMatchObject({ title: "Grade 8 trip", audience: "Parents by Grade", grades: ["Grade 8"], status: "Published", recipients: 2, delivered: 2, acked: 0, read: 0,
+    expect(n).toMatchObject({ title: "Grade 8 trip", audience: "Parents by Grade", grades: ["Grade 8"], status: "Published", recipients: 2, delivered: 0, acked: 0, read: 0,
       channels: ["Mobile App"], author: "Dr. Rao (Principal)", body: "Consent forms by Friday", urgent: false });
     expect(n).not.toHaveProperty("parentVisible");
     expect(writesTo("com_log")[0]!.data).toMatchObject({ noticeId: n!.id, action: "Sent", audience: "Parents by Grade", recipients: 2 });
@@ -83,7 +83,7 @@ describe("Notice composer writes (contract 10 / 13.6)", () => {
     await user.type(field("Title", d), "Fog timings");
     await user.type(field("Message", d), "School starts 9am");
     await user.click(within(d).getByRole("button", { name: "Send Now" }));
-    expect(await screen.findByText("Notice sent to 4 recipients (simulated)")).toBeInTheDocument();
+    expect(await screen.findByText("Notice published. Firebase push notifications are queued for registered devices.")).toBeInTheDocument();
     expect(rowsOf("com_notices")[0]).toMatchObject({ audience: "All School", grades: [], recipients: 4 });
   });
 
@@ -133,7 +133,7 @@ describe("Scheduled notices", () => {
     ] });
     renderUI(<NoticesView />);
     await screen.findByText("Due");
-    await expect.poll(() => getRow("com_notices", "due")).toMatchObject({ status: "Published", delivered: 5 });
+    await expect.poll(() => getRow("com_notices", "due")).toMatchObject({ status: "Published", delivered: 0 });
     expect(getRow("com_notices", "later")).toMatchObject({ status: "Scheduled" });
     await expect.poll(() => writesTo("com_log").map((w) => w.data?.action)).toEqual(["Sent (scheduled)"]);
   });

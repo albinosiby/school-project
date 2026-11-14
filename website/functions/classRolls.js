@@ -1,3 +1,4 @@
+const { requireAdminSession } = require("./adminSession");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 
@@ -5,6 +6,7 @@ const validId = (value) => typeof value === "string" && value.length > 0 && valu
 const validRoll = (value) => Number.isInteger(value) && value >= 1 && value <= 999;
 
 exports.assignStudentRoll = onCall(async (request) => {
+  await requireAdminSession(request);
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError("unauthenticated", "Sign in as the class teacher.");
   const { studentId, roll = null } = request.data ?? {};
@@ -31,7 +33,7 @@ exports.assignStudentRoll = onCall(async (request) => {
     const [section, platform, settings] = await tx.getAll(
       classRef, db.collection("platform_schools").doc(actor.schoolId), school.collection("school").doc("school"),
     );
-    if (platform.get("status") === "suspended" || section.get("classTeacherId") !== actor.staffId) {
+    if (platform.get("rolloverJob") || platform.get("status") === "suspended" || section.get("classTeacherId") !== actor.staffId) {
       throw new HttpsError("permission-denied", "Only the assigned class teacher can allot roll numbers.");
     }
     const year = settings.get("academicYear") || student.get("academicYear") || "";

@@ -107,7 +107,7 @@ export function AttendanceView() {
           <CardHeader title={`${clsLabel(classId)} roll`}
             subtitle={shown ? `${Number(shown.period) > 0 ? `Period ${shown.period}` : "Day record"} · ${teacherName(shown)}${dirty ? " · edited, not saved" : ""}${shown === latest ? " · latest submitted" : ""}` : `${marked} of ${roster.length} marked · no submitted record yet`}
             actions={<><Button size="sm" variant="outline" disabled={!roster.length} onClick={() => markAll("P")}>Mark all present</Button><Button size="sm" variant="ghost" disabled={!roster.length} onClick={() => markAll("A")}>All absent</Button></>} />
-          {roster.length === 0 ? <EmptyState title="No students in this class" hint="Pick another grade or section, or add students in Students & Guardians." /> : (
+          {roster.length === 0 ? <EmptyState title="No students in this class" hint="Pick another grade or section, or add students through Admissions." /> : (
             <ul className="divide-y divide-outline-variant/40">
               {roster.map((s) => (
                 <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">

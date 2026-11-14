@@ -111,9 +111,25 @@ function readStaffProfile(input) {
   const lastName = text(input, "lastName", 60, true);
   const name = [firstName, middleName, lastName].filter(Boolean).join(" ");
   if (name.length > 120) errors.firstName = "Use 120 characters or fewer for the full name.";
-  const additionalSubjects = Array.isArray(input?.additionalSubjects)
-    ? [...new Set(input.additionalSubjects.slice(0, 40).map(clean).filter(Boolean))] : [];
-  if (additionalSubjects.some((subject) => subject.length > 120)) errors.additionalSubjects = "Choose valid subjects.";
+  const primarySubject = teaching ? text(input, "primarySubject", 243, true) : "";
+  const primarySubjectId = teaching ? text(input, "primarySubjectId", 1024) : "";
+  const subjectIdentity = (name, id) => JSON.stringify(id ? ["id", id] : ["name", name]);
+  const primaryIdentity = subjectIdentity(primarySubject, primarySubjectId);
+  const subjectSelections = new Map();
+  if (teaching && Array.isArray(input?.additionalSubjects)) {
+    const ids = Array.isArray(input.additionalSubjectIds) ? input.additionalSubjectIds : [];
+    input.additionalSubjects.forEach((value, index) => {
+      const name = clean(value);
+      const id = clean(ids[index]);
+      if (!name && !id) return;
+      if (!name || name.length > 243 || id.length > 1024) errors.additionalSubjects = "Choose valid subjects.";
+      const identity = subjectIdentity(name, id);
+      if (identity !== primaryIdentity) subjectSelections.set(identity, { name, id });
+    });
+  }
+  if (subjectSelections.size > 40) errors.additionalSubjects = "Choose up to 40 additional subjects.";
+  const additionalSubjects = [...subjectSelections.values()].map(({ name }) => name);
+  const additionalSubjectIds = [...subjectSelections.values()].map(({ id }) => id);
   const tet = teaching ? choice(input, "tet", ["Yes", "No"]) : "";
   const currentAddress = address("currentAddress");
   const sameAddress = input?.sameAddress === true;
@@ -125,15 +141,16 @@ function readStaffProfile(input) {
     phone: phone(input, "phone", true),
     alternatePhone: phone(input, "alternatePhone"),
     contactEmail: email, sameAddress, currentAddress, permanentAddress: sameAddress ? currentAddress : address("permanentAddress"),
-    department: text(input, "department", 100, true),
+    department: text(input, "department", 100) || (teaching ? "Academics" : ""),
     employmentType, contractStart, contractEnd,
     employmentStatus: choice(input, "employmentStatus", options.employmentStatuses, true),
     probationMonths: number(input, "probationMonths", 120, { integer: true }),
-    workShift: choice(input, "workShift", options.workShifts),
+    workShift: teaching ? "" : choice(input, "workShift", options.workShifts),
     emergency: emergencyContact, qualifications: qualificationRows,
     ...(teaching ? {
-      teachingLevel: choice(input, "teachingLevel", options.teachingLevels, true),
-      primarySubject: text(input, "primarySubject", 120, true), additionalSubjects,
+      departmentId: text(input, "departmentId", 150),
+      teachingLevel: choice(input, "teachingLevel", options.teachingLevels),
+      primarySubject, primarySubjectId, additionalSubjects, additionalSubjectIds,
       teachingExperience: number(input, "teachingExperience", 80, { required: true }),
       previousSchool: text(input, "previousSchool", 160), previousDesignation: text(input, "previousDesignation", 100),
       tet, tetCertificate: tet === "Yes" ? text(input, "tetCertificate", 100) : "",
