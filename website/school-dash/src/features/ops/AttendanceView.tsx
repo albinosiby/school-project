@@ -5,6 +5,7 @@ import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Field, Input, Page
 import { classStream, isSeniorGrade, streamsForGrade, type AcademicClass } from "@/lib/academicStreams";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
+import { useAttendancePolicy } from "@/lib/useAttendancePolicy";
 import { GRADES, SECTIONS, activeStudent, classIdOf, clsLabel, studentClassId, todayIso, type StaffRef } from "./shared";
 import { adminDayId, adminDayRecord, attPct, attendanceSaveError, dayRecords, derive, latestPerDate, latestRecord, type AttRec, type Mark } from "./logic";
 
@@ -25,6 +26,7 @@ const OPTS: { v: Mark; label: string; icon: React.ReactNode; on: string }[] = [
 
 export function AttendanceView() {
   const toast = useToast();
+  const attendancePolicy = useAttendancePolicy();
   const students = useCollection<Stu>("students").rows;
   const classes = useCollection<AcademicClass>("classes").rows;
   const staff = useCollection<StaffRef>("staff").rows;
@@ -123,7 +125,7 @@ export function AttendanceView() {
         <Card>
           <CardHeader title="Class summary" />
           <div className="space-y-4 p-5 pt-2">
-            <div><div className="mb-1 flex justify-between text-sm"><span>Attendance on {date}</span><span className="font-mono">{pct}%</span></div><ProgressBar value={pct} tone={pct >= 75 ? "success" : "danger"} /></div>
+            <div><div className="mb-1 flex justify-between text-sm"><span>Attendance on {date}</span><span className="font-mono">{pct}%</span></div><ProgressBar value={pct} tone={!attendancePolicy.ready ? "muted" : pct >= attendancePolicy.minimumPercent ? "success" : "danger"} /></div>
             <div><h4 className="t-label-caps mb-2 text-on-surface-variant">Records for this day</h4>
               {recs.length === 0 ? <p className="text-on-surface-variant">Nothing submitted yet.</p> : (
                 <ul className="space-y-1.5 text-sm">{[...periodRecs, ...(saved ? [saved] : [])].map((r) => { const d = derive(r);

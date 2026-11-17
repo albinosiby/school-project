@@ -1,129 +1,143 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, UserMinus } from "lucide-react";
-import { writeBatch } from "firebase/firestore";
-import { Badge, Button, Checkbox, EmptyState, Field, SearchBox, Select, Tabs, useToast } from "@/components/ui";
-import { GRADES, SECTIONS } from "@/features/ops/shared";
+import { MapPin, Pencil, Plus, UserMinus, UserRound } from "lucide-react";
+import { Button, EmptyState, SearchBox, Select, Tabs, useToast } from "@/components/ui";
+import { inrFull } from "@/lib/format";
 import type { Student } from "@/features/people/StudentsView";
+import { studentTransportFee, transportFeeVersion, type TransportFeeStudent } from "./transportFees";
 import { studentProfileHref } from "@/features/people/studentLogic";
-import { db } from "@/lib/firebase";
-import { applyAllot, busLabel, planAllot, stopsOf, studentLabel, t12 } from "./shared";
-import { capacityError } from "./logic";
+import { AddBusStudentsPanel } from "./AddBusStudentsPanel";
+import { CrewAssignmentSelect } from "./CrewAssignmentSelect";
 import { assignStudentBuses } from "./studentBusAssignment";
-import type { Bus, Crew } from "./types";
+import { busLabel, stopsOf, studentLabel } from "./shared";
+import type { Bus, Crew, CrewRole } from "./types";
 
-export function BusAssignments({ bus, crew, students, buses, onEdit }: {
-  bus: Bus; crew: Crew[]; students: Student[]; buses: Bus[]; onEdit: () => void;
+export function BusAssignments({ bus, crew, students, buses, onEdit, onAllot, crewBusy, crewError }: {
+  bus: Bus; crew: Crew[]; students: TransportFeeStudent[]; buses: Bus[]; onEdit: () => void;
+  onAllot: (role: CrewRole, crewId: string) => Promise<void>; crewBusy: boolean;
+  crewError?: { role: CrewRole; message: string } | null;
 }) {
   const toast = useToast();
   const [tab, setTab] = useState("crew");
   const [busy, setBusy] = useState(false);
-  const assigned = useMemo(() => students.filter((s) => s.busId === bus.id).sort((a, b) => a.name.localeCompare(b.name)), [students, bus.id]);
-  const [q, setQ] = useState(""); const [grade, setGrade] = useState(""); const [section, setSection] = useState("");
-  const [picked, setPicked] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [query, setQuery] = useState("");
+  const assigned = useMemo(() => students.filter((student) => student.busId === bus.id)
+    .sort((a, b) => a.name.localeCompare(b.name)), [students, bus.id]);
   const stops = stopsOf(bus);
-  const [stopFor, setStopFor] = useState(stops[0]?.id ?? "");
-  const [addErr, setAddErr] = useState("");
-  const candidates = useMemo(() => students.filter((s) => s.busId !== bus.id && (!grade || s.grade === grade) && (!section || s.section === section)
-    && (!q || `${s.name} ${s.grn} ${s.guardian}`.toLowerCase().includes(q.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name)), [students, bus.id, grade, section, q]);
-  const stopName = (id?: string) => stops.find((s) => s.id === id)?.name ?? "";
+  const names = new Map(stops.map((stop) => [stop.id, stop.name]));
+  const visible = assigned.filter((student) => !query || [student.name, student.grn, studentLabel(student),
+    names.get(student.busStopId || "") || student.busStop || ""].join(" ").toLowerCase().includes(query.toLowerCase()));
+  const withoutStop = assigned.filter((student) => !names.has(student.busStopId || ""));
 
-  async function allot(role: "driver" | "attendant", crewId: string) {
-    const seat = role === "driver" ? bus.driverId : bus.attendantId;
-    if ((crewId || "") === (seat || "")) return;
+  async function assign(changes: { student: Student; busId: string | null; stopId?: string; fee?: { input: string; expectedVersion: string } }[]) {
+    if (busy || !changes.length) return false;
     setBusy(true);
     try {
-      const batch = writeBatch(db);
-      const c = crew.find((x) => x.id === crewId) ?? (seat ? crew.find((x) => x.id === seat) : undefined);
-      if (!c) return;
-      applyAllot(batch, planAllot(c, crewId ? bus.id : "", crew, buses));
-      await batch.commit(); toast(crewId ? `${c.name} allotted to ${busLabel(bus)}` : `${c.name} removed from ${busLabel(bus)}`);
-    } catch { toast("Could not update the crew", "error"); } finally { setBusy(false); }
-  }
-  /** writes students.busId/bus/busStopId/busStop for every change and recomputes studentCount on every touched bus (contract 14.2) */
-  async function assign(changes: { s: Student; busId: string | null; stopId?: string }[]) {
-    if (!changes.length) return false;
-    setBusy(true);
-    try {
-      await assignStudentBuses(changes.map(({ s, busId, stopId }) => ({ studentId: s.id, busId, stopId })), students, buses);
+      await assignStudentBuses(changes.map(({ student, ...change }) => ({ studentId: student.id, ...change })),
+        students.map((row) => changes.find((change) => change.student.id === row.id)?.student ?? row), buses);
       return true;
-    } catch (error) { toast(error instanceof Error ? error.message : "Could not update the students", "error"); return false; } finally { setBusy(false); }
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not update the students", "error"); return false;
+    } finally { setBusy(false); }
   }
-  const byRole = (r: "driver" | "attendant") => crew.filter((c) => c.role === r && c.status !== "Inactive").sort((a, b) => a.name.localeCompare(b.name));
-  const seatSelect = (role: "driver" | "attendant", seatId?: string) => (
-    <Field label={role === "driver" ? "Driver" : "Attendant (bus staff)"}>
-      <Select value={seatId ?? ""} disabled={busy} onChange={(e) => allot(role, e.target.value)}>
-        <option value="">Unassigned</option>
-        {byRole(role).map((c) => <option key={c.id} value={c.id}>{c.name} · {c.empId}{c.busId && c.busId !== bus.id ? ` (on ${c.bus})` : ""}</option>)}
-      </Select></Field>);
 
-  return (
-    <div>
-      <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ id: "crew", label: "Crew" }, { id: "students", label: "Students", count: assigned.length }, { id: "stops", label: "Stops", count: stops.length }]} />
-      {tab === "crew" && <div className="space-y-4">
-        <p className="text-sm text-on-surface-variant">Allotting a crew member here moves them off their previous bus and frees this seat&apos;s previous holder.</p>
-        <div className="grid gap-4 sm:grid-cols-2">{seatSelect("driver", bus.driverId)}{seatSelect("attendant", bus.attendantId)}</div>
-        <dl className="grid grid-cols-[120px_1fr] gap-y-2 rounded-lg bg-surface-container-low p-3 text-sm">
-          {(["driver", "attendant"] as const).map((r) => { const c = crew.find((x) => x.id === (r === "driver" ? bus.driverId : bus.attendantId));
-            return <Fragment key={r}><dt className="text-outline">{r === "driver" ? "Driver" : "Attendant"}</dt><dd>{c ? <>{c.name} <span className="text-outline">· {c.phone}{c.status !== "Active" ? ` · ${c.status}` : ""}</span></> : "—"}</dd></Fragment>; })}
-        </dl>
-      </div>}
-      {tab === "students" && <div className="space-y-5">
-        <section>
-          <h3 className="t-label-caps mb-2 text-on-surface-variant">On this bus ({assigned.length})</h3>
-          {assigned.length === 0 ? <p className="rounded-lg bg-surface-container-low p-3 text-sm text-on-surface-variant">No students assigned yet.</p> : (
-            <ul className="divide-y divide-outline-variant/40 rounded-lg border border-outline-variant/60">
-              {assigned.map((s) => (
-                <li key={s.id} className="flex flex-wrap items-center gap-3 px-3 py-2">
-                  <div className="min-w-0 flex-1"><Link href={studentProfileHref(s.id)} className="font-medium text-secondary hover:underline">{s.name}</Link><div className="t-caption text-outline">{studentLabel(s)} · {s.grn}</div></div>
-                  <Select aria-label={`Stop for ${s.name}`} className="w-48" value={s.busStopId ?? ""} disabled={busy} onChange={(e) => assign([{ s, busId: bus.id, stopId: e.target.value || undefined }])}>
-                    <option value="">No stop</option>{stops.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</Select>
-                  <Button size="sm" variant="ghost" aria-label={`Remove ${s.name}`} disabled={busy} onClick={() => assign([{ s, busId: null }])}><UserMinus size={14} className="text-error" /></Button>
-                </li>))}
-            </ul>)}
-        </section>
-        <section>
-          <h3 className="t-label-caps mb-2 text-on-surface-variant">Add students</h3>
-          <div className="mb-2 flex flex-wrap gap-2">
-            <SearchBox value={q} onChange={setQ} placeholder="Search name, GRN, guardian…" className="w-full max-w-xs" />
-            <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-32"><option value="">All grades</option>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select>
-            <Select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)} className="w-28"><option value="">All sections</option>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select>
-          </div>
-          <ul className="max-h-64 divide-y divide-outline-variant/40 overflow-y-auto rounded-lg border border-outline-variant/60">
-            {candidates.length === 0 && <li className="p-3 text-sm text-on-surface-variant">No students match.</li>}
-            {candidates.slice(0, 200).map((s) => (
-              <li key={s.id}><label className="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-surface-container-low">
-                <Checkbox aria-label={`Select ${s.name}`} checked={picked.includes(s.id)} onChange={(e) => { setAddErr(""); setPicked((p) => (e.target.checked ? [...p, s.id] : p.filter((x) => x !== s.id))); }} />
-                <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{s.name}</span><span className="t-caption text-outline">{studentLabel(s)} · {s.grn}{s.bus ? ` · on ${s.bus}` : ""}</span></span>
-              </label></li>))}
-          </ul>
-          <div className="mt-3 flex flex-wrap items-end gap-2">
-            <Field label="Stop for the selected students" className="w-56"><Select value={stopFor} onChange={(e) => setStopFor(e.target.value)}><option value="">No stop</option>{stops.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</Select></Field>
-            <Button disabled={!picked.length || busy} onClick={async () => {
-              const sel = students.filter((s) => picked.includes(s.id));
-              const over = capacityError(bus.capacity, assigned.length, sel.length, busLabel(bus));
-              if (over) { setAddErr(over); return; }
-              if (await assign(sel.map((s) => ({ s, busId: bus.id, stopId: stopFor || undefined })))) { setPicked([]); toast(`${sel.length} student${sel.length === 1 ? "" : "s"} added to ${busLabel(bus)}`); }
-            }}>
-              <Plus size={14} />Add {picked.length || ""} student{picked.length === 1 ? "" : "s"}</Button>
-            {assigned.length + picked.length > bus.capacity && <Badge tone="danger">Over capacity</Badge>}
-          </div>
-          {addErr && <p className="mt-2 text-xs text-error" role="alert">{addErr}</p>}
-        </section>
-      </div>}
-      {tab === "stops" && (stops.length === 0 ? <EmptyState title="No stops" hint="Edit the bus to add its stops in route order." action={<Button variant="outline" onClick={onEdit}>Edit bus</Button>} /> : (
-        <table aria-label="Route stops" className="w-full text-left text-sm">
-          <thead><tr className="border-b border-outline-variant/60 text-on-surface-variant"><th className="py-2 pr-3 t-label-caps !text-[11px]">#</th><th className="py-2 pr-3 t-label-caps !text-[11px]">Stop</th><th className="py-2 pr-3 t-label-caps !text-[11px]">Pickup</th><th className="py-2 pr-3 t-label-caps !text-[11px]">Drop</th><th className="py-2 t-label-caps !text-[11px] text-right">Students</th></tr></thead>
-          <tbody>{stops.map((st, i) => (
-            <tr key={st.id} className="border-b border-outline-variant/40 last:border-0"><td className="py-2 pr-3 font-mono text-outline">{i + 1}</td>
-              <td className="py-2 pr-3"><div className="font-medium">{st.name}</div>{st.landmark && <div className="t-caption text-outline">{st.landmark}</div>}</td>
-              <td className="py-2 pr-3 font-mono">{t12(st.pickupTime)}</td><td className="py-2 pr-3 font-mono">{t12(st.dropTime)}</td>
-              <td className="py-2 text-right">{assigned.filter((s) => s.busStopId === st.id).length}</td></tr>))}
-            {assigned.some((s) => !stopName(s.busStopId)) && <tr><td className="py-2 pr-3 text-outline">—</td><td className="py-2 pr-3 text-on-surface-variant" colSpan={3}>No stop set</td><td className="py-2 text-right">{assigned.filter((s) => !stopName(s.busStopId)).length}</td></tr>}
-          </tbody>
-        </table>))}
+  return <div>
+    <div className="border-b border-outline-variant/50 px-5 pt-4">
+      <Tabs variant="underline" className="overflow-y-hidden" value={tab} onChange={setTab} items={[
+        { id: "crew", label: "Crew" }, { id: "students", label: "Students", count: assigned.length },
+        { id: "stops", label: "Stops", count: stops.length },
+      ]} />
     </div>
-  );
+    <div className="p-5">
+      {tab === "crew" && <section aria-label="Crew assignments" className="space-y-5">
+        <div><h3 className="font-semibold">Assign your crew</h3>
+          <p className="mt-1 text-sm text-on-surface-variant">Choose a driver and attendant for this bus. Changes save automatically.</p></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {(["driver", "attendant"] as const).map((role) => <div key={role} className="rounded-lg border border-outline-variant/60 bg-surface-container-low/40 p-4">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
+              <span className="grid size-8 place-items-center rounded-lg bg-info-container text-secondary"><UserRound size={16} aria-hidden="true" /></span>
+              {role === "driver" ? "Driver assignment" : "Attendant assignment"}
+            </div>
+            <CrewAssignmentSelect bus={bus} crew={crew} role={role} label={role === "driver" ? "Driver" : "Attendant (bus staff)"}
+              busy={busy || crewBusy} error={crewError?.role === role ? crewError.message : undefined} onAssign={onAllot} />
+          </div>)}
+        </div>
+        <p className="text-xs text-on-surface-variant">Choosing someone assigned to another bus moves them here and frees the previous seat holder. Select Unassigned to clear a role.</p>
+      </section>}
+
+      {tab === "students" && <section aria-label="Assigned students" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h3 className="font-semibold">Students on this bus</h3>
+            <p className="mt-1 text-sm text-on-surface-variant">{assigned.length} of {bus.capacity} student seats occupied</p></div>
+          <Button disabled={busy} onClick={() => setAdding(true)}><Plus size={16} aria-hidden="true" />Add students</Button>
+        </div>
+        <SearchBox value={query} onChange={setQuery} placeholder="Search assigned students or stops…" className="w-full max-w-sm" />
+        {!visible.length ? <EmptyState title={assigned.length ? "No students match" : "No students assigned yet."}
+          hint={assigned.length ? "Try another name, GRN, class or stop." : "Use Add students to choose who travels on this bus."} /> :
+          <div className="overflow-x-auto rounded-lg border border-outline-variant/50">
+            <table aria-label="Assigned bus students" className="w-full min-w-[800px] text-left text-sm">
+              <thead className="border-b border-outline-variant/50 bg-surface-container-low text-xs text-on-surface-variant"><tr>
+                <th scope="col" className="px-4 py-3 font-medium">Student</th><th scope="col" className="px-4 py-3 font-medium">Class</th>
+                <th scope="col" className="px-4 py-3 font-medium">Bus stop</th><th scope="col" className="px-4 py-3 font-medium">Fee amount (₹)</th><th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
+              </tr></thead>
+              <tbody className="divide-y divide-outline-variant/40">{visible.map((student) => <tr key={student.id}>
+                <th scope="row" className="px-4 py-3 font-normal"><Link href={studentProfileHref(student.id)} className="font-semibold text-secondary hover:underline">{student.name}</Link>
+                  <div className="mt-1 text-xs text-outline">{student.grn}</div></th>
+                <td className="px-4 py-3">{studentLabel(student)}</td>
+                <td className="px-4 py-3"><Select aria-label={"Stop for " + student.name} className="min-w-40" value={student.busStopId || ""} disabled={busy}
+                  onChange={(event) => { void assign([{ student, busId: bus.id, stopId: event.target.value || undefined }]); }}>
+                  <option value="">No stop</option>
+                  {student.busStopId && !names.has(student.busStopId) && <option value={student.busStopId} disabled>{student.busStop || "Previous stop"} · unavailable</option>}
+                  {stops.map((stop) => <option key={stop.id} value={stop.id}>{stop.name}</option>)}
+                </Select></td>
+                <td className="px-4 py-3"><TransportFee student={student} /></td>
+                <td className="px-4 py-3 text-right"><Button size="sm" variant="ghost" aria-label={"Remove " + student.name} disabled={busy}
+                  onClick={() => { void assign([{ student, busId: null }]); }}><UserMinus size={14} className="text-error" aria-hidden="true" />Remove</Button></td>
+              </tr>)}</tbody>
+            </table>
+          </div>}
+      </section>}
+
+      {tab === "stops" && <section aria-label="Bus route stops" className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h3 className="font-semibold">Route stops</h3>
+            <p className="mt-1 text-sm text-on-surface-variant">Stops in travel order, with the number of assigned students.</p></div>
+          <Button variant="outline" onClick={onEdit}><Pencil size={15} aria-hidden="true" />Edit stops</Button>
+        </div>
+        {!stops.length ? <EmptyState title="No stops" hint="Use Edit stops to add stops and arrange the route." /> :
+          <div className="overflow-x-auto rounded-lg border border-outline-variant/50">
+            <table aria-label="Route stops" className="w-full min-w-[320px] text-left text-sm">
+              <thead className="border-b border-outline-variant/50 bg-surface-container-low text-xs text-on-surface-variant"><tr>
+                <th scope="col" className="w-14 px-4 py-3 font-medium">Order</th><th scope="col" className="px-4 py-3 font-medium">Stop</th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">Students</th>
+              </tr></thead>
+              <tbody className="divide-y divide-outline-variant/40">{stops.map((stop, index) => <tr key={stop.id}>
+                <td className="px-4 py-3"><span className="grid size-7 place-items-center rounded-full bg-surface-container text-xs font-semibold">{index + 1}</span></td>
+                <th scope="row" className="px-4 py-3 text-left font-normal"><div className="flex items-center gap-2 font-semibold"><MapPin size={14} aria-hidden="true" className="shrink-0 text-outline" />{stop.name}</div>
+                  {stop.landmark && <div className="mt-1 text-xs text-outline">{stop.landmark}</div>}
+                </th>
+                <td className="px-4 py-3 text-right tabular-nums">{assigned.filter((student) => student.busStopId === stop.id).length}</td>
+              </tr>)}
+                {withoutStop.length > 0 && <tr><td className="px-4 py-3 text-outline">—</td><th scope="row" className="px-4 py-3 text-left font-normal text-on-surface-variant">No stop set</th><td className="px-4 py-3 text-right tabular-nums">{withoutStop.length}</td></tr>}
+              </tbody>
+            </table>
+          </div>}
+      </section>}
+    </div>
+    {adding && <AddBusStudentsPanel bus={bus} students={students} assignedCount={assigned.length} busy={busy} onClose={() => setAdding(false)}
+      onAdd={async (chosen, stopId, amounts) => {
+        if (!(await assign(chosen.map((student) => ({ student, busId: bus.id, stopId,
+          fee: { input: amounts[student.id] ?? "", expectedVersion: transportFeeVersion(student.transportFee) },
+        }))))) return false;
+        toast(String(chosen.length) + " student" + (chosen.length === 1 ? "" : "s") + " added to " + busLabel(bus)); return true;
+      }} />}
+  </div>;
+}
+
+function TransportFee({ student }: { student: TransportFeeStudent }) {
+  const amount = studentTransportFee(student);
+  return <span className={amount === null ? "text-outline" : "tabular-nums"}>{amount === null ? "Not configured" : inrFull(amount)}</span>;
 }

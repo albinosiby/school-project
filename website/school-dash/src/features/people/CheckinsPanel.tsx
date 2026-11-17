@@ -4,7 +4,7 @@ import { teachingStaff } from "@/features/ops/shared";
 // Data contract section 12.1.
 import { useMemo, useState } from "react";
 import { AlarmClock, CalendarOff, Pencil, UserCheck, UserX } from "lucide-react";
-import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Select, Stat, Tabs, Textarea, useToast, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, ListToolbar, Modal, Select, Stat, Tabs, Textarea, useToast, type Column, type Tone } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import type { StaffLeave } from "./leaves";
@@ -84,12 +84,11 @@ export function CheckinsPanel({ staff }: { staff: S[] }) {
         <Stat label="On leave" value={count("On leave", "Leave")} icon={<CalendarOff size={16} />} />
       </div>
       <Card className="pt-4">
-        <div className="mb-3 flex flex-wrap items-end gap-3 px-5">
-          <Field label="Date"><Input type="date" value={date} max={localToday()} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-44" /></Field>
-          {date !== localToday() && <Button variant="ghost" size="sm" onClick={() => setDate(localToday())}>Today</Button>}
-          <p className="t-caption ml-auto text-outline">Teachers check in from the mobile app. Late = check-in after {t12(policy.checkInBy)} (Settings › Leave policy).</p>
-        </div>
-        {!att.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading check-ins…</p> : <DataTable rows={rows} columns={cols} pageSize={12} searchText={(r) => `${r.staff.name} ${r.staff.department} ${r.status}`}
+        <ListToolbar className="mb-3 px-5"
+          filters={<Field label="Date"><Input type="date" value={date} max={localToday()} onChange={(e) => e.target.value && setDate(e.target.value)} /></Field>}
+          actions={date !== localToday() && <Button variant="ghost" onClick={() => setDate(localToday())}>Today</Button>} />
+        <p className="px-5 pb-3 text-xs text-outline">Teachers check in from the mobile app. Late = check-in after {t12(policy.checkInBy)} (Settings › Leave policy).</p>
+        {!att.ready ? <LoadingSkeleton variant="table" label="Loading check-ins…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={rows} columns={cols} pageSize={12} searchText={(r) => `${r.staff.name} ${r.staff.department} ${r.status}`}
           empty={<EmptyState title="No teaching staff" hint="Add teachers in the Directory tab." />} />}
       </Card>
 
@@ -98,7 +97,7 @@ export function CheckinsPanel({ staff }: { staff: S[] }) {
         <div className="mb-3 px-5">
           <Tabs value={regTab} onChange={setRegTab} items={[{ id: "Pending", label: "Pending", count: nReg("Pending") }, { id: "Approved", label: "Approved", count: nReg("Approved") }, { id: "Rejected", label: "Rejected", count: nReg("Rejected") }, { id: "all", label: "All", count: regs.rows.length }]} />
         </div>
-        {!regs.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading requests…</p> : <DataTable rows={regView} columns={regCols} pageSize={8} empty={<EmptyState title="No regularization requests" hint="Requests raised by teachers in the mobile app show up here." />} />}
+        {!regs.ready ? <LoadingSkeleton variant="table" label="Loading requests…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={regView} columns={regCols} pageSize={8} empty={<EmptyState title="No regularization requests" hint="Requests raised by teachers in the mobile app show up here." />} />}
       </Card>
 
       {edit && <CorrectModal row={edit} date={date} checkInBy={policy.checkInBy} onClose={() => setEdit(null)}

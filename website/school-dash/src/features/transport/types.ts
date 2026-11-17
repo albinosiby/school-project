@@ -5,8 +5,8 @@ export type CrewStatus = "Active" | "On leave" | "Inactive";
 export type Crew = { id: string; name: string; role: CrewRole; empId: string; phone: string; email: string; authUid?: string; staffId?: string; status: CrewStatus; busId?: string; bus?: string;
   licenseNo?: string; licenseExpiry?: string; joined?: string; address?: string; emergencyName?: string; emergencyPhone?: string; photoUrl?: string; leaveFrom?: string; leaveTo?: string; leaveReason?: string };
 
-/** one entry of tr_buses.stops, in route order (the school is not a stop) */
-export type BusStop = { id: string; name: string; pickupTime: string; dropTime: string; landmark?: string };
+/** One route stop. Time fields and timingPending are legacy compatibility data, unused by the admin stop editor. */
+export type BusStop = { id: string; name: string; pickupTime: string; dropTime: string; landmark?: string; timingPending?: boolean };
 export const VEHICLE_TYPES = ["School Bus", "Mini Bus", "Van", "Traveller", "Other"] as const;
 export const FUEL_TYPES = ["Diesel", "Petrol", "CNG", "Electric", "Hybrid"] as const;
 export const PERMIT_TYPES = ["School transport", "Contract carriage", "Other"] as const;
@@ -29,7 +29,7 @@ export type BusStatus = "Active" | "Maintenance" | "Inactive";
 /** tr_buses/{bus_01} */
 export type Bus = VehicleDetails & { id: string; number: string; regNo: string; capacity: number; model?: string; routeName: string; driverId?: string; driver?: string; attendantId?: string; attendant?: string;
   stops: BusStop[]; pickupStart: string; dropStart: string; status: BusStatus; studentCount: number; note?: string; assignmentRevision?: number;
-  /** Monthly amount per assigned student. Missing/null means not configured; 0 means free transport. */
+  /** Deprecated bus-wide amount. Retained for older records; per-student fees are stored in student_transport_fees. */
   monthlyFee?: number | null };
 
 export type TripKind = "pickup" | "drop";

@@ -3,25 +3,30 @@
 import { useLayoutEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, Bus as BusIcon, Pencil } from "lucide-react";
-import { Badge, Button, Card, EmptyState, Stat, useToast } from "@/components/ui";
+import { deleteField, writeBatch } from "firebase/firestore";
+import { LoadingSkeleton, Badge, Button, Card, EmptyState, Stat, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/authContext";
 import { useCollection } from "@/lib/useCollection";
-import { fmtDate, inrFull } from "@/lib/format";
+import { db } from "@/lib/firebase";
+import { fmtDate } from "@/lib/format";
 import type { Student } from "@/features/people/StudentsView";
 import { BusAssignments } from "./BusAssignments";
+import { studentsWithTransportFees, type StudentTransportFee } from "./transportFees";
+import { BusMaintenanceEditor, BusMaintenanceHistory } from "./BusMaintenance";
+import { BusComplianceEditor, BusComplianceHistory } from "./BusCompliance";
 import { BusForm } from "./BusForm";
 import { VehicleForm } from "./VehicleForm";
 import { saveBusEdit } from "./busRecords";
 import { isActiveStudent, isIsoDate } from "./logic";
-import { busLabel, stopsOf, t12 } from "./shared";
+import { applyAllot, busLabel, planAllot, schoolDoc, stamp, stopsOf } from "./shared";
 import { COMPLIANCE_FIELDS, EQUIPMENT_FIELDS, MAINTENANCE_FIELDS } from "./vehicleDetails";
-import type { Bus, Crew } from "./types";
+import type { Bus, Crew, CrewRole } from "./types";
 
 type DetailsField = [string, ReactNode];
 
-function DetailsCard({ title, fields, children }: { title: string; fields?: DetailsField[]; children?: ReactNode }) {
+function DetailsCard({ title, fields, children, actions }: { title: string; fields?: DetailsField[]; children?: ReactNode; actions?: ReactNode }) {
   return <Card className="min-w-0 p-5">
-    <h2 className="t-label-caps mb-4 text-on-surface-variant">{title}</h2>
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="t-label-caps text-on-surface-variant">{title}</h2>{actions}</div>
     {fields && <dl className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] gap-x-5 gap-y-3 text-sm">
       {fields.map(([label, value]) => <div key={label} className="contents">
         <dt className="text-outline">{label}</dt>
@@ -36,13 +41,9 @@ const dateValue = (value?: string) => value && isIsoDate(value) ? fmtDate(value)
 
 function CrewCard({ title, member, id, name }: { title: string; member?: Crew; id?: string; name?: string }) {
   return <DetailsCard title={title} fields={member || id || name ? [
-    ["Name", member?.name || name || "Details unavailable"], ["Employee ID", member?.empId],
-    ["Mobile number", member?.phone], ["Email", member?.email], ["Status", member?.status],
-    ...(title === "Assigned driver" ? [["Driving licence number", member?.licenseNo],
-      ["Licence expiry date", dateValue(member?.licenseExpiry)]] as DetailsField[] : []),
+    ["Name", member?.name || name || "Details unavailable"], ["Mobile number", member?.phone],
   ] : undefined}>
     {!member && !id && !name && <p className="text-sm text-on-surface-variant">Not assigned.</p>}
-    {member?.staffId && <Link href={`/staff/${encodeURIComponent(member.staffId)}`} className="mt-4 inline-block text-sm font-semibold text-secondary hover:underline">View staff profile</Link>}
   </DetailsCard>;
 }
 
@@ -52,30 +53,65 @@ export function BusDetailsView({ busId }: { busId: string }) {
   const buses = useCollection<Bus>("tr_buses", canManage);
   const crew = useCollection<Crew>("tr_crew", canManage);
   const roster = useCollection<Student>("students", canManage);
+  const fees = useCollection<StudentTransportFee>("student_transport_fees", canManage);
   const toast = useToast();
-  const [editing, setEditing] = useState<"vehicle" | "operations" | null>(null);
+  const [editing, setEditing] = useState<"vehicle" | "operations" | "compliance" | "maintenance" | null>(null);
+  const [maintenanceHistoryOpen, setMaintenanceHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [crewBusy, setCrewBusy] = useState(false);
+  const [crewError, setCrewError] = useState<{ role: CrewRole; message: string } | null>(null);
   const scope = JSON.stringify([user?.id, user?.schoolId, busId]);
-  useLayoutEffect(() => () => setEditing(null), [scope]);
+  useLayoutEffect(() => () => { setEditing(null); setCrewError(null); setHistoryOpen(false); setMaintenanceHistoryOpen(false); }, [scope]);
 
   const back = <Link href="/transport" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-secondary hover:underline">
     <ArrowLeft size={16} aria-hidden="true" /> Back to buses
   </Link>;
-  if (canManage && (!buses.ready || !crew.ready || !roster.ready)) return <div>{back}<p role="status">Loading bus details…</p></div>;
+  if (canManage && (!buses.ready || !crew.ready || !roster.ready || !fees.ready)) return <div>{back}<LoadingSkeleton variant="details" label="Loading bus details…" /></div>;
   const bus = buses.rows.find((row) => row.id === busId);
   if (!bus || !canManage) return <div>{back}<Card><EmptyState title="Bus record unavailable"
     hint="The bus may have been removed or may not be available to your account." /></Card></div>;
 
-  const students = roster.rows.filter(isActiveStudent);
+  const students = studentsWithTransportFees(roster.rows.filter(isActiveStudent), fees.rows);
   const assigned = students.filter((student) => student.busId === bus.id);
   const stops = stopsOf(bus);
   const available = Number.isFinite(bus.capacity) ? Math.max(0, bus.capacity - assigned.length) : undefined;
   const driver = crew.rows.find((member) => member.id === bus.driverId);
   const attendant = crew.rows.find((member) => member.id === bus.attendantId);
 
-  async function save(patch: Partial<Bus>, message: string) {
-    await saveBusEdit(bus!, patch, roster.rows, crew.rows);
+  async function save(patch: Partial<Bus>, message: string, snapshot = bus!) {
+    await saveBusEdit(snapshot, patch, roster.rows, crew.rows);
     toast(message);
     setEditing(null);
+  }
+
+  async function allot(role: CrewRole, crewId: string) {
+    if (crewBusy) return;
+    const idKey = role === "driver" ? "driverId" : "attendantId";
+    const nameKey = role === "driver" ? "driver" : "attendant";
+    const seat = bus![idKey];
+    const selected = crew.rows.find((member) => member.id === crewId);
+    if (crewId && (!selected || selected.role !== role || selected.status === "Inactive")) {
+      setCrewError({ role, message: `Choose an available ${role}.` }); return;
+    }
+    if ((crewId || "") === (seat || "") && (crewId ? bus![nameKey] === selected?.name : !bus![nameKey])) return;
+    const previous = crew.rows.find((member) => member.id === seat);
+    const name = selected?.name || previous?.name || bus![nameKey] || (role === "driver" ? "Driver" : "Attendant");
+    setCrewBusy(true); setCrewError(null);
+    try {
+      const batch = writeBatch(db);
+      if (selected) applyAllot(batch, planAllot(selected, bus!.id, crew.rows, buses.rows));
+      else {
+        const updated = stamp();
+        batch.update(schoolDoc("tr_buses", bus!.id), { [idKey]: deleteField(), [nameKey]: deleteField(), ...updated });
+        if (previous && (!previous.busId || previous.busId === bus!.id))
+          batch.update(schoolDoc("tr_crew", previous.id), { busId: deleteField(), bus: deleteField(), ...updated });
+      }
+      await batch.commit();
+      toast(crewId ? `${name} allotted to ${busLabel(bus)}` : `${name} removed from ${busLabel(bus)}`);
+    } catch {
+      const message = `Could not update the ${role}. Try again.`;
+      setCrewError({ role, message }); toast(message, "error");
+    } finally { setCrewBusy(false); }
   }
 
   return <div>
@@ -101,11 +137,11 @@ export function BusDetailsView({ busId }: { busId: string }) {
       <CrewCard title="Assigned attendant" member={attendant} id={bus.attendantId} name={bus.attendant} />
     </div>
 
-    <div className="mb-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mb-5 grid gap-4 sm:grid-cols-3">
       <Stat label="Assigned students" value={assigned.length} />
-      <Stat label="Available student seats" value={available ?? "—"} />
+      <Stat label="Available student seats" value={available ?? "—"}
+        sub={`Total student seats: ${Number.isFinite(bus.capacity) ? bus.capacity : "—"}`} />
       <Stat label="Route stops" value={stops.length} />
-      <Stat label="Monthly fee per student" value={bus.monthlyFee == null ? "Not configured" : inrFull(bus.monthlyFee)} />
     </div>
 
     <div className="mb-5 grid min-w-0 items-start gap-4 xl:grid-cols-2">
@@ -118,27 +154,41 @@ export function BusDetailsView({ busId }: { busId: string }) {
         ]} />
         <DetailsCard title="Route and seating" fields={[
           ["Route name", bus.routeName], ["End-point location", bus.endPoint],
-          ["Pickup starts", bus.pickupStart ? t12(bus.pickupStart) : undefined], ["Drop starts", bus.dropStart ? t12(bus.dropStart) : undefined],
           ["Total seating capacity", bus.totalSeats], ["Student seating capacity", bus.capacity],
           ["Assigned students", assigned.length], ["Available student seats", available],
-          ["Monthly fee per student", bus.monthlyFee == null ? "Not configured" : inrFull(bus.monthlyFee)], ["Note", bus.note],
+          ["Note", bus.note],
         ]} />
         <DetailsCard title="Safety and equipment" fields={EQUIPMENT_FIELDS.map(([key, label]) =>
           [label, typeof bus[key] === "boolean" ? bus[key] ? "Yes" : "No" : undefined])} />
       </div>
       <div className="grid min-w-0 gap-4">
-        <DetailsCard title="Registration and compliance" fields={COMPLIANCE_FIELDS.map(({ key, label, kind }) =>
-          [label, kind === "date" ? dateValue(bus[key]) : bus[key]])} />
-        <DetailsCard title="Maintenance" fields={[
+        <DetailsCard title="Registration and compliance" actions={<div className="flex gap-2">
+          <Button size="sm" variant="ghost" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>{historyOpen ? "Hide history" : "History"}</Button>
+          <Button size="sm" variant="outline" onClick={() => setEditing("compliance")}><Pencil size={14} aria-hidden="true" />Update</Button>
+        </div>} fields={COMPLIANCE_FIELDS.map(({ key, label, kind }) =>
+          [label, kind === "date" ? dateValue(bus[key]) : bus[key]])}>
+          {historyOpen && <BusComplianceHistory key={scope} busId={bus.id} />}
+        </DetailsCard>
+        <DetailsCard title="Maintenance" actions={<div className="flex gap-2">
+          <Button size="sm" variant="ghost" aria-label={maintenanceHistoryOpen ? "Hide maintenance history" : "Maintenance history"} aria-expanded={maintenanceHistoryOpen}
+            onClick={() => setMaintenanceHistoryOpen((open) => !open)}>{maintenanceHistoryOpen ? "Hide history" : "History"}</Button>
+          <Button size="sm" variant="outline" aria-label="Update maintenance" onClick={() => setEditing("maintenance")}><Pencil size={14} aria-hidden="true" />Update</Button>
+        </div>} fields={[
           ...MAINTENANCE_FIELDS.map(({ key, label, kind }): DetailsField => [label, kind === "date" ? dateValue(bus[key] as string | undefined) : bus[key]]),
           ["Maintenance notes", bus.maintenanceNotes],
-        ]} />
+        ]}>
+          {maintenanceHistoryOpen && <BusMaintenanceHistory key={scope} busId={bus.id} />}
+        </DetailsCard>
       </div>
     </div>
 
-    <Card role="region" aria-label="Bus assignments" className="min-w-0 p-5">
-      <h2 className="t-label-caps mb-4 text-on-surface-variant">Crew, students and stops</h2>
-      <BusAssignments key={scope} bus={bus} crew={crew.rows} students={students} buses={buses.rows} onEdit={() => setEditing("operations")} />
+    <Card role="region" aria-label="Bus assignments" className="min-w-0 overflow-hidden">
+      <div className="border-b border-outline-variant/50 p-5">
+        <h2 className="text-lg font-semibold">Bus management</h2>
+        <p className="mt-1 text-sm text-on-surface-variant">Manage crew, student assignments, fees and route stops.</p>
+      </div>
+      <BusAssignments key={scope} bus={bus} crew={crew.rows} students={students} buses={buses.rows} onEdit={() => setEditing("operations")}
+        onAllot={allot} crewBusy={crewBusy} crewError={crewError} />
     </Card>
 
     {editing === "operations" && <BusForm key={`${scope}:operations`} edit={bus} existing={buses.rows} onBus={assigned.length}
@@ -146,9 +196,13 @@ export function BusDetailsView({ busId }: { busId: string }) {
         try { await save(patch, "Bus updated"); }
         catch { toast("Could not save the bus", "error"); }
       }} />}
+    {editing === "compliance" && <BusComplianceEditor key={`${scope}:compliance`} bus={bus} onClose={() => setEditing(null)}
+      onSave={async (snapshot, patch) => { await saveBusEdit(snapshot, patch, roster.rows, crew.rows); toast("Compliance details updated"); setEditing(null); }} />}
+    {editing === "maintenance" && <BusMaintenanceEditor key={`${scope}:maintenance`} bus={bus} onClose={() => setEditing(null)}
+      onSave={async (snapshot, patch) => { await saveBusEdit(snapshot, patch, roster.rows, crew.rows); toast("Maintenance details updated"); setEditing(null); }} />}
     {editing === "vehicle" && <VehicleForm key={`${scope}:vehicle`} bus={bus} existing={buses.rows} assigned={assigned.length}
-      onClose={() => setEditing(null)} onSave={(patch) => save({ ...patch,
+      onClose={() => setEditing(null)} onSave={(patch, snapshot) => save({ ...patch,
         routeName: !bus.routeName || bus.routeName === bus.endPoint ? patch.endPoint : bus.routeName,
-      }, "Vehicle details saved")} />}
+      }, "Vehicle details saved", snapshot)} />}
   </div>;
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { Bell, Code2, Download, FileText, Image as ImageIcon, Link2, MessageSquare, Printer, Send, Share2 } from "lucide-react";
-import { Badge, Button, Card, LineChart, Modal, ProgressBar, Switch, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, LineChart, Modal, ProgressBar, Switch, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { inrFull } from "@/lib/format";
 import { DynamicForm } from "./DynamicForm";
@@ -155,7 +155,7 @@ export function PublicFormPortal() {
         {done ? (
           <div className="py-6 text-center"><div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-success-container text-success">✓</div><p className="t-headline-md">Thank you!</p><p className="mt-1 text-on-surface-variant">Your enquiry reference is <b className="font-mono text-secondary">{done}</b>. An admissions counsellor will contact you shortly{sg?.razorpay ? ` to collect the ${inrFull(config?.appFee ?? 2500)} application fee` : ""}.</p>
             <div className="mt-4 flex justify-center gap-2"><Button variant="outline" onClick={() => setDone(null)}>Submit another</Button><Button onClick={() => setFillOpen(false)}>Close</Button></div></div>
-        ) : !ready || !form ? <p>Loading…</p> : <DynamicForm sections={sections ?? []} onSubmit={onSubmit} />}
+        ) : !ready || !form ? <LoadingSkeleton variant="table" label="Loading…" /> : <DynamicForm sections={sections ?? []} onSubmit={onSubmit} />}
       </Modal>
     </div>
   );

@@ -35,7 +35,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
       <div><h1 className="t-headline-lg">{title}</h1>{subtitle && <p className="mt-1 text-on-surface-variant">{subtitle}</p>}</div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto [&>select]:min-w-0 sm:[&>select]:w-44">{actions}</div>}
     </div>
   );
 }

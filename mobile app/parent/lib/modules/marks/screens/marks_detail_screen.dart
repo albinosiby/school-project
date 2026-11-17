@@ -8,6 +8,8 @@ import '../../academics/screens/widgets/academic_section_title.dart';
 import '../../family/models/family_models.dart';
 import '../bloc/marks_bloc.dart';
 import '../models/marks_models.dart';
+import '../repositories/marks_repository_interface.dart';
+import '../../../utils/services/link_launcher.dart';
 import 'marks_list.dart';
 
 /// Report-card style result of one exam.
@@ -46,11 +48,20 @@ class _ReportCard extends StatelessWidget {
   final ExamResult exam;
   final Child child;
 
-  void _download(BuildContext context) => AppDialogs.showSnackBar(
-    context,
-    message:
-        'Report card saved: ${child.firstName}_${exam.name.replaceAll(' ', '_')}.pdf',
-  );
+  Future<void> _download(BuildContext context) async {
+    final repository = getIt<IMarksRepository>();
+    if (repository is! PublishedReportRepository || exam.reportBatchId == null) {
+      AppDialogs.showSnackBar(context, message: 'The school has not published a consolidated PDF report card yet.');
+      return;
+    }
+    try {
+      final url = await (repository as PublishedReportRepository).reportLink(child.id, exam.reportBatchId!);
+      final opened = await getIt<LinkLauncher>().open(url);
+      if (!opened && context.mounted) AppDialogs.showSnackBar(context, message: 'Could not open the PDF viewer. Try again.');
+    } catch (_) {
+      if (context.mounted) AppDialogs.showSnackBar(context, message: 'Could not download the report card. Check your connection and try again.');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -105,7 +116,7 @@ class _ReportCard extends StatelessWidget {
                 children: [
                   AppStatRing(
                     value: exam.percent / 100,
-                    label: '${exam.percent.toStringAsFixed(0)}%',
+                    label: !exam.complete || exam.numericSubjects.isEmpty ? '—' : '${exam.percent.toStringAsFixed(0)}%',
                     size: 76,
                     stroke: 7,
                     color: toneColors(tone).fg,
@@ -116,7 +127,7 @@ class _ReportCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '${exam.obtained.toStringAsFixed(0)} / ${exam.max.toStringAsFixed(0)}',
+                          exam.numericSubjects.isEmpty ? 'Grade-only assessment' : !exam.complete ? 'Result incomplete' : '${exam.obtained.toStringAsFixed(0)} / ${exam.max.toStringAsFixed(0)}',
                           key: const Key('exam-total'),
                           style: T.title.copyWith(color: C.onSurface),
                         ),
@@ -226,7 +237,7 @@ class _SubjectRow extends StatelessWidget {
                 ),
               ),
               Text(
-                '${mark.obtained.toStringAsFixed(0)} / ${mark.max.toStringAsFixed(0)}',
+                mark.assessmentMode == 'grade' ? 'Grade only' : mark.incomplete ? mark.grade : '${mark.obtained.toStringAsFixed(0)} / ${mark.max.toStringAsFixed(0)}',
                 style: T.bodyStrong.copyWith(color: C.onSurface),
               ),
               SizedBox(width: 10.w),
@@ -240,7 +251,7 @@ class _SubjectRow extends StatelessWidget {
             ],
           ),
           SizedBox(height: 8.h),
-          AppProgress(mark.percent / 100, tone: tone, height: 6),
+          if (mark.assessmentMode != 'grade' && !mark.incomplete) AppProgress(mark.percent / 100, tone: tone, height: 6),
         ],
       ),
     );

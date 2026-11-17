@@ -110,8 +110,16 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('Ananya Sharma'), findsWidgets);
       // weekends show "No School Today" instead
-      expect(find.textContaining(RegExp('Not Marked Yet|No School Today')), findsOneWidget);
-      expect(find.textContaining(RegExp('No RFID gate entry yet|No gate entry on holidays')), findsOneWidget);
+      expect(
+        find.textContaining(RegExp('Not Marked Yet|No School Today')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(
+          RegExp('No RFID gate entry yet|No gate entry on holidays'),
+        ),
+        findsOneWidget,
+      );
       await t.tap(find.byKey(const Key('home-child-trigger')));
       await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('switch-stu_aarav')));
@@ -205,7 +213,7 @@ void main() {
 
       await _reveal(t, find.text('Route Milestones'));
       expect(find.text('6 Key Stops'), findsOneWidget);
-      expect(find.text('Next stop • 4 mins away'), findsOneWidget);
+      expect(find.text('Next stop'), findsOneWidget);
       expect(find.text("YOUR CHILD'S DROP"), findsOneWidget);
 
       final callDriver = find.byTooltip('Call Mr. Rajesh Kumar');

@@ -325,6 +325,7 @@ describe("5 · Fee structure", () => {
     await user.click(save());
     expect(alertText()).toContain("enter an amount above ₹0");
     await user.type(item.getByLabelText("Amount per collection (₹)"), "2000");
+    await user.selectOptions(field("Transport collection frequency"), "Term-wise");
     await user.click(screen.getByRole("button", { name: /^Collapse fee item 1:/ }));
     expect(item.getByLabelText("Amount per collection (₹)")).not.toBeVisible();
     await user.click(screen.getByRole("button", { name: /^Expand fee item 1:/ }));
@@ -334,7 +335,7 @@ describe("5 · Fee structure", () => {
     await user.click(save());
     expect(getRow("fee_structure", "fs_5")).toMatchObject({ schemaVersion: 2, academicYear: "2026-27", items: [expect.objectContaining({ name: "Tuition", amount: 2000, frequency: "Monthly", grades: ["5"], dueDate: "", mandatory: true })] });
     expect(rowsOf("fee_structure")).toHaveLength(1);
-    expect(getRow("set_config", "fee_policy")).toMatchObject({ academicYear: "2026-27", upi: true, card: true });
+    expect(getRow("set_config", "fee_policy")).toMatchObject({ academicYear: "2026-27", upi: true, card: true, transportFrequency: "Term-wise" });
     const saved = getRow("onb_data", "s5")!;
     unmount();
     openStep(5, { classes, onb_data: [saved] });

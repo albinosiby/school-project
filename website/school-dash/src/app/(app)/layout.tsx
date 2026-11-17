@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { Topbar } from "@/components/shell/Topbar";
-import { ToastProvider } from "@/components/ui";
+import { LoadingSkeleton, ToastProvider } from "@/components/ui";
 import { OnboardingGate } from "@/features/onboarding/OnboardingGate";
 import { AuthGuard } from "@/components/AuthGuard";
 import { OwnerBanner } from "@/components/OwnerBanner";
@@ -12,7 +12,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <AuthGuard>
       <ToastProvider>
         <OwnerBanner />
-        <Suspense fallback={<div className="grid min-h-screen place-items-center text-outline" role="status">Loading…</div>}>
+        <Suspense fallback={<LoadingSkeleton variant="page" label="Loading…" className="mx-auto min-h-screen max-w-6xl p-4 sm:p-6" />}>
           <OnboardingGate>
             <div className="flex min-h-screen">
               <Sidebar />

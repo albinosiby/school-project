@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import Image from "next/image";
-import { Button, Checkbox, Field, Input, Select, SlideOver, Switch, Textarea, useToast } from "@/components/ui";
+import { LoadingField, LoadingSkeleton, Button, Checkbox, Field, Input, Select, SlideOver, Switch, Textarea, useToast } from "@/components/ui";
 import { COUNTRIES } from "@/features/onboarding/locations";
 import { SchoolAddressFields, useAddressCitySuggestions, useAddressLocations } from "@/features/onboarding/SchoolAddressFields";
 import { useCollection } from "@/lib/useCollection";
@@ -31,8 +31,11 @@ const subjectValue = ({ id, label }: TeacherSubject) => JSON.stringify(id ? ["id
 const additionalSubjectsOf = (staff: StaffProfile): TeacherSubject[] =>
   staff.additionalSubjects.map((label, index) => ({ id: staff.additionalSubjectIds[index] ?? "", label }));
 
-export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
+export function StaffProfileForm({ member, staff, permittedRoles, onClose, initialProfile, createTitle = "Add Staff", enableAppAccessInitially = false }: {
   member?: Staff;
+  initialProfile?: Pick<StaffProfile, "category" | "designation">;
+  createTitle?: string;
+  enableAppAccessInitially?: boolean;
   staff: readonly Staff[];
   permittedRoles: StaffRole[];
   onClose: () => void;
@@ -43,7 +46,7 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
   const requestId = useRef("");
   const pending = useRef(false);
   const visit = useRef<AbortController | null>(null);
-  const [profile, setProfile] = useState(() => staffProfileDraft(member));
+  const [profile, setProfile] = useState(() => ({ ...staffProfileDraft(member), ...(!member ? initialProfile : {}) }));
   const currentLocations = useAddressLocations(profile.currentAddress.country);
   const permanentLocations = useAddressLocations(profile.sameAddress ? "" : profile.permanentAddress.country);
   const citySuggestions = useAddressCitySuggestions();
@@ -54,7 +57,7 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
   const [staffId, setStaffId] = useState(member?.id);
   const [step, setStep] = useState<"profile" | "login">("profile");
   const [linkedEmail, setLinkedEmail] = useState(member?.authUid ? member.email ?? "" : "");
-  const [enableAppAccess, setEnableAppAccess] = useState(false);
+  const [enableAppAccess, setEnableAppAccess] = useState(!member && enableAppAccessInitially);
   const [loginDraft, setLoginDraft] = useState(blankStaffLogin);
   const [issuedCredentials, setIssuedCredentials] = useState<StaffCredentials | null>(null);
   const [loginError, setLoginError] = useState("");
@@ -287,7 +290,7 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
   const departmentOptions = departmentChoices(departments, profile.departmentId);
   const close = () => { if (!saving && !loginBusy) onClose(); };
 
-  return <SlideOver open onClose={close} title={member ? "Staff profile" : "Add Staff"} width="max-w-2xl"
+  return <SlideOver open onClose={close} title={member ? "Staff profile" : createTitle} width="max-w-2xl"
     footer={step === "login" ? <>
       <Button variant="ghost" disabled={loginBusy} onClick={() => { setIssuedCredentials(null); setStep("profile"); }}>Back to profile</Button>
       <Button disabled={loginBusy} onClick={close}>Done</Button>
@@ -303,7 +306,7 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
       <StaffAppLogin staffId={staffId} existingEmail={linkedEmail} onLinked={(email) => { setLinkedEmail(email); setLoginError(""); }}
         role={appLoginRole(savedProfile, permittedRoles)} onBusyChange={setLoginBusy} initialDraft={loginDraft}
         issuedCredentials={issuedCredentials} initialError={loginError} onHidePassword={() => setIssuedCredentials(null)} />
-    </div> : loading ? <p role="status">Loading staff profile…</p>
+    </div> : loading ? <LoadingSkeleton variant="form" label="Loading staff profile…" />
       : loadError ? <div className="space-y-2"><p role="alert">{loadError}</p>
         <Button onClick={() => { setLoading(true); setLoadError(""); setReload((count) => count + 1); }}>Try again</Button></div>
       : <form id={formId} noValidate onSubmit={save}>
@@ -319,7 +322,7 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
                     if (file) void choosePhoto(file);
                   }} />
                 </Field>
-                {photoBusy && <p role="status" className="text-sm">Preparing photo…</p>}
+                {photoBusy && <LoadingSkeleton variant="inline" label="Preparing photo…" />}
                 {photo && <Button type="button" variant="ghost" size="sm" disabled={photoBusy} onClick={() => {
                   setPhoto(null);
                   setPhotoChanged(true);
@@ -329,8 +332,8 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
             <div className="space-y-2">
               {automaticEmployeeId ? <Field label="Employee ID" error={errors.empId}
                 hint={employeeIdPreview ? "The final ID is assigned when you save." : numbering.ready
-                  ? "Check the employee ID pattern in Settings." : "Loading employee ID…"}>
-                <Input readOnly value={employeeIdPreview} />
+                  ? "Check the employee ID pattern in Settings." : undefined}>
+                <LoadingField loading={!numbering.ready} label="Loading employee ID…"><Input readOnly value={employeeIdPreview} /></LoadingField>
               </Field> : text("empId", "Employee ID", { required: canChooseEmployeeId })}
               {canChooseEmployeeId && <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={manualEmployeeId} onChange={(event) => {
@@ -372,10 +375,10 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
             {showDepartment && select("departmentId", "Department", departmentOptions, departmentRequired,
               departmentRequired ? "Select department" : "No department")}
             {teaching && <Field label="Subject" required error={errors.primarySubject} hint="Subjects added during grade and Senior Secondary setup.">
-              <Select value={primarySubjectValue} disabled={!subjectsReady} aria-required onChange={(event) => changeSubjects(event.target.value, true)}>
-                <option value="">{subjectsReady ? "Select subject" : "Loading subjects…"}</option>
+              <LoadingField loading={!subjectsReady} label="Loading subjects…"><Select value={primarySubjectValue} disabled={!subjectsReady} aria-required onChange={(event) => changeSubjects(event.target.value, true)}>
+                <option value="">Select subject</option>
                 {subjectOptions.map(([value, subject]) => <option key={value} value={value}>{subject.label}</option>)}
-              </Select>
+              </Select></LoadingField>
             </Field>}
             {teaching && subjectsReady && subjects.size === 0 && <p className="text-sm text-on-surface-variant sm:col-span-2">
               Add a subject during grade or department setup in Settings → Classes &amp; Sections before saving a teaching profile.
@@ -395,8 +398,7 @@ export function StaffProfileForm({ member, staff, permittedRoles, onClose }: {
             <fieldset disabled={!subjectsReady} className="min-w-0 space-y-2 sm:col-span-2" aria-describedby={subjectHintId}>
               <legend className="text-sm font-semibold">Additional subjects</legend>
               <p id={subjectHintId} className="text-sm text-on-surface-variant">
-                {additionalSubjectOptions.length ? "Choose any other subjects this teacher can teach."
-                  : subjectsReady ? "No additional subjects are available." : "Loading subjects…"}
+                {!subjectsReady ? <LoadingSkeleton variant="inline" label="Loading subjects…" /> : additionalSubjectOptions.length ? "Choose any other subjects this teacher can teach." : "No additional subjects are available."}
               </p>
               <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
                 {additionalSubjectOptions.map(([value, subject]) => <label key={value} className="flex cursor-pointer items-start gap-2 text-sm">

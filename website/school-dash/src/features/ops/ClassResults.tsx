@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Card, DataTable, EmptyState, Field, Select, Stat, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Badge, Card, DataTable, EmptyState, Field, Select, Stat, type Column, type Tone } from "@/components/ui";
 import type { Cycle } from "@/features/exams/types";
 import { studentHref, type ClassResult, type classResults } from "./classDetails";
 
@@ -22,7 +22,7 @@ export function ClassResults({ cycles, cycle, result, ready, onSelect }: {
         {!cycles.length && <option value="">No published exams</option>}{cycles.map((row) => <option key={row.id} value={row.id}>{row.title || row.short}</option>)}
       </Select></Field>
     </Card>
-    {!ready ? <p role="status">Loading results…</p> : !cycle ? <Card><EmptyState title="No published results" hint="The pass percentage will be available after results are published for this class." /></Card> : <>
+    {!ready ? <LoadingSkeleton variant="table" label="Loading results…" /> : !cycle ? <Card><EmptyState title="No published results" hint="The pass percentage will be available after results are published for this class." /></Card> : <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><Stat label="Pass percentage" value={result.percentage == null ? "Not available" : `${result.percentage}%`} sub={`${result.assessed} assessed`} />
         <Stat label="Passed" value={result.passed} /><Stat label="Failed" value={result.failed} /><Stat label="Pending / unavailable" value={result.pending} /></div>
       <Card className="min-w-0 overflow-hidden"><div className="p-5"><h3 className="font-semibold">{cycle.title || cycle.short}</h3>

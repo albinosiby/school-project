@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { setDoc } from "firebase/firestore";
 import { Landmark, Pencil, TriangleAlert } from "lucide-react";
-import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Tabs, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Tabs, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { fmtDate, inrFull } from "@/lib/format";
 import { useMyName } from "@/lib/useMe";
@@ -70,7 +70,7 @@ export function PaymentVerification({ invoices, payments }: { invoices: Invoice[
       <Card className="pt-1">
         <CardHeader title="Payments reported by parents" subtitle="Check each one against the bank statement. Verifying records the payment and sends the receipt to the parent app." />
         <div className="px-5 pb-3"><Tabs value={tab} onChange={setTab} items={[{ id: "Pending", label: "To verify", count: n("Pending") }, { id: "Verified", label: "Verified", count: n("Verified") }, { id: "Rejected", label: "Rejected", count: n("Rejected") }, { id: "all", label: "All", count: claims.rows.length }]} /></div>
-        {!claims.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading…</p>
+        {!claims.ready ? <LoadingSkeleton variant="table" label="Loading…" className="px-5 pb-5 text-on-surface-variant" />
           : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="Nothing to verify" hint="Payments parents report from the parent app show up here." />} />}
       </Card>
       <Card className="p-5">

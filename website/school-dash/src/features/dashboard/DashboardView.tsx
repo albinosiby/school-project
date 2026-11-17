@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useMemo, useState } from "react";
 import { ArrowRight, Bus, CheckCheck, ChevronLeft, ChevronRight, CircleDollarSign, ClipboardList, Download, MessageSquare, TrendingUp, UserX, UserCheck, AlertTriangle } from "lucide-react";
-import { Avatar, Badge, Button, Card, CardHeader, Checkbox, EmptyState, Field, Modal, ProgressBar, Select, Tabs, useToast } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, Checkbox, EmptyState, Field, Modal, ProgressBar, Select, Tabs, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
 import { inr } from "@/lib/format";
@@ -81,7 +81,7 @@ function Pipeline() {
   const seats = useCollection<Seat>("adm_seats");
   const toast = useToast();
   const ready = useHydrated() && enquiries.ready && applications.ready && students.ready && seats.ready;
-  if (!ready) return <Card className="mb-6 min-h-64" />;
+  if (!ready) return <LoadingSkeleton variant="card" label="Loading admission pipeline…" className="mb-6 min-h-64" />;
   const open = openAdmissionEnquiries(enquiries.rows, applications.rows);
   const admitted = admittedStudents(students.rows);
   const capacity = GROUPS.map((group) => ({

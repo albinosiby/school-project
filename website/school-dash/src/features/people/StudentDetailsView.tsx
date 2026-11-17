@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { doc, onSnapshot, runTransaction } from "firebase/firestore";
 import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
-import { Avatar, Badge, Button, Card, EmptyState, Modal, ProgressBar, useToast } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, EmptyState, Modal, useToast } from "@/components/ui";
 import { StudentPortrait } from "@/features/admissions/AdmissionFilePreview";
 import { AdmissionDocumentsPanel } from "@/features/admissions/AdmissionDocumentsPanel";
 import { useAdmissionDocuments } from "@/features/admissions/admissionDocuments";
@@ -23,7 +23,7 @@ import { StudentTransportCard } from "./StudentTransportCard";
 import { StudentDivisionAssignment } from "./StudentDivisionPicker";
 import { StudentForm } from "./StudentForm";
 import { studentClassId } from "./studentLogic";
-import { recordedAttendance, type StudentAttendanceMonth } from "./studentAttendance";
+import { StudentAttendanceCard } from "./StudentAttendanceCard";
 import type { Student } from "./StudentsView";
 
 const contactLabels: Record<ContactType, string> = { father: "Father", mother: "Mother", guardian: "Other guardian" };
@@ -45,7 +45,6 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
   const toast = useToast();
   const students = useCollection<Student>("students");
   const documents = useAdmissionDocuments();
-  const attendance = useCollection<StudentAttendanceMonth>("par_attendance");
   const schoolId = useAuth().user?.schoolId;
   const [admissionRecord, setAdmissionRecord] = useState<{
     schoolId: string; studentId: string; details?: AdmissionDetails; failed?: boolean;
@@ -91,12 +90,11 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
   const back = <Link href="/students" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-secondary hover:underline">
     <ArrowLeft size={16} aria-hidden="true" /> Back to students
   </Link>;
-  if (!students.ready) return <div>{back}<p role="status">Loading student details…</p></div>;
+  if (!students.ready) return <div>{back}<LoadingSkeleton variant="details" label="Loading student details…" /></div>;
   if (!student) return <div>{back}<Card><EmptyState title="Student record unavailable" hint="The record may have been removed or may not be available to your account." /></Card></div>;
 
   const checklist = documents.byStudent.get(student.id);
   const photo = checklist?.uploads.photo;
-  const recorded = recordedAttendance(attendance.rows, [student]).get(student.id);
   const statusTone = student.status === "Active" ? "success" : student.status === "Transferred" ? "neutral" : "warning";
   const course = isSeniorGrade(student.grade) ? student.stream || streamName(classStream(student) || streamFromClassId(student.classId)) : "";
   const classLabel = [`Grade ${student.grade}`, course, student.section ? `Division ${student.section}` : "Division unassigned"].filter(Boolean).join(" · ");
@@ -148,16 +146,7 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
     </Card>
     <div className="grid items-start gap-4 xl:grid-cols-2">
       <div className="grid min-w-0 gap-4">
-        <Card className="p-5">
-          <h2 className="t-label-caps mb-2 text-on-surface-variant">Attendance</h2>
-          {recorded ? <>
-            <div className="flex items-center gap-3">
-              <ProgressBar value={recorded.pct} tone={recorded.pct >= 75 ? "success" : "danger"} />
-              <span className="font-mono text-sm">{recorded.pct}%</span>
-            </div>
-            <p className="mt-1 text-sm text-on-surface-variant">{recorded.attended} of {recorded.days} recorded days attended</p>
-          </> : <p className="text-sm text-on-surface-variant">{attendance.ready ? "Not recorded" : "Loading attendance…"}</p>}
-        </Card>
+        <StudentAttendanceCard student={{ id: student.id, admissionDate: student.admissionDate || details?.admissionDate }} />
         {details && <DetailsCard title="Student information" fields={[
           ["First name at admission", details.firstName], ["Middle name at admission", details.middleName], ["Last name at admission", details.lastName],
           ["Gender", details.gender || student.gender], ["Nationality", nationality], ["Religion", details.religion],
@@ -176,7 +165,7 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
           ["Previous board", details.previousBoard], ["Previous admission number", details.previousAdmissionNo],
           ["Transfer certificate number", details.previousTcNo], ["Previous academic performance", details.performance],
         ]} />}
-        {!currentAdmission && <p role="status">Loading saved admission details…</p>}
+        {!currentAdmission && <LoadingSkeleton variant="details" label="Loading saved admission details…" />}
         {currentAdmission?.failed && <p role="status">Saved admission details could not be loaded.</p>}
       </div>
       <div className="grid min-w-0 gap-4">
@@ -196,7 +185,7 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
         ]} />}
         <Card className="p-5">
           {documents.ready ? <AdmissionDocumentsPanel id={student.id} checklist={checklist} />
-            : <p role="status">Loading admission documents…</p>}
+            : <LoadingSkeleton variant="table" label="Loading admission documents…" />}
         </Card>
       </div>
     </div>

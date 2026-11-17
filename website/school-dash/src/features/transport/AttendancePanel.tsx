@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { deleteField, writeBatch } from "firebase/firestore";
-import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, SearchBox, Select, Stat, Tabs, useToast, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, ListToolbar, SearchBox, Select, Stat, Tabs, useToast, type Column, type Tone } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { downloadCsv } from "@/features/communication/csv";
 import { todayIso } from "@/features/ops/shared";
@@ -79,16 +79,14 @@ export function AttendancePanel({ init }: { init: { date?: string; bus?: string;
       <Tabs value={mode} onChange={setMode} items={[{ id: "trip", label: "By trip" }, { id: "student", label: "By student" }]} variant="underline" />
       {mode === "student" ? <ByStudent att={att.rows} students={students} /> : <>
         <Card className="pt-4">
-          <div className="mb-3 flex flex-wrap items-end gap-3 px-5">
-            <Field label="Date"><Input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-44" /></Field>
-            <Field label="Bus"><Select value={bus?.id ?? ""} onChange={(e) => setBusId(e.target.value)} className="w-52">{buses.length === 0 && <option value="">No buses</option>}{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)} · {b.routeName}</option>)}</Select></Field>
+          <ListToolbar className="mb-3 px-5" filters={<><Field label="Date"><Input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-44" /></Field>
+            <Field label="Bus"><Select value={bus?.id ?? ""} onChange={(e) => setBusId(e.target.value)} className="w-52">{buses.length === 0 && <option value="">No buses</option>}{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)} · {b.routeName}</option>)}</Select></Field></>} actions={<Button variant="outline" size="sm" disabled={!rows.length} onClick={exportTrip}><Download size={14} />Export CSV</Button>}>
             <Tabs value={kind} onChange={(k) => setKind(k as TripKind)} items={[{ id: "pickup", label: "Pickup" }, { id: "drop", label: "Drop" }]} className="pb-0.5" />
-            <Button variant="outline" size="sm" className="ml-auto" disabled={!rows.length} onClick={exportTrip}><Download size={14} />Export CSV</Button>
-          </div>
+          </ListToolbar>
           <div className="mb-4 grid gap-3 px-5 sm:grid-cols-4">
             <Stat label="Students" value={rows.length} /><Stat label="Boarded" value={c.boarded} /><Stat label="Dropped" value={c.dropped} /><Stat label="Absent" value={c.absent} subTone="warning" sub={rows.length - c.boarded - c.dropped - c.absent > 0 ? `${rows.length - c.boarded - c.dropped - c.absent} unmarked` : undefined} />
           </div>
-          {!att.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading attendance…</p> : !bus ? <EmptyState title="No buses" hint="Add a bus first." /> : <>
+          {!att.ready ? <LoadingSkeleton variant="table" label="Loading attendance…" className="px-5 pb-5 text-on-surface-variant" /> : !bus ? <EmptyState title="No buses" hint="Add a bus first." /> : <>
             {!docRow && <p className="px-5 pb-2 text-sm text-on-surface-variant">No {kind} trip recorded for {busLabel(bus)} on {fmtDate(date)} yet. Correcting a mark creates the record.</p>}
             <DataTable rows={rows} columns={cols} pageSize={15} searchText={(r) => `${r.name} ${r.s?.grn ?? ""}`} empty={<EmptyState title="No students on this bus" hint="Assign students in Buses › bus › Students." />} /></>}
         </Card></>}

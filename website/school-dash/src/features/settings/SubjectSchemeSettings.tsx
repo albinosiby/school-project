@@ -4,7 +4,7 @@
 // pre-fills its Subjects & Assessment step from the scheme of every selected class group.
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { Button, Field, Input, Select, Textarea, useToast } from "@/components/ui";
+import { LoadingSkeleton, Button, Field, Input, Select, Textarea, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { useSchoolSubjects } from "@/lib/schoolSubjects";
 import type { AcademicClass } from "@/lib/academicStreams";
@@ -17,7 +17,7 @@ export function SubjectSchemeSettings() {
   const classes = useCollection<AcademicClass>("classes");
   const catalog = useSchoolSubjects();
   const [picked, setPicked] = useState("");
-  if (!schemes.ready || !classes.ready || !catalog.ready) return <p className="text-sm text-on-surface-variant">Loading subject schemes…</p>;
+  if (!schemes.ready || !classes.ready || !catalog.ready) return <LoadingSkeleton variant="form" label="Loading subject schemes…" className="text-sm text-on-surface-variant" />;
   const groups = classGroups(classes.rows);
   const group = groups.find((row) => row.key === picked) ?? groups[0];
   if (!group) return <section aria-label="Subject schemes"><h3 className="font-semibold">Subject schemes</h3><p className="text-sm text-on-surface-variant">Configure classes and sections first. Each class group then gets its own subject scheme here.</p></section>;

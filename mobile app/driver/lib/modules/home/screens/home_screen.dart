@@ -114,8 +114,6 @@ class _BusCard extends StatelessWidget {
           Expanded(child: InfoCell('Students', '${bus.studentCount}', icon: Icons.groups_rounded)),
           SizedBox(width: 8.w),
           Expanded(child: InfoCell('Stops', '${bus.stops.length}', icon: Icons.place_rounded)),
-          SizedBox(width: 8.w),
-          Expanded(child: InfoCell('Pickup', clock24(bus.pickupStart), icon: Icons.schedule_rounded)),
         ]),
         if (bus.status != 'Active') ...[
           SizedBox(height: 10.h),

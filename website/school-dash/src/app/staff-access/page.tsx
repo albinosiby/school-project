@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, ToastProvider } from "@/components/ui";
+import { LoadingSkeleton, Button, Card, ToastProvider } from "@/components/ui";
 import { AddStaffFields } from "@/features/people/AddStaffFields";
 import { homeFor, useAuth } from "@/lib/authContext";
 import { assignableStaffRoles } from "@/lib/staffRoles";
@@ -14,7 +14,7 @@ export default function StaffAccessPage() {
     if (!isLoading && user?.role !== "staff") router.replace(user ? homeFor(user) : "/login");
   }, [isLoading, user, router]);
 
-  if (isLoading || user?.role !== "staff") return null;
+  if (isLoading || user?.role !== "staff") return <LoadingSkeleton variant="page" className="mx-auto min-h-screen max-w-6xl p-6" />;
   const canAdd = assignableStaffRoles(user).length > 0;
 
   return (

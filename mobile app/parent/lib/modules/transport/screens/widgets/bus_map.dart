@@ -67,38 +67,39 @@ class BusMap extends StatelessWidget {
               painter: _MapPainter(trip: trip, satellite: satellite),
             ),
           ),
-          // Bus marker with a soft halo.
-          Positioned(
-            left: bus.dx - 26.r,
-            top: bus.dy - 26.r,
-            child: Semantics(
-              label: trip.scheduleBased
-                  ? 'Bus ${trip.busNo} position estimated from the schedule'
-                  : 'Bus ${trip.busNo} live position',
-              child: Container(
-                width: 52.r,
-                height: 52.r,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: C.primary.withValues(alpha: .18),
-                  shape: BoxShape.circle,
-                ),
+          // Only the demo has a simulated position. School feeds show the route.
+          if (!trip.statusOnly)
+            Positioned(
+              left: bus.dx - 26.r,
+              top: bus.dy - 26.r,
+              child: Semantics(
+                label: trip.statusOnly
+                    ? 'Bus ${trip.busNo} route'
+                    : 'Bus ${trip.busNo} live position',
                 child: Container(
-                  width: 32.r,
-                  height: 32.r,
-                  decoration: const BoxDecoration(
-                    color: C.primary,
+                  width: 52.r,
+                  height: 52.r,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: C.primary.withValues(alpha: .18),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
-                    Icons.directions_bus_rounded,
-                    size: 18.r,
-                    color: Colors.white,
+                  child: Container(
+                    width: 32.r,
+                    height: 32.r,
+                    decoration: const BoxDecoration(
+                      color: C.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.directions_bus_rounded,
+                      size: 18.r,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
           // Drop ETA bubble.
           Positioned(
             left: (drop.mapX * w - 24.w).clamp(8.w, w - 140.w),
@@ -149,10 +150,7 @@ class BusMap extends StatelessWidget {
                     ),
                   ),
                   SizedBox(width: 6.w),
-                  Text(
-                    trip.mapStatus,
-                    style: style,
-                  ),
+                  Text(trip.mapStatus, style: style),
                 ],
               ),
             ),
@@ -163,7 +161,7 @@ class BusMap extends StatelessWidget {
             child: Column(
               children: [
                 _mapButton(
-                  'Re-centre on bus',
+                  trip.statusOnly ? 'Re-centre route' : 'Re-centre on bus',
                   Icons.my_location_rounded,
                   onRecenter,
                 ),

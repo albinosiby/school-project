@@ -5,7 +5,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Pencil, School, Trash2 } from "lucide-react";
-import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Stat, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, Stat, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { subjectKey } from "@/lib/schoolSubjects";
 import { labelToClassId } from "@/lib/academicStreams";
@@ -47,7 +47,7 @@ export function GradeDetailsView({ gradeId }: { gradeId: string }) {
   const back = <Link href="/settings?section=capacity" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-secondary hover:underline"><ArrowLeft size={16} aria-hidden="true" />Back to Classes &amp; Sections</Link>;
   const row = sections.rows.find((item) => item.id === gradeId);
   if (!sections.ready || !classes.ready || !students.ready || !staff.ready || !schemes.ready || !assignments.ready)
-    return <div>{back}<p role="status">Loading grade…</p></div>;
+    return <div>{back}<LoadingSkeleton variant="details" label="Loading grade…" /></div>;
   if (!row) return <div>{back}<Card><EmptyState title="Grade not found" hint="It may have been removed from Classes & Sections." /></Card></div>;
   const grade = gradeOfLabel(row.grade);
   const key = groupKeyOf(row);

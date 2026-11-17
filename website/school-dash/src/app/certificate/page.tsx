@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "@/components/ui";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -19,7 +20,7 @@ const BODY: Record<string, (s: string, cls: string, purpose: string) => string> 
   other: (s, cls, p) => `This certificate is issued to ${s} of Grade ${cls}${p ? ` for ${p}` : ""}.`,
 };
 
-/** Printable certificate (Students > Certificates > Print): the office prints it, signs it and hands it over or scans it. */
+/** Printable certificate (Certificates > Print): the office prints it, signs it and hands it over or scans it. */
 function Certificate() {
   const id = useSearchParams().get("id") ?? "";
   const certs = useCollection<Cert>("certificates");
@@ -29,7 +30,7 @@ function Certificate() {
   const school = { ...schoolDoc, name: pick("name"), address: pick("address"), affiliation: pick("affiliation") };
   const students = useCollection<Stu>("students").rows;
   const c = certs.rows.find((x) => x.id === id);
-  if (!certs.ready) return <p className="p-10 text-on-surface-variant">Loading…</p>;
+  if (!certs.ready) return <LoadingSkeleton variant="page" label="Loading…" className="p-10 text-on-surface-variant" />;
   if (!c || c.status !== "Issued") return <p className="p-10 text-on-surface-variant">This certificate was not found or has not been issued.</p>;
   const s = students.find((x) => x.id === c.studentId);
   const cls = s?.grade ? `${s.grade}-${s.section ?? ""}` : (c.classId ?? "").replace(/^cls_(\d+)(\w)$/, "$1-$2");
@@ -66,4 +67,4 @@ function Certificate() {
   );
 }
 
-export default function Page() { return <AuthGuard><Suspense fallback={null}><Certificate /></Suspense></AuthGuard>; }
+export default function Page() { return <AuthGuard><Suspense fallback={<LoadingSkeleton variant="page" />}><Certificate /></Suspense></AuthGuard>; }

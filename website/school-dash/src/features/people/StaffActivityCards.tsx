@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, DataTable, Field, Input, Modal, Select, Textarea, useToast, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, DataTable, Field, Input, Modal, Select, Textarea, useToast, type Column, type Tone } from "@/components/ui";
 import { isActiveStudent } from "@/features/transport/logic";
 import { busLabel } from "@/features/transport/shared";
 import type { Bus, CrewAttendance, CrewLeave } from "@/features/transport/types";
@@ -76,7 +76,7 @@ export function StaffLeaveHistory({ member, crewId, today }: {
       <h2 className="t-label-caps text-on-surface-variant">Leave history</h2>
       <Button size="sm" variant="outline" disabled={!staff.ready} onClick={() => setRecording(true)}>Record leave</Button>
     </div>
-    {!staff.ready || (crewId && !transport.ready) ? <p role="status" className="text-sm">Loading leave history…</p>
+    {!staff.ready || (crewId && !transport.ready) ? <LoadingSkeleton variant="table" label="Loading leave history…" className="text-sm" />
       : rows.length ? <DataTable rows={rows} columns={leaveColumns} pageSize={5} />
         : <p className="text-sm text-on-surface-variant">No leave recorded.</p>}
     {recording && <LeaveModal s={member} leaves={staff.rows} onClose={() => setRecording(false)} onSave={async (values) => {
@@ -115,7 +115,7 @@ function StaffAttendanceCard({ staffId, crewId, currentMonth }: {
       <Input type="month" aria-label="Attendance month" className="max-w-44" value={month} max={currentMonth}
         onChange={(event) => setSelectedMonth(event.target.value)} />
     </div>
-    {!attendance.ready ? <p role="status" className="text-sm text-on-surface-variant">Loading attendance…</p>
+    {!attendance.ready ? <LoadingSkeleton variant="table" label="Loading attendance…" className="text-sm text-on-surface-variant" />
       : !rows.length ? <p className="text-sm text-on-surface-variant">No attendance recorded for this month.</p>
         : <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-left text-sm" aria-label="Monthly attendance">
@@ -147,7 +147,7 @@ function StaffBusCard({ crewId, busId, crewReady }: { crewId?: string; busId?: s
 
   return <Card className="min-w-0 p-5">
     <h2 className="t-label-caps mb-3 text-on-surface-variant">Assigned bus</h2>
-    {!crewReady || !buses.ready ? <p role="status" className="text-sm text-on-surface-variant">Loading bus assignment…</p>
+    {!crewReady || !buses.ready ? <LoadingSkeleton variant="card" label="Loading bus assignment…" className="text-sm text-on-surface-variant" />
       : assigned ? <div className="space-y-1">
         <p className="text-sm font-semibold">{busLabel(assigned)}</p>
         {assigned.routeName && <p className="text-sm text-on-surface-variant">{assigned.routeName}</p>}
@@ -158,7 +158,7 @@ function StaffBusCard({ crewId, busId, crewReady }: { crewId?: string; busId?: s
 
 function AssignedStudentCount({ busId }: { busId: string }) {
   const students = useCollection<{ id: string; busId?: string; deleted?: boolean }>("students");
-  if (!students.ready) return <p role="status" className="text-sm text-on-surface-variant">Loading student count…</p>;
+  if (!students.ready) return <LoadingSkeleton variant="inline" label="Loading student count…" className="text-sm text-on-surface-variant" />;
   const count = students.rows.filter((student) => student.busId === busId && isActiveStudent(student)).length;
   return <p className="text-sm">{count} {count === 1 ? "student" : "students"} assigned</p>;
 }

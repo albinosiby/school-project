@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from "@/components/ui";
 import { Suspense } from "react";
 import { BusDetailsView } from "@/features/transport/BusDetailsView";
 
@@ -11,7 +12,7 @@ async function BusDetails({ params }: Props) {
 }
 
 export default function Page({ params }: Props) {
-  return <Suspense fallback={<p role="status">Loading bus details…</p>}>
+  return <Suspense fallback={<LoadingSkeleton variant="details" label="Loading bus details…" />}>
     <BusDetails params={params} />
   </Suspense>;
 }

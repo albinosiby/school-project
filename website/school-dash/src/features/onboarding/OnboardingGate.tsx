@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "@/components/ui";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useCollection } from "@/lib/useCollection";
@@ -13,6 +14,6 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
   // My Profile stays reachable during setup: a new admin changes the first password the owner gave them (contract 16)
   const incomplete = ready && !rows.find((r) => r.id === "state")?.complete && path !== "/profile";
   useEffect(() => { if (incomplete) router.replace("/onboarding/setup"); }, [incomplete, router, path]);
-  if (!ready || incomplete) return <div className="grid min-h-screen place-items-center text-outline">Loading…</div>;
+  if (!ready || incomplete) return <LoadingSkeleton variant="page" label="Loading…" className="mx-auto min-h-screen max-w-6xl p-4 sm:p-6" />;
   return <>{children}</>;
 }

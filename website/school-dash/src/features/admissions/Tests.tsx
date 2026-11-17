@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { CalendarPlus, Download, MessageSquare, UserPlus, X } from "lucide-react";
-import { Avatar, Badge, Button, Card, CardHeader, Checkbox, DataTable, Field, Input, Modal, ProgressBar, Select, Stat, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, Checkbox, DataTable, Field, Input, Modal, ProgressBar, Select, Stat, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { downloadCsv, todayISO, useAdm } from "./lib";
 import { resultPatch, scoreError, slotBatch, slotEligible, slotError } from "./logic";
@@ -75,7 +75,7 @@ export function Tests() {
 
       <Card>
         <CardHeader title="Candidate Evaluation & Interview" subtitle={`${rows.length} active`} />
-        {!ready ? <p className="p-5">Loading…</p> : <DataTable rows={rows} columns={cols} pageSize={6} selectable selected={sel} onSelectedChange={setSel} searchText={(a) => `${a.name} ${a.ref}`}
+        {!ready ? <LoadingSkeleton variant="table" label="Loading…" className="p-5" /> : <DataTable rows={rows} columns={cols} pageSize={6} selectable selected={sel} onSelectedChange={setSel} searchText={(a) => `${a.name} ${a.ref}`}
           toolbar={<><Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-40"><option value="">Grade: All</option>{cohorts.map((g) => <option key={g.id} value={g.id}>{g.label}</option>)}</Select>
             <Select aria-label="Status" value={pstat} onChange={(e) => setPstat(e.target.value)} className="w-44"><option value="">Status: All</option>{Object.entries(PANEL_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></>} />}
       </Card>

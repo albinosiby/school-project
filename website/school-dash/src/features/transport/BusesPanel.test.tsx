@@ -37,26 +37,21 @@ const save = (d: HTMLElement) => within(d).getByRole("button", { name: /^(Add Bu
 
 
 describe("Add / edit bus validation", () => {
-  it("sets each bus's own monthly fee without creating class-wide charges or copying rates to students", async () => {
-    seed({ tr_buses: [{ ...bus14, monthlyFee: 1200 }, { ...bus15, monthlyFee: 1800 }], students: kids });
+  it("ignores legacy bus-wide fees and removes the shared fee input without rewriting issued invoices", async () => {
+    seed({ tr_buses: [{ ...bus14, monthlyFee: 1200 }, { ...bus15, monthlyFee: 1800 }], students: kids,
+      fee_invoices: [{ id: "issued", amount: 1200, paid: 500, balance: 700 }] });
     const directory = renderUI(<BusesPanel />);
-    expect(screen.getByText("₹1,200")).toBeInTheDocument();
-    expect(screen.getByText("₹1,800")).toBeInTheDocument();
+    expect(screen.queryByText("₹1,200")).not.toBeInTheDocument();
+    expect(screen.queryByText("₹1,800")).not.toBeInTheDocument();
     directory.unmount();
     const { user } = renderUI(<BusDetailsView busId="bus_01" />);
     await user.click(screen.getByRole("button", { name: "Edit bus" }));
     const d = dialog("Edit Bus 14");
-    const input = field("Monthly transport fee (₹)", d);
-    expect(input).toHaveValue(1200);
-    await user.clear(input); await user.type(input, "-1");
+    expect(within(d).queryByLabelText(/Monthly transport fee/)).not.toBeInTheDocument();
     await user.click(save(d));
-    expect(fieldError("Monthly transport fee (₹)", d)).toContain("Enter an amount from ₹0");
-    expect(writes).toHaveLength(0);
-    await user.clear(input); await user.type(input, "1500.50");
-    await user.click(save(d));
-    expect(getRow("tr_buses", "bus_01")).toMatchObject({ monthlyFee: 1500.5 });
-    expect(getRow("tr_buses", "bus_02")).toMatchObject({ monthlyFee: 1800 });
+    expect(getRow("tr_buses", "bus_01")).toMatchObject({ monthlyFee: 1200 });
     expect(getRow("students", "stu_101")).not.toHaveProperty("monthlyFee");
+    expect(writesTo("student_transport_fees")).toHaveLength(0);
     expect(writesTo("fee_structure")).toHaveLength(0);
     expect(writesTo("fee_invoices")).toHaveLength(0);
   });
@@ -133,15 +128,13 @@ describe("Add / edit bus validation", () => {
     const names = within(d).getAllByLabelText("Stop name");
     await user.type(names[0]!, "Saket");
     await user.type(names[1]!, "Malviya Nagar");
-    const pick = within(d).getAllByLabelText("Pickup time");
-    setVal(pick[0]!, "07:00"); setVal(pick[1]!, "06:55");
-    await user.click(save(d));
-    expect(within(d).getByRole("alert")).toHaveTextContent("pickup time is earlier than the stop before it");
-    setVal(pick[1]!, "07:05");
+    expect(within(d).queryByLabelText("Pickup time")).not.toBeInTheDocument();
+    expect(within(d).queryByLabelText("Drop time")).not.toBeInTheDocument();
+    await user.click(within(d).getAllByRole("button", { name: "Move down" })[0]!);
     await user.click(save(d));
     expect(getRow("tr_buses", "bus_01")).toMatchObject({
-      endPoint: "Edappally", pickupStart: "06:45", dropStart: "15:30",
-      stops: [{ name: "Saket", pickupTime: "07:00" }, { name: "Malviya Nagar", pickupTime: "07:05" }],
+      endPoint: "Edappally", pickupStart: "", dropStart: "",
+      stops: [{ name: "Malviya Nagar", pickupTime: "", dropTime: "" }, { name: "Saket", pickupTime: "", dropTime: "" }],
     });
   });
 
@@ -190,11 +183,13 @@ describe("Bus detail: students and crew", () => {
     const { user } = renderUI(<BusDetailsView busId="bus_01" />);
     const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.click(within(d).getByRole("tab", { name: /^Students/ }));
-    await user.click(within(d).getByLabelText("Select Meera Sharma"));
-    await user.click(within(d).getByLabelText("Select Rohan Gupta"));
-    expect(within(d).getByText("Over capacity")).toBeInTheDocument();
-    await user.click(within(d).getByRole("button", { name: /Add 2 students/ }));
-    expect(within(d).getByRole("alert")).toHaveTextContent("Bus 14 has 1 seat left; 2 students selected.");
+    await user.click(within(d).getByRole("button", { name: "Add students" }));
+    const panel = dialog("Add students");
+    await user.click(within(panel).getByLabelText("Select Meera Sharma"));
+    await user.click(within(panel).getByLabelText("Select Rohan Gupta"));
+    expect(within(panel).getByText("Over capacity")).toBeInTheDocument();
+    await user.click(within(panel).getByRole("button", { name: /Add 2 students/ }));
+    expect(within(panel).getByRole("alert")).toHaveTextContent("Bus 14 has 1 seat left; 2 students selected.");
     expect(writes).toHaveLength(0);
   });
 
@@ -203,10 +198,12 @@ describe("Bus detail: students and crew", () => {
     const { user } = renderUI(<BusDetailsView busId="bus_01" />);
     const d = screen.getByRole("region", { name: "Bus assignments" });
     await user.click(within(d).getByRole("tab", { name: /^Students/ }));
-    await user.click(within(d).getByLabelText("Select Meera Sharma"));
-    await user.click(within(d).getByLabelText("Select Kabir Das")); // moves off Bus 15
-    await user.selectOptions(field("Stop for the selected students", d), "stp_02");
-    await user.click(within(d).getByRole("button", { name: /Add 2 students/ }));
+    await user.click(within(d).getByRole("button", { name: "Add students" }));
+    const panel = dialog("Add students");
+    await user.click(within(panel).getByLabelText("Select Meera Sharma"));
+    await user.click(within(panel).getByLabelText("Select Kabir Das")); // moves off Bus 15
+    await user.selectOptions(field("Stop for the selected students", panel), "stp_02");
+    await user.click(within(panel).getByRole("button", { name: /Add 2 students/ }));
     expect(getRow("students", "stu_201")).toMatchObject({ busId: "bus_01", bus: "Bus 14", busStopId: "stp_02", busStop: "Greater Kailash", updatedBy: "admin_uid" });
     expect(getRow("students", "stu_103")).toMatchObject({ busId: "bus_01", busStopId: "stp_02" });
     // the soft-deleted pupil on bus_01 does not count

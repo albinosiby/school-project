@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "@/components/ui";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ReportsView } from "@/features/communication/ReportsView";
@@ -8,4 +9,4 @@ function Reports() {
   const run = useSearchParams().get("run") ?? undefined;
   return <ReportsView key={run ?? ""} runId={run} />;
 }
-export default function Page() { return <Suspense fallback={null}><Reports /></Suspense>; }
+export default function Page() { return <Suspense fallback={<LoadingSkeleton variant="page" />}><Reports /></Suspense>; }

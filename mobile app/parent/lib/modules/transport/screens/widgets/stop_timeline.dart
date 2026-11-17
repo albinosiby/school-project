@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../../design_system/design_system.dart';
-import '../../../../utils/helpers/date_helper.dart';
 import '../../models/transport_models.dart';
 import 'trip_labels.dart';
 
@@ -52,21 +51,16 @@ class _StopRow extends StatelessWidget {
             Colors.white,
           )
         : (C.outline, Icons.flag_outlined, C.slate);
-    final time = Text(
-      fmtClock(trip.timeAt(stop)),
-      style: T.small.copyWith(
-        color: blue ? C.primary : C.onSurfaceVariant,
-        fontWeight: blue ? FontWeight.w700 : FontWeight.w500,
-      ),
-    );
-    final sub = passed
+    final sub = trip.statusOnly
+        ? (stop.isChildDrop ? trip.markVerb : null)
+        : passed
         ? (stop.isChildDrop
-              ? (trip.scheduleBased ? (trip.markVerb ?? 'Passed') : 'Dropped off')
+              ? (trip.statusOnly ? (trip.markVerb ?? 'Passed') : 'Dropped off')
               : (stop == trip.origin ? 'Departed' : 'Passed'))
         : next
         ? (trip.phase == TripPhase.scheduled
               ? 'First stop • trip not started'
-              : 'Next stop • ${trip.minutesToNext} min${trip.minutesToNext == 1 ? '' : 's'} away')
+              : 'Next stop')
         : null;
     final body = stop.isChildDrop
         ? Container(
@@ -94,10 +88,6 @@ class _StopRow extends StatelessWidget {
                       if (sub != null) Text(sub, style: T.small),
                     ],
                   ),
-                ),
-                Text(
-                  fmtClock(trip.timeAt(stop)),
-                  style: T.h2.copyWith(color: C.primary),
                 ),
               ],
             ),
@@ -128,12 +118,11 @@ class _StopRow extends StatelessWidget {
                   ],
                 ),
               ),
-              time,
             ],
           );
     return Semantics(
       label:
-          '${stop.name}, ${passed ? 'passed' : (next ? 'next stop' : 'upcoming')}',
+          '${stop.name}, ${trip.statusOnly ? 'route stop' : (passed ? 'passed' : (next ? 'next stop' : 'upcoming'))}',
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,

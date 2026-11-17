@@ -1,5 +1,6 @@
 // Pure Transport logic (no Firebase): validation, time and date maths, counts. Unit tested in logic.test.ts.
 import type { BusStop, CrewAttStatus, CrewRole, Mark } from "./types";
+import { cleanStopName, stopNameKey } from "./busStops";
 
 // ---------- times and dates ----------
 /** "HH:mm", 24 h, zero padded (contract section 2) */
@@ -114,30 +115,16 @@ export const moveStop = <T,>(stops: T[], i: number, d: -1 | 1): T[] => {
 export const nextStopId = (stops: Pick<BusStop, "id">[]) => `stp_${String(Math.max(0, ...stops.map((s) => Number(/^stp_(\d+)$/.exec(s.id)?.[1] ?? 0))) + 1).padStart(2, "0")}`;
 export const nextBusId = (ids: string[]) => `bus_${String(Math.max(0, ...ids.map((i) => Number(/^bus_(\d+)$/.exec(i)?.[1] ?? 0))) + 1).padStart(2, "0")}`;
 
-/**
- * Stops are in route order (the school is not a stop): every stop has a unique name and HH:mm pickup / drop times, the
- * pickup times never go back along the route and start at or after `pickupStart`, the drop times likewise from `dropStart`
- * (the bus leaves school and drops along the same order, as in the seed). Returns the first problem, "" when fine.
- */
-export function stopsError(stops: Pick<BusStop, "name" | "pickupTime" | "dropTime">[], pickupStart: string, dropStart: string): string {
+/** Stops follow array order; every stop needs a unique name. Legacy timings are not required or validated. */
+export function stopsError(stops: Pick<BusStop, "name">[]): string {
   if (stops.some((s) => !s.name.trim())) return "Every stop needs a name";
   const seen = new Set<string>();
-  for (const s of stops) { const k = s.name.trim().toLowerCase(); if (seen.has(k)) return `Two stops are named "${s.name.trim()}"`; seen.add(k); }
-  for (const [i, s] of stops.entries()) if (!isHHmm(s.pickupTime) || !isHHmm(s.dropTime)) return `Stop ${i + 1} (${s.name.trim()}) needs pickup and drop times (HH:mm)`;
-  for (const key of ["pickupTime", "dropTime"] as const) {
-    const start = key === "pickupTime" ? pickupStart : dropStart, what = key === "pickupTime" ? "pickup" : "drop";
-    for (const [i, s] of stops.entries()) {
-      const prev = i === 0 ? start : stops[i - 1]![key];
-      if (isHHmm(prev) && toMinutes(s[key])! < toMinutes(prev)!) return i === 0
-        ? `Stop 1 (${s.name.trim()}): ${what} time is before the ${what} start (${start})`
-        : `Stop ${i + 1} (${s.name.trim()}): ${what} time is earlier than the stop before it`;
-    }
-  }
+  for (const s of stops) { const k = stopNameKey(s.name); if (seen.has(k)) return `Two stops are named "${cleanStopName(s.name)}"`; seen.add(k); }
   return "";
 }
 
 type BusIdentity = { number: string; regNo: string; capacity: string };
-export type BusInput = BusIdentity & { routeName: string; pickupStart: string; dropStart: string; monthlyFee?: string };
+export type BusInput = BusIdentity & { routeName: string };
 type ExistingBus = { id: string; number?: string; regNo?: string };
 export function validateBusIdentity(f: BusIdentity, existing: ExistingBus[], editId?: string, onBus = 0) {
   const e: Record<string, string> = {};
@@ -156,18 +143,11 @@ export function validateBusIdentity(f: BusIdentity, existing: ExistingBus[], edi
 }
 
 /** Route operations can be added after a bus is registered. */
-export function validateBus(f: BusInput, stops: Pick<BusStop, "name" | "pickupTime" | "dropTime">[], existing: ExistingBus[], editId?: string, onBus = 0, allowUnscheduled = false) {
+export function validateBus(f: BusInput, stops: Pick<BusStop, "name">[], existing: ExistingBus[], editId?: string, onBus = 0) {
   const e = validateBusIdentity(f, existing, editId, onBus);
-  const fee = f.monthlyFee?.trim() ?? "";
-  const amount = Number(fee);
-  if (fee && (!Number.isFinite(amount) || amount < 0 || amount > 10_000_000 || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.00001)) e.monthlyFee = "Enter an amount from ₹0 to ₹1,00,00,000, with at most two decimal places";
   if (!f.routeName.trim()) e.routeName = "Route name is required";
-  if (allowUnscheduled && !stops.length && !f.pickupStart && !f.dropStart) return e;
-  if (!isHHmm(f.pickupStart)) e.pickupStart = "Enter a time as HH:mm";
-  if (!isHHmm(f.dropStart)) e.dropStart = "Enter a time as HH:mm";
-  else if (isHHmm(f.pickupStart) && toMinutes(f.dropStart)! <= toMinutes(f.pickupStart)!) e.dropStart = "The drop must start after the pickup";
-  const s = stopsError(stops, f.pickupStart, f.dropStart);
-  if (s) e.stops = s;
+  const problem = stopsError(stops);
+  if (problem) e.stops = problem;
   return e;
 }
 

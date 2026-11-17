@@ -24,7 +24,7 @@ describe("Standard reports", () => {
   });
 
   it("Generate previews real records, adds the export and stamps the report", async () => {
-    seed({ com_reports: [report], students, ops_attendance: att });
+    seed({ com_reports: [report], students, ops_attendance: att, set_config: [{ id: "attendance_policy", minimumPercent: 80 }] });
     const { user } = renderUI(<ReportsView />);
     await user.click(screen.getByRole("button", { name: "Run Now" }));
     const d = dialog("Student Attendance Register");
@@ -33,7 +33,7 @@ describe("Standard reports", () => {
     await user.click(within(d).getByRole("button", { name: "Generate Report" }));
     expect(await screen.findByText("Report generated with 1 records")).toBeInTheDocument();
     expect(within(d).getByText("1 records · showing first 1")).toBeInTheDocument();
-    expect(within(d).getByText("Below 75%")).toBeInTheDocument();
+    expect(within(d).getByText("Below 80%")).toBeInTheDocument();
     expect(rowsOf("com_exports")[0]).toMatchObject({ reportId: "rep_07", format: "csv", code: "#REP-9843" });
     expect(getRow("com_reports", "rep_07")).toMatchObject({ meta: "1 Records · Grade 8" });
   });

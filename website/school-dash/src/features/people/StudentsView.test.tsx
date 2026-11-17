@@ -15,6 +15,28 @@ const aarav = { id: "stu_101", name: "Aarav Sharma", grn: "GIS-9200", grade: "10
   phone: "+91 98100 00001", status: "Active", attendance: 95, guardianUids: [], busId: "bus_01", bus: "Bus 14", busStopId: "stp_01", busStop: "Sector 9" };
 const ananya = { id: "stu_102", name: "Ananya Reddy", grn: "GIS-9201", grade: "10", section: "B", classId: "cls_10B", roll: 2, guardian: "Mrs. Reddy", phone: "+91 98100 00002", status: "Active", attendance: 90 };
 
+it("uses the configured attendance minimum and treats its exact boundary as meeting the minimum", () => {
+  seed({ students: [aarav, ananya], set_config: [{ id: "attendance_policy", minimumPercent: 50 }],
+    set_terms: [{ id: "term", start: "2026-04-01", end: "2027-03-31" }],
+    par_attendance: [{ id: "month", studentId: aarav.id, days: { "2026-10-01": "P", "2026-10-02": "A" } }],
+  });
+  renderUI(<StudentsView />);
+  const below = screen.getByText("Below 50% attendance").parentElement!.parentElement!;
+  expect(within(below).getByText("1")).toBeInTheDocument();
+  expect(screen.queryByText("Below 75% attendance")).not.toBeInTheDocument();
+});
+
+it.each([0, 2])("shows numeric attendance summary for %i students without marks", (count) => {
+  seed({ students: [aarav, ananya].slice(0, count),
+    set_terms: [{ id: "term", start: "2026-04-01", end: "2027-03-31" }],
+  });
+  renderUI(<StudentsView />);
+  const average = screen.getByText("Average attendance").parentElement!.parentElement!;
+  const below = screen.getByText("Below 75% attendance").parentElement!.parentElement!;
+  expect(within(average).getByText("0%")).toBeInTheDocument();
+  expect(within(below).getByText(String(count))).toBeInTheDocument();
+});
+
 async function openAdd() {
   return renderUI(<AdmissionForm mode="add" onClose={() => {}} />);
 }
@@ -163,23 +185,35 @@ describe("Add / edit student validation", () => {
     expect(screen.getByRole("link", { name: "Back to students" })).toHaveAttribute("href", "/students");
   });
 
-  it("shows recorded attendance and leaves new students without marks unrated", () => {
+  it("shows academic attendance and includes students without marks as zero in the summary", () => {
     seed({
-      students: [{ ...aarav, attendance: 100, admissionDate: "2026-10-01" }, { ...ananya, attendance: 100 }],
+      school: [{ id: "school", academicYear: "2026-27" }],
+      set_terms: [{ id: "term_1", start: "2026-04-01", end: "2027-03-31" }],
+      students: [{ ...aarav, attendance: 100, admissionDate: "2026-10-01" }, { ...ananya, attendance: 100 },
+        { ...aarav, id: "stu_zero", name: "Absent Student", attendance: 100 }],
       par_attendance: [
         { id: "stu_101_2026-09", studentId: aarav.id, days: { "2026-09-30": "P" } },
         { id: "stu_101_2026-10", studentId: aarav.id, days: { "2026-10-02": "L", "2026-10-03": "A" } },
+        { id: "stu_101_old_year", studentId: aarav.id, days: { "2025-10-01": "P" } },
+        { id: "stu_101_next_year", studentId: aarav.id, days: { "2027-04-01": "P" } },
+        { id: "stu_zero_2026-10", studentId: "stu_zero", days: { "2026-10-02": "A", "2026-10-03": "E" } },
       ],
     });
     const directory = renderUI(<StudentsView />);
     expect(within(screen.getByRole("row", { name: /Aarav Sharma/ })).getByText("50%")).toBeInTheDocument();
-    expect(within(screen.getByRole("row", { name: /Ananya Reddy/ })).getByText("Not recorded")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Ananya Reddy/ })).getByText("0%")).toBeInTheDocument();
+    expect(within(screen.getByRole("row", { name: /Absent Student/ })).getByText("0%")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").at(-1)).toHaveTextContent("Attendance %");
+    expect(screen.getByText("17%")).toBeInTheDocument();
+    expect(within(screen.getByText("Below 75% attendance").parentElement!.parentElement!).getByText("3")).toBeInTheDocument();
     directory.unmount();
     const profile = renderUI(<StudentDetailsView studentId={aarav.id} />);
     expect(screen.getByText("1 of 2 recorded days attended")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Academic attendance: 50%, 1 of 2 recorded days attended" })).toBeInTheDocument();
     profile.unmount();
     renderUI(<StudentDetailsView studentId={ananya.id} />);
-    expect(screen.getByText("Not recorded")).toBeInTheDocument();
+    expect(screen.getByText("0%")).toBeInTheDocument();
+    expect(screen.getByText("0 recorded days")).toBeInTheDocument();
   });
 
   it("shows the student photograph and previews an uploaded PDF", async () => {
@@ -363,7 +397,7 @@ describe("Parent login (contract 13.1)", () => {
   });
 });
 
-it("totals the missing documents of siblings in the guardian list", () => {
+it("totals the missing documents of siblings in the guardian list", async () => {
   const sharedContact = { guardian: "Shared parent", email: "shared@example.test" };
   seed({
     students: [{ ...aarav, ...sharedContact }, { ...ananya, ...sharedContact }],
@@ -376,19 +410,20 @@ it("totals the missing documents of siblings in the guardian list", () => {
   });
   setUrl("/students?tab=guardians");
   renderUI(<StudentsView />);
-  const row = screen.getByRole("row", { name: /Shared parent/ });
+  const row = await screen.findByRole("row", { name: /Shared parent/ });
   expect(within(row).getByText("3 missing")).toBeInTheDocument();
-  expect(within(row).getByRole("link", { name: aarav.name })).toHaveAttribute("href", "/students/stu_101");
-  expect(within(row).getByRole("link", { name: ananya.name })).toHaveAttribute("href", "/students/stu_102");
+  expect(within(row).getByText("2 students")).toBeInTheDocument();
+  expect(within(row).queryByText(aarav.name)).not.toBeInTheDocument();
+  expect(within(row).queryByText(ananya.name)).not.toBeInTheDocument();
 });
 
-it("lists only the designated guardian when another parent has app access", () => {
+it("lists only the designated guardian when another parent has app access", async () => {
   seed({
     students: [{ ...aarav, guardian: "Designated guardian", guardianUids: ["uid_parent"] }],
     users: [{ id: "uid_parent", schoolId: "sch_test", role: "parent", name: "Other parent", email: "other@example.test" }],
   });
   setUrl("/students?tab=guardians");
   renderUI(<StudentsView />);
-  expect(screen.getByRole("row", { name: /Designated guardian/ })).toBeInTheDocument();
+  expect(within(await screen.findByRole("row", { name: /Designated guardian/ })).getByText("1 student")).toBeInTheDocument();
   expect(screen.queryByRole("row", { name: /Other parent/ })).toBeNull();
 });

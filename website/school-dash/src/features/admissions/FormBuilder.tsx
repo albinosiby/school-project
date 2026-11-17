@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Copy, GripVertical, History, Lock, Plus, RotateCcw, ShieldCheck, Trash2, Pencil } from "lucide-react";
-import { Badge, Button, Card, CardHeader, Checkbox, Field, Input, Modal, Select, Switch, Textarea, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, CardHeader, Checkbox, Field, Input, Modal, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { DynamicForm, FieldInput } from "./DynamicForm";
@@ -28,7 +28,7 @@ export function FormBuilder() {
   const [capDraft, setCapDraft] = useState<string | null>(null);
 
   const dirty = useMemo(() => !!doc && JSON.stringify(doc.sections) !== JSON.stringify(doc.published), [doc]);
-  if (!doc) return <p className="text-on-surface-variant">Loading form…</p>;
+  if (!doc) return <LoadingSkeleton variant="form" label="Loading form…" className="text-on-surface-variant" />;
   const fail = () => toast("Could not save form changes — check your connection", "error");
   const setSections = (fn: (s: FormSection[]) => FormSection[]) => form.update("form", { sections: fn(structuredClone(doc.sections)) }).catch(fail);
   const patchSec = (id: string, p: Partial<FormSection>) => setSections((s) => s.map((x) => (x.id === id ? { ...x, ...p } : x)));

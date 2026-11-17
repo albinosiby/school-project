@@ -9,6 +9,7 @@ import '../../school/models/school_models.dart';
 import '../bloc/load_status.dart';
 import '../bloc/marks_bloc.dart';
 import '../bloc/marks_events.dart';
+import '../bloc/marks_states.dart';
 import '../models/attendance_models.dart';
 import '../models/marks_models.dart';
 import 'widgets/att_widgets.dart';
@@ -41,44 +42,67 @@ class _MarksView extends StatelessWidget {
     final nPending = roster.where((r) => s.isPending(ex.id, r.id)).length, nAbs = roster.where((r) => s.isAbsent(ex.id, r.id)).length;
     final chips = ['All (${roster.length})', 'Pending ($nPending)', 'Graded (${roster.length - nPending - nAbs})', 'Absent ($nAbs)'];
     final shown = s.shown;
+    final lockedText = ex.lockedByAdmin
+        ? 'Marks entry is locked by the exam cell. Contact the school admin for changes.'
+        : ex.hasSheet
+            ? 'Sheet submitted for review. It is read-only until the reviewer returns it.'
+            : 'Marks submitted. Tap a student to edit with a reason.';
     return DetailScaffold(
       title: 'Enter Marks',
       bottom: ex.submitted
           ? Row(children: [
               Icon(Icons.lock_outline_rounded, color: C.successDark, size: 22.r), SizedBox(width: 8.w),
-              Expanded(child: Text(ex.lockedByAdmin ? 'Marks entry is locked by the exam cell. Contact the school admin for changes.' : 'Marks submitted. Tap a student to edit with a reason.', style: T.small)),
+              Expanded(child: Text(lockedText, style: T.small)),
             ])
           : Row(children: [
               Expanded(child: AppButton('Save as Draft', kind: BtnKind.outline, onPressed: () => toast(context, 'Draft saved • ${st.graded}/${st.total} entered'))),
               SizedBox(width: 10.w),
-              Expanded(child: AppButton('Submit Marks', icon: Icons.send_rounded, onPressed: () async {
+              Expanded(child: AppButton(ex.hasSheet ? 'Submit Sheet' : 'Submit Marks', icon: Icons.send_rounded, onPressed: () async {
                 if (st.pending > 0) {
                   toast(context, '${st.pending} students still pending. Enter marks or mark them Absent.');
                   bloc.add(const MarksFilterChanged('Pending'));
                   return;
                 }
                 final ok = await AppDialogs.showConfirmDialog(context,
-                    title: 'Submit marks?', message: '${st.total} students for ${ex.name} will be submitted. You can still edit later with a reason.', confirm: 'Submit');
+                    title: ex.hasSheet ? 'Submit sheet?' : 'Submit marks?',
+                    message: ex.hasSheet
+                        ? '${st.total} students for ${ex.name} • ${ex.subject} go to the reviewer. The sheet becomes read-only until it is returned to you.'
+                        : '${st.total} students for ${ex.name} will be submitted. You can still edit later with a reason.',
+                    confirm: 'Submit');
                 if (!ok || !context.mounted) return;
                 bloc.add(MarksExamSubmitted(ex.id));
-                toast(context, 'Marks submitted for ${cls?.title ?? 'class'}');
+                // a sheet reports its own result (status change, or the bloc's notice when the roster is incomplete)
+                if (!ex.hasSheet) toast(context, 'Marks submitted for ${cls?.title ?? 'class'}');
               })),
             ]),
-      body: AttBody(children: [
+      body: BlocListener<MarksBloc, MarksState>(
+        listenWhen: (a, b) => b.notice != null && a.notice != b.notice,
+        listener: (context, st) {
+          toast(context, st.notice!);
+          bloc.add(const MarksNoticeDismissed());
+        },
+        child: AttBody(children: [
         AppCard(radius: R.lg, padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h), child: Row(children: [
           Icon(ex.submitted ? Icons.lock_outline_rounded : Icons.lock_open_rounded, size: 18.r, color: C.slate), SizedBox(width: 8.w),
           Expanded(child: Text(ex.name, style: T.smallStrong, maxLines: 1, overflow: TextOverflow.ellipsis)),
-          Icon(ex.submitted ? Icons.check_circle_outline_rounded : Icons.cloud_done_outlined, size: 16.r, color: C.successDark), SizedBox(width: 4.w),
-          Text(ex.lockedByAdmin ? 'Locked' : ex.submitted ? 'Submitted' : 'Auto-saved just now', style: T.small.copyWith(color: C.successDark)),
+          Icon(ex.submitted ? Icons.check_circle_outline_rounded : ex.returned ? Icons.undo_rounded : Icons.cloud_done_outlined, size: 16.r, color: ex.returned ? C.warningDark : C.successDark), SizedBox(width: 4.w),
+          Text(ex.lockedByAdmin ? 'Locked' : ex.submitted ? 'Submitted' : ex.returned ? 'Returned' : 'Auto-saved just now', style: T.small.copyWith(color: ex.returned ? C.warningDark : C.successDark)),
         ])),
+        if (ex.returned) ...[
+          SizedBox(height: 10.h),
+          AttBanner(
+            icon: Icons.undo_rounded, tone: Tone.warning, text: 'Returned by the reviewer — correct and resubmit',
+            sub: (ex.returnNote ?? '').trim().isEmpty ? 'No note was added.' : ex.returnNote!.trim(),
+          ),
+        ],
         SizedBox(height: 12.h),
         AppCard(radius: R.xl, child: Column(children: [
-          AppPickTile(icon: Icons.menu_book_outlined, caption: 'ASSESSMENT SCOPE', label: '${ex.name} (Max: ${ex.max})', onTap: () async {
+          AppPickTile(icon: Icons.menu_book_outlined, caption: 'ASSESSMENT SCOPE', label: '${ex.name} (${ex.gradeOnly ? 'Grades' : 'Max: ${ex.maxTotal}'})', onTap: () async {
             final r = await showPickSheet<Exam>(context, title: 'Select assessment', items: s.exams, selected: ex,
                 label: (e) => '${e.name} • ${s.classById(e.classId)?.title ?? ''}',
                 sub: (e) {
                   final x = s.statsOf(e);
-                  return '${e.subject} • Max ${e.max} • ${x.graded}/${x.total} entered • ${e.status}';
+                  return '${e.subject} • ${e.gradeOnly ? 'Grades' : 'Max ${e.maxTotal}'} • ${x.graded}/${x.total} entered • ${e.status}';
                 });
             if (r != null) bloc.add(MarksExamSelected(r.id));
           }),
@@ -111,7 +135,8 @@ class _MarksView extends StatelessWidget {
         SizedBox(height: 12.h),
         if (shown.isEmpty) const AppEmptyState('No students match', hint: 'Change the filter or search term.', icon: Icons.person_search_outlined),
         for (final r in shown) _MarkRow(key: ValueKey('${ex.id}_${r.id}'), ex: ex, st: r, mark: marks[r.id]),
-      ]),
+        ]),
+      ),
     );
   }
 }
@@ -184,12 +209,15 @@ class _MarkRowState extends State<_MarkRow> {
 
   @override
   Widget build(BuildContext context) {
+    final ex = widget.ex;
     final m = widget.mark;
     final absent = m != null && m.absent;
-    final has = m != null && m.marks != null;
+    final has = m != null && m.entered && !absent;
     final pending = !absent && !has;
-    final pct = has ? m.marks! * 100 / max : 0.0;
-    final locked = widget.ex.submitted;
+    final pct = has && m.total != null && ex.maxTotal > 0 ? m.total! * 100 / ex.maxTotal : 0.0;
+    final locked = ex.submitted;
+    // the inline field is the theory component; a grade-only sheet (or one without theory) uses the detailed entry
+    final inline = !ex.gradeOnly && max > 0;
     final id = widget.st.id;
     return Container(
       margin: EdgeInsets.only(bottom: 10.h), padding: EdgeInsets.all(14.r),
@@ -207,6 +235,8 @@ class _MarkRowState extends State<_MarkRow> {
           ])),
           if (absent)
             Pill(m.status, tone: Tone.danger)
+          else if (!inline)
+            Pill(has ? (ex.gradeOnly ? 'Grade ${m.gradeValue}' : '${m.total ?? '--'} / ${ex.maxTotal}') : 'Pending', tone: has ? Tone.brand : Tone.warning)
           else ...[
             SizedBox(
               width: 62.w,
@@ -225,7 +255,7 @@ class _MarkRowState extends State<_MarkRow> {
         ]),
         if (err != null) Align(alignment: Alignment.centerRight, child: Padding(padding: EdgeInsets.only(top: 4.h), child: Text(err!, style: T.small.copyWith(color: C.danger)))),
         SizedBox(height: 8.h),
-        if (pending && !locked)
+        if (pending && !locked && inline)
           Container(
             padding: EdgeInsets.all(8.r), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md)),
             child: Row(children: [
@@ -236,11 +266,11 @@ class _MarkRowState extends State<_MarkRow> {
           )
         else
           Row(children: [
-            if (has) ...[Pill('Grade ${gradeOf(pct)} • ${pct.round()}%', tone: pct >= 80 ? Tone.success : pct >= 55 ? Tone.brand : Tone.warning), SizedBox(width: 8.w)],
+            if (has && !ex.gradeOnly && m.total != null) ...[Pill('Grade ${gradeOf(pct)} • ${pct.round()}%', tone: pct >= 80 ? Tone.success : pct >= 55 ? Tone.brand : Tone.warning), SizedBox(width: 8.w)],
             if (!pending) Flexible(child: Pill(absent ? m.status : m.remark(pct), tone: Tone.neutral)),
             const Spacer(),
             if (absent && !locked) TextButton(onPressed: () => _set(null), child: const Text('Undo')),
-            if (!widget.ex.lockedByAdmin)
+            if (!ex.readOnly)
               IconButton(
                 tooltip: 'Detailed entry for ${widget.st.name}', constraints: BoxConstraints(minWidth: 44.r, minHeight: 44.r),
                 onPressed: () => context.push(marksEntryPath(widget.ex.id, id, edit: locked)),

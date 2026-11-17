@@ -4,7 +4,7 @@
 // puts them back to Active.
 import { useState } from "react";
 import { deleteField, writeBatch } from "firebase/firestore";
-import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Modal, Tabs, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Modal, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { auth, db } from "@/lib/firebase";
 import { fmtDate } from "@/lib/format";
@@ -62,7 +62,7 @@ export function LeavesPanel() {
         <Tabs value={tab} onChange={setTab} items={[{ id: "Pending", label: "Pending", count: n("Pending") }, { id: "Approved", label: "Approved", count: n("Approved") }, { id: "Rejected", label: "Rejected", count: n("Rejected") }, { id: "all", label: "All", count: leaves.rows.length }]} />
         <p className="t-caption ml-auto text-outline">Approving a leave that covers today marks the crew member On leave.</p>
       </div>
-      {!leaves.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading leave requests…</p> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No leave requests" hint="Requests raised by crew in the driver app show up here." />} />}
+      {!leaves.ready ? <LoadingSkeleton variant="table" label="Loading leave requests…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No leave requests" hint="Requests raised by crew in the driver app show up here." />} />}
       {deciding && <DecideModal l={deciding.l} to={deciding.to} onClose={() => setDeciding(null)} onSubmit={async (note) => { if (await decide(deciding.l, deciding.to, note)) setDeciding(null); }} />}
     </Card>
   );

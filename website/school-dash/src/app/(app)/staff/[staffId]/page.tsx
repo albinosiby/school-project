@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from "@/components/ui";
 import { Suspense } from "react";
 import { StaffDetailsView } from "@/features/people/StaffDetailsView";
 
@@ -11,7 +12,7 @@ async function StaffDetails({ params }: Props) {
 }
 
 export default function Page({ params }: Props) {
-  return <Suspense fallback={<p role="status">Loading staff details…</p>}>
+  return <Suspense fallback={<LoadingSkeleton variant="details" label="Loading staff details…" />}>
     <StaffDetails params={params} />
   </Suspense>;
 }

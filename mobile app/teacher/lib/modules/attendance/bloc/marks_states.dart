@@ -5,7 +5,10 @@ import '../models/marks_models.dart';
 import 'load_status.dart';
 
 class MarksState extends Equatable {
-  const MarksState({this.status = LoadStatus.initial, this.exams = const [], this.marks = const [], this.classes = const [], this.students = const [], this.records = const [], this.examId = '', this.filter = 'All', this.query = '', this.teacherName = ''});
+  const MarksState({
+    this.status = LoadStatus.initial, this.exams = const [], this.marks = const [], this.classes = const [], this.students = const [], this.records = const [],
+    this.examId = '', this.filter = 'All', this.query = '', this.teacherName = '', this.notice,
+  });
   final LoadStatus status;
   final List<Exam> exams;
   final List<StudentMark> marks;
@@ -14,19 +17,27 @@ class MarksState extends Equatable {
   /// Attendance records (for the per-student attendance %).
   final List<AttendanceRecord> records;
   final String examId, filter, query, teacherName;
+  /// One-off message for the screen (e.g. why a sheet could not be submitted); cleared with [MarksNoticeDismissed].
+  final String? notice;
 
   Exam? get exam => exams.where((e) => e.id == examId).firstOrNull ?? exams.firstOrNull;
   SchoolClass? classById(String id) => classes.where((c) => c.id == id).firstOrNull;
   List<Student> rosterOf(String classId) => [for (final s in students) if (s.classId == classId) s]..sort((a, b) => a.roll.compareTo(b.roll));
-  List<Student> get roster => exam == null ? const [] : rosterOf(exam!.classId);
+  /// The sheet's roster when there is one, else the paper's candidates, else the whole class.
+  List<Student> examRoster(Exam ex) {
+    final ids = ex.rosterIds ?? ex.studentIds;
+    return rosterOf(ex.classId).where((student) => ids == null || ids.contains(student.id)).toList();
+  }
+
+  List<Student> get roster => exam == null ? const [] : examRoster(exam!);
 
   Map<String, StudentMark> marksOf(String examId) => {for (final m in marks) if (m.examId == examId) m.studentId: m};
   StudentMark? markOf(String examId, String studentId) => marks.where((m) => m.examId == examId && m.studentId == studentId).firstOrNull;
-  ExamStats statsOf(Exam ex) => examStats(ex, [for (final s in rosterOf(ex.classId)) s.id], marksOf(ex.id));
+  ExamStats statsOf(Exam ex) => examStats(ex, [for (final s in examRoster(ex)) s.id], marksOf(ex.id));
 
   bool isPending(String examId, String studentId) {
     final m = markOf(examId, studentId);
-    return m == null || (m.present && m.marks == null);
+    return m == null || !m.entered;
   }
 
   bool isAbsent(String examId, String studentId) => markOf(examId, studentId)?.absent == true;
@@ -49,13 +60,16 @@ class MarksState extends Equatable {
 
   double attendanceRate(Student s) => studentRate(dailyRecords(records, s.classId), s.id);
 
-  MarksState copyWith({LoadStatus? status, List<Exam>? exams, List<StudentMark>? marks, List<SchoolClass>? classes, List<Student>? students, List<AttendanceRecord>? records, String? examId, String? filter, String? query, String? teacherName}) =>
+  MarksState copyWith({
+    LoadStatus? status, List<Exam>? exams, List<StudentMark>? marks, List<SchoolClass>? classes, List<Student>? students, List<AttendanceRecord>? records,
+    String? examId, String? filter, String? query, String? teacherName, String? notice, bool clearNotice = false,
+  }) =>
       MarksState(
         status: status ?? this.status, exams: exams ?? this.exams, marks: marks ?? this.marks, classes: classes ?? this.classes,
         students: students ?? this.students, records: records ?? this.records, examId: examId ?? this.examId, filter: filter ?? this.filter,
-        query: query ?? this.query, teacherName: teacherName ?? this.teacherName,
+        query: query ?? this.query, teacherName: teacherName ?? this.teacherName, notice: clearNotice ? null : notice ?? this.notice,
       );
 
   @override
-  List<Object?> get props => [status, exams, marks, classes, students, records, examId, filter, query, teacherName];
+  List<Object?> get props => [status, exams, marks, classes, students, records, examId, filter, query, teacherName, notice];
 }

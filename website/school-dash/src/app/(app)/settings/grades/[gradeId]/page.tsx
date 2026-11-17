@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from "@/components/ui";
 import { Suspense } from "react";
 import { GradeDetailsView } from "@/features/settings/GradeDetailsView";
 
@@ -8,5 +9,5 @@ async function GradeDetails({ params }: Props) {
   return <GradeDetailsView key={gradeId} gradeId={gradeId} />;
 }
 export default function Page({ params }: Props) {
-  return <Suspense fallback={<p role="status">Loading grade…</p>}><GradeDetails params={params} /></Suspense>;
+  return <Suspense fallback={<LoadingSkeleton variant="details" label="Loading grade…" />}><GradeDetails params={params} /></Suspense>;
 }

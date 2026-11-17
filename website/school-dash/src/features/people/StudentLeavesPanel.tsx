@@ -1,6 +1,6 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Avatar, Badge, Button, Card, DataTable, EmptyState, Select, Tabs, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Select, Tabs, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { auth } from "@/lib/firebase";
 import { fmtDate } from "@/lib/format";
@@ -64,10 +64,10 @@ export function StudentLeavesPanel({ students }: { students: Stu[] }) {
     <Card className="pt-4">
       <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
         <Tabs value={tab} onChange={setTab} items={[{ id: "Pending", label: "Pending", count: n("Pending") }, { id: "Approved", label: "Approved", count: n("Approved") }, { id: "Rejected", label: "Rejected", count: n("Rejected") }, { id: "all", label: "All", count: inClass.length }]} />
-        <Select aria-label="Class" value={cls} onChange={(e) => setCls(e.target.value)} className="w-40"><option value="">All classes</option>{classIds.map((c) => <option key={c} value={c}>Grade {label(c)}</option>)}</Select>
+        <Select aria-label="Class" value={cls} onChange={(e) => setCls(e.target.value)} className="w-full sm:w-44"><option value="">All classes</option>{classIds.map((c) => <option key={c} value={c}>Grade {label(c)}</option>)}</Select>
         <p className="t-caption ml-auto max-w-sm text-outline">Requests come from the parent app and are decided by the class teacher. Decide here only when the class teacher is unavailable.</p>
       </div>
-      {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading leave requests…</p>
+      {!ready ? <LoadingSkeleton variant="table" label="Loading leave requests…" className="px-5 pb-5 text-on-surface-variant" />
         : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No leave requests" hint="Leave requests sent by parents from the parent app show up here." />} />}
       <ReasonModal ids={rejecting ? [rejecting.id] : null} title="Reject leave request" label="Note to the parent" onClose={() => setRejecting(null)}
         onSubmit={async (_ids, reason) => { if (rejecting) await decide(rejecting, "Rejected", reason); }} />

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { Logo } from "@/components/Logo";
-import { Card, ProgressBar, useToast } from "@/components/ui";
+import { LoadingSkeleton, Card, ProgressBar, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { canOpenStep, progressPct, STEPS } from "./logic";
 import { useOnboarding } from "./state";
@@ -28,7 +28,7 @@ export function StepPage({ no }: { no: number }) {
     else if (!reachable) router.replace(`/onboarding/setup/${ob.firstOpen}`);
   }, [ob.ready, ob.state, ob.firstOpen, reachable, router]);
 
-  if (!ob.ready || ob.state?.complete || !meta || !reachable) return <div className="grid min-h-screen place-items-center text-outline">Loading…</div>;
+  if (!ob.ready || ob.state?.complete || !meta || !reachable) return <LoadingSkeleton variant="page" label="Loading…" className="mx-auto min-h-screen max-w-6xl p-4 sm:p-6" />;
   const Form = STEP_FORMS[meta.no];
 
   const submit = async (values: Record<string, unknown>, persist?: () => Promise<unknown>) => {

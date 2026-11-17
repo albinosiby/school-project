@@ -7,7 +7,7 @@ import { admissionErrors, blankAdmission } from "@/features/admissions/admission
 import { defaultNumbering, formatAdmissionNumber, validAdmissionNumber, type AdmissionNumbering } from "@/features/admissions/numbering";
 import { addressRecord } from "@/features/onboarding/address";
 import { useAddressLocations } from "@/features/onboarding/SchoolAddressFields";
-import { Button, Field, Input, Select, SlideOver, Switch } from "@/components/ui";
+import { LoadingField, Button, Field, Input, Select, SlideOver, Switch } from "@/components/ui";
 import { computeSeatRows, type StudentRow } from "@/features/admissions/logic";
 import { GRADES as ADMISSION_GRADES, type Application, type Offer, type Seat } from "@/features/admissions/types";
 import { SECTIONS, todayIso } from "@/features/ops/shared";
@@ -128,7 +128,7 @@ export function StudentForm({ edit, existing, users, onClose, onSave, mode = "ed
               <Input value={admissionNumber} onChange={(e) => setAdmissionNumber(e.target.value)} maxLength={64} />
             </Field>
           : <Field label="Admission number" hint="Preview. The final number is assigned when you save.">
-              <Input value={preview} readOnly placeholder={numbering.ready ? "Choose an admission date" : "Loading…"} />
+              <LoadingField loading={!numbering.ready} label="Loading admission number…"><Input value={preview} readOnly placeholder="Choose an admission date" /></LoadingField>
             </Field>)}
         <Field label="General Register Number (GRN)" error={err.grn} hint="Leave blank to generate a General Register Number automatically."><Input value={f.grn} onChange={(e) => set("grn", e.target.value)} /></Field>
         <Field label="Date of birth" required={admission} error={err.dob}><Input type="date" value={f.dob} onChange={(e) => set("dob", e.target.value)} /></Field>

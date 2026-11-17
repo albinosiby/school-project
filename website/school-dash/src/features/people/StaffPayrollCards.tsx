@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { Button, Card, DataTable, Field, Input, Modal, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Button, Card, DataTable, Field, Input, Modal, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { loadStaffPayroll, recordStaffPayrollPayment, revealStaffPayrollAccount, saveStaffPayrollAccount,
   type PayrollAccount, type PayrollPayment, type PayrollPaymentInput, type PayrollSnapshot } from "./staffPayroll";
@@ -87,7 +87,7 @@ export function StaffPayrollCards({ staffId, today }: { staffId: string; today: 
           setError("");
           setRevision((value) => value + 1);
         }}>Try again</Button>
-      </div> : !snapshot ? <p role="status" className="text-sm">Loading payroll…</p>
+      </div> : !snapshot ? <LoadingSkeleton variant="table" label="Loading payroll…" className="text-sm" />
         : account ? <dl className="grid grid-cols-[minmax(0,8rem)_1fr] gap-2 text-sm">
           <dt className="text-outline">Account holder</dt><dd className="break-words">{account.accountHolder}</dd>
           <dt className="text-outline">Bank</dt><dd className="break-words">{account.bank}</dd>
@@ -97,7 +97,7 @@ export function StaffPayrollCards({ staffId, today }: { staffId: string; today: 
             <div className="flex flex-wrap items-center gap-2">
               <span className="break-all font-mono">{accountNumber || `•••• ${account.lastFour}`}</span>
               <Button variant="ghost" size="sm" disabled={revealing} onClick={() => void toggleAccountNumber()}>
-                {revealing ? "Loading…" : accountNumber ? "Hide account number" : "Show account number"}
+                {revealing ? <LoadingSkeleton variant="inline" label="Loading account number…" /> : accountNumber ? "Hide account number" : "Show account number"}
               </Button>
             </div>
           </dd>
@@ -111,7 +111,7 @@ export function StaffPayrollCards({ staffId, today }: { staffId: string; today: 
         <h2 className="t-label-caps text-on-surface-variant">Payroll history</h2>
         {payments.length > 0 && <Button variant="outline" size="sm" onClick={() => setEditing("payment")}>Record payment</Button>}
       </div>
-      {!snapshot ? <p className="text-sm text-on-surface-variant">{error ? "Payroll history is unavailable." : "Loading payroll history…"}</p>
+      {!snapshot ? error ? <p className="text-sm text-on-surface-variant">Payroll history is unavailable.</p> : <LoadingSkeleton variant="table" label="Loading payroll history…" />
         : payments.length ? <DataTable rows={payments} columns={payrollColumns} pageSize={6} />
         : <div className="space-y-3">
           <p className="text-sm text-on-surface-variant">No payroll payments recorded.</p>

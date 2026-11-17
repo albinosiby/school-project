@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { Avatar, Badge, Button, Card, DataTable, EmptyState, Tabs, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Tabs, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { fmtDate } from "@/lib/format";
 import { useStaffLeaves, type StaffLeave } from "./leaves";
@@ -42,7 +42,7 @@ export function StaffLeavesPanel({ staff }: { staff: S[] }) {
         <Tabs value={tab} onChange={setTab} items={[{ id: "Pending", label: "Pending", count: n("Pending") }, { id: "Approved", label: "Approved", count: n("Approved") }, { id: "Rejected", label: "Rejected", count: n("Rejected") }, { id: "all", label: "All", count: leaves.length }]} />
         <p className="t-caption ml-auto text-outline">Pending requests also appear in the Approvals inbox.</p>
       </div>
-      {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading leave requests…</p> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No leave requests" hint="Requests raised by teachers in the mobile app show up here." />} />}
+      {!ready ? <LoadingSkeleton variant="table" label="Loading leave requests…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No leave requests" hint="Requests raised by teachers in the mobile app show up here." />} />}
       <ReasonModal ids={rejecting ? [rejecting.id] : null} title="Reject leave request" onClose={() => setRejecting(null)} onSubmit={async (_ids, reason) => { if (rejecting) await act(rejecting, "Rejected", reason); }} />
     </Card>
   );

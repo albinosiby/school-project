@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Plus, Trash2, X } from "lucide-react";
-import {
+import { LoadingSkeleton,
   Button,
   Card,
   Checkbox,
@@ -100,7 +100,7 @@ export function CycleForm({ cycleId }: { cycleId?: string }) {
       terms,
     ].every((collection) => collection.ready)
   )
-    return <p role="status">Loading examination setup…</p>;
+    return <LoadingSkeleton variant="form" label="Loading examination setup…" />;
   const cycle = cycles.rows.find(({ id }) => id === cycleId);
   if (cycleId && !cycle)
     return (

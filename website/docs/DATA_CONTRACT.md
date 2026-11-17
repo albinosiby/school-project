@@ -41,6 +41,11 @@ the old class-wide senior rate with stream records in the same batch; issued inv
 class-wide senior fee is expanded to its configured streams for review in the editor. Different rates need distinct
 fee items scoped to their class and stream. Payment preferences remain in `set_config/fee_policy`.
 
+Attendance warnings use `set_config/attendance_policy.minimumPercent` (finite number, 0–100 inclusive;
+default 75 when absent/invalid). Admins configure it in Settings → Academic Year. Student warning counts and
+colours, daily attendance colours and attendance/marks reports share this value. Writes retain other fields,
+include `updatedAt`/`updatedBy`, and reject overwriting a concurrent change to the minimum.
+
 Batch billing requires an explicit senior stream and matches the student's linked class, canonical stream metadata,
 or stream-bearing class id. Missing assignments are excluded with a visible warning. Invoice records copy
 `streamId` and `stream`; the billing-period key deliberately excludes stream to prevent charging a transferred student
@@ -432,22 +437,41 @@ transport record. Everything is under `schools/{sid}`; ids and stamps follow §2
 ### 14.2 Buses and stops
 - `tr_buses/{id}` (id `bus_01`…): `{number ("14"), regNo ("DL-01-AB-4092"), capacity (int), model? ("42-seater AC"),
   routeName ("Route 4B"), driverId?, driver? (name), attendantId?, attendant? (name), stops: [{id: "stp_01", name,
-  pickupTime: "06:45", dropTime: "15:40", landmark?}] (in route order; the school is not a stop), pickupStart "06:45",
+  pickupTime: "06:45", dropTime: "15:40", landmark?, timingPending?}] (in route order; the school is not a stop), pickupStart "06:45",
   dropStart "15:30", status: "Active"|"Maintenance"|"Inactive", studentCount (int, kept by the admin web), note?,
-  monthlyFee? (number|null, rupees per assigned student per month; null/missing = not configured, 0 = free)}`.
-  Transport rates are edited only on the bus. Student assignments reference `busId`; rates are not copied to students
-  or general grade fee plans. Updating a bus rate does not rewrite existing invoices.
-- Add Bus records the route as `endPoint` and initializes `routeName` with that value for existing consumers. Stops and
-  timings can be configured later in Edit bus. `capacity` is the number of seats available to students, and `totalSeats`
+  monthlyFee? (deprecated legacy bus-wide amount; retained but ignored by current fee settings)}`.
+- `student_transport_fees/{studentId}` stores `{studentId, busId, amount: number|null, busAssignmentRevision,
+  revision, updatedAt, updatedBy}`. This school-scoped collection is admin/owner-only under the existing generic
+  rules; it is not embedded in the student document read by crew or parents. Amounts are INR per configured collection, from 0 to
+  10,000,000 with at most two decimals; 0 is free and null/missing is not configured. Each student has their own
+  agreed amount, editable during bus assignment or in Student details > Transport and displayed read-only
+  in Bus details > Students. Legacy `monthlyAmount` values remain readable; new saves write `amount` instead. Bus-wide legacy rates are not copied or used as defaults.
+  The fee transaction re-reads the student, bus and current fee, checks assignment/fee revisions, and writes only
+  the fee setting for amount-only edits; assignment, new stop, occupancy and an entered amount share one
+  transaction when edited together. School-wide `set_config/fee_policy.transportFrequency` stores the chosen
+  collection cycle (empty, Monthly, Quarterly, Half-yearly, Term-wise, Annual or One-time), configured only in
+  Settings > Payments. Totals use integer paise and exclude deleted or reassigned students. Existing invoices,
+  payments and grade fee plans are unchanged; configuring fees does not generate a bill.
+- Add Bus records the route as `endPoint` and initializes `routeName` with that value for existing consumers. Stops and their
+  order can be configured later in Edit bus. `capacity` is the number of seats available to students, and `totalSeats`
   is total vehicle seating. Vehicle identity, safety equipment, compliance dates and maintenance are edited through
   Transport > Buses > bus > Edit vehicle details.
 - Transport > Buses > Expiry reminders stores the designated school administrator's UID in
   `tr_settings/expiry_notifications.recipientUid`. The `transportExpiryReminders` function runs daily at 09:00 India
   time. It writes an in-app notification for each registration, fitness, insurance, permit, PUC or road tax date within
   30 days. A receipt in `tr_expiry_receipts` prevents repeat delivery for the same bus, document and expiry date.
-- `students` gain `busId?`, `bus?` (display "Bus 14"), `busStopId?`, `busStop?` (stop name). The admin web assigns students to a
+- `students` gain `busId?`, `bus?` (display "Bus 14"), `busStopId?`, `busStop?` (stop name), `busAssignmentRevision?`. The admin web assigns students to a
   bus and stop in Transport > Buses > bus > Students (and clears them on removal). `tr_buses.studentCount` = students with
-  that `busId`.
+  that `busId`. Changing/removing the bus increments the student assignment revision; its fee is replaced with the entered
+  amount or deleted when no amount is supplied, in the same transaction. A stop-only change preserves the fee.
+- Student details can select an existing stop or add a name while assigning a bus. School-scoped suggestions
+  prioritize the selected bus and deduplicate names ignoring case and repeated whitespace. Stop creation,
+  the student's `busStopId`/`busStop`, and bus occupancy updates share one transaction, which re-reads the
+  route and reuses a matching stop. Other buses' stop names can be reused without copying their IDs or times.
+  New stops append to `tr_buses.stops` with empty legacy time strings and no `timingPending` flag.
+  Admin stop configuration only requires unique names; array position determines route order. Pickup/drop
+  timing inputs, readouts and pending-time warnings are omitted. Editing preserves legacy time strings
+  for compatibility and removes the obsolete pending flag.
 - Crew read `tr_buses/{myBusId}`, and `students` where `busId == myBusId` (the roster: name, class, roll, stop, guardian,
   phone, photo). They never read other buses' students.
 
@@ -508,6 +532,21 @@ transport record. Everything is under `schools/{sid}`; ids and stamps follow §2
   attendant `crw_002` (`attendant@e2e.test`), puts the five seeded students on the bus and writes `.accounts.json` entries
   `driver` and `attendant`. The driver app's local backend (default build) ships the same shapes as in-memory demo data.
 
+### Bus compliance update history
+The admin web's Registration and compliance card has Update and History actions. Future changes through either
+Update or Edit vehicle details write `tr_bus_compliance_history/{autoId}` with `{busId, changes: [{field, before,
+after}], editor, updatedAt, updatedBy}` in the same transaction as the bus update. Unchanged saves create no
+history. Stale edits to the same compliance field are rejected; unrelated renewals are preserved. This collection
+uses the existing school-scoped admin/owner access rules. Earlier changes are not reconstructed.
+
+### Bus maintenance update history
+The Maintenance card's Update editor saves service dates, odometer, service interval and notes. Future changes
+through either Update or Edit vehicle details write `tr_bus_maintenance_history/{autoId}` with `{id, busId,
+changes: [{field, before, after}], editor, updatedAt, updatedBy}` in the same transaction as the bus. Numeric zero
+is preserved and clearing a numeric field saves null. Unchanged saves add no history. Concurrent edits to the
+same maintenance field are rejected, and untouched maintenance fields never overwrite another window's changes.
+The existing school-scoped admin/owner rules apply to this collection; earlier changes are not reconstructed.
+
 ### 14.9 Parent view of transport (2026-11-03)
 Parents never read `tr_*` (they hold every pupil of a bus). A function keeps one projection per child that rides a bus:
 - `par_transport/{studentId}` (written only by functions): `{studentId, busId, bus ("Bus 14"), regNo, routeName, model?,
@@ -517,9 +556,13 @@ Parents never read `tr_*` (they hold every pupil of a bus). A function keeps one
 - Recomputed by `onTransportProjection*` triggers on `students` (bus / stop change), `tr_buses` (stops, crew, number), `tr_crew`
   (name / phone of the bus's crew), `tr_trips` (status of today's trips) and `tr_attendance` (today's marks).
 - Parent rule: read `par_transport/{id}` when `id in myStudents()` (also before it exists) or `resource.data.studentId in myStudents()`.
-- Parent app: Home bus card and Track Live read it (no GPS feed: the bus position is shown by stop schedule and trip status,
-  labelled as schedule-based); Student profile > Transport shows bus, route, stop, pickup / drop times, driver and attendant
-  with Call. The push rows of 14.4 (`type: "transport"`) open `/home/track`.
+- Parent app: Home bus card and Track Live read recorded trip status and child marks. Legacy pickup/drop
+  timing fields are ignored: no scheduled stop times, clock-based ETA, inferred passed stops or simulated bus
+  position are shown for school data. Student profile > Transport shows bus, route, stop, driver and attendant
+  with Call. Actual departure and boarding/drop event timestamps remain available. The push rows of 14.4
+  (`type: "transport"`) open `/home/track`.
+- Driver app: Home, trip route previews, route stops and student sheets omit planned pickup/drop times.
+  Existing saved timing strings remain compatibility data; actual trip and attendance timestamps are retained.
 
 ## 15. Scheduled circulars (2026-11-04)
 - `com_notices` with `status: "Scheduled"` and `sentAt` (ISO publish time) are published by the function

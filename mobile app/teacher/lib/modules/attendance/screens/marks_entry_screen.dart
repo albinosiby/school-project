@@ -44,6 +44,10 @@ class _EntryViewState extends State<_EntryView> {
   int? total;
   final sec = <String, int?>{};
   String tag = '';
+  /// Mark-sheet components (theory / practical / internal) by key, and the grade of a grade-only sheet.
+  final comp = <String, int?>{};
+  final compC = <String, TextEditingController>{};
+  String grade = '';
   final note = TextEditingController();
   final reason = TextEditingController();
   final totalC = TextEditingController();
@@ -59,6 +63,9 @@ class _EntryViewState extends State<_EntryView> {
     reason.dispose();
     totalC.dispose();
     for (final c in secC.values) {
+      c.dispose();
+    }
+    for (final c in compC.values) {
       c.dispose();
     }
     super.dispose();
@@ -79,6 +86,71 @@ class _EntryViewState extends State<_EntryView> {
       sec[sc.key] = v;
       (secC[sc.key] ??= TextEditingController()).text = v?.toString() ?? '';
     }
+    grade = m?.gradeValue ?? '';
+    for (final c in ex.components?.numeric ?? const []) {
+      final v = m?.componentOf(c.key);
+      comp[c.key] = v;
+      (compC[c.key] ??= TextEditingController()).text = v?.toString() ?? '';
+    }
+  }
+
+  /// Sum of the sheet components entered so far (null when none).
+  int? _sheetTotal(Exam ex) {
+    final vs = [for (final c in ex.components?.numeric ?? const []) comp[c.key]].whereType<int>().toList();
+    return vs.isEmpty ? null : vs.reduce((a, b) => a + b);
+  }
+
+  void _compChanged(String key, String v, int max) {
+    final n = int.tryParse(v);
+    setState(() {
+      comp[key] = n;
+      if (v.isNotEmpty && (n == null || n < 0 || n > max)) {
+        errors[key] = 'Cannot exceed max of $max';
+      } else {
+        errors.remove(key);
+      }
+    });
+  }
+
+  /// Sheet exams: one value per component (all required when Present, each within its max), or a grade.
+  bool _saveSheet(MarksState s, Exam ex) {
+    final c = ex.components ?? const ExamComponents();
+    errors.removeWhere((k, v) => k == 'total' || k == 'reason' || k == 'grade' || c.numeric.any((x) => x.key == k));
+    if (status == 'Present') {
+      if (c.gradeOnly) {
+        if (grade.isEmpty) errors['grade'] = 'Select a grade';
+      } else {
+        for (final x in c.numeric) {
+          final v = comp[x.key];
+          if (v == null) {
+            errors[x.key] = 'Enter the ${x.label.toLowerCase()} marks';
+          } else if (v < 0 || v > x.max) {
+            errors[x.key] = 'Cannot exceed max of ${x.max}';
+          }
+        }
+      }
+    }
+    if (edit && reason.text.trim().length < 5) errors['reason'] = 'A reason (min 5 characters) is required to edit submitted marks';
+    if (errors.isNotEmpty) {
+      setState(() {});
+      return false;
+    }
+    final old = s.markOf(ex.id, studentId!);
+    final present = status == 'Present', numeric = present && !c.gradeOnly;
+    var mark = (old ?? StudentMark(examId: ex.id, studentId: studentId!)).copyWith(
+      status: status, marks: () => numeric ? comp['theory'] : null, practical: () => numeric ? comp['practical'] : null,
+      internal: () => numeric ? comp['internal'] : null, gradeValue: present && c.gradeOnly ? grade : '',
+      tag: tag, note: note.text.trim(), sections: const {},
+    );
+    if (edit) {
+      final at = DateTime.now().toIso8601String();
+      mark = mark.copyWith(modifiedAt: at, modifiedBy: s.teacherName, history: [
+        MarkEdit(at: at, by: s.teacherName, reason: reason.text.trim(), from: old?.total, to: mark.total),
+        ...?old?.history,
+      ]);
+    }
+    context.read<MarksBloc>().add(MarkSaved(mark));
+    return true;
   }
 
   void _setTotal(int? v) => setState(() {
@@ -114,6 +186,7 @@ class _EntryViewState extends State<_EntryView> {
 
   /// Validates and dispatches the save; returns false when the form has errors.
   bool _save(MarksState s, Exam ex) {
+    if (ex.hasSheet) return _saveSheet(s, ex);
     errors.removeWhere((k, v) => k == 'total' || k == 'reason');
     if (status == 'Present') {
       if (total == null) {
@@ -151,11 +224,16 @@ class _EntryViewState extends State<_EntryView> {
     if (s.status != LoadStatus.loaded) return DetailScaffold(title: title, fallbackRoute: RoutePaths.marks, body: attLoading());
     final ex = s.exam;
     if (ex == null) return DetailScaffold(title: title, fallbackRoute: RoutePaths.marks, body: const Center(child: AppEmptyState('Exam not found')));
-    // a paper locked by the exam cell (or a class whose results are published) is read-only, also when opened by link
-    if (ex.lockedByAdmin) {
+    // a paper locked by the exam cell (or a class whose results are published), or a sheet under review, is
+    // read-only, also when opened by link
+    if (ex.readOnly) {
       return DetailScaffold(
         title: title, fallbackRoute: RoutePaths.marks,
-        body: const Center(child: AppEmptyState('Marks entry is locked', hint: 'The exam cell locked this paper. Contact the school admin for changes.', icon: Icons.lock_outline_rounded)),
+        body: Center(child: AppEmptyState(
+          ex.lockedByAdmin ? 'Marks entry is locked' : 'Sheet submitted for review',
+          hint: ex.lockedByAdmin ? 'The exam cell locked this paper. Contact the school admin for changes.' : 'The sheet is read-only until the reviewer returns it to you.',
+          icon: Icons.lock_outline_rounded,
+        )),
       );
     }
     final roster = s.roster;
@@ -167,14 +245,16 @@ class _EntryViewState extends State<_EntryView> {
     final idx = roster.indexWhere((r) => r.id == studentId).clamp(0, roster.length - 1);
     final st = roster[idx];
     final max = ex.max;
+    final maxTotal = ex.maxTotal;
     final marks = s.marksOf(ex.id);
-    final all = marks.values.where((m) => m.marks != null).toList()..sort((a, b) => b.marks!.compareTo(a.marks!));
+    final all = marks.values.where((m) => m.total != null).toList()..sort((a, b) => b.total!.compareTo(a.total!));
     final rank = all.indexWhere((m) => m.studentId == st.id) + 1;
     final rate = s.attendanceRate(st);
     final cur = marks[st.id];
-    final pct = total == null ? 0.0 : total! * 100 / max;
+    final shownTotal = ex.hasSheet ? _sheetTotal(ex) : total;
+    final pct = shownTotal == null || maxTotal == 0 ? 0.0 : shownTotal * 100 / maxTotal;
     final present = status == 'Present';
-    final classAvg = all.isEmpty ? 0.0 : all.map((m) => m.marks!).reduce((a, b) => a + b) / all.length;
+    final classAvg = all.isEmpty ? 0.0 : all.map((m) => m.total!).reduce((a, b) => a + b) / all.length;
     final stats = s.statsOf(ex);
 
     void go(int to) {
@@ -184,7 +264,7 @@ class _EntryViewState extends State<_EntryView> {
 
     return DetailScaffold(
       title: title,
-      subtitle: edit ? '${ex.name} • Max $max Marks' : null,
+      subtitle: edit ? '${ex.name} • ${ex.gradeOnly ? 'Grades' : 'Max $maxTotal Marks'}' : null,
       fallbackRoute: RoutePaths.marks,
       bottom: edit
           ? Column(mainAxisSize: MainAxisSize.min, children: [
@@ -212,6 +292,13 @@ class _EntryViewState extends State<_EntryView> {
               })),
             ]),
       body: AttBody(children: [
+        if (ex.returned) ...[
+          AttBanner(
+            icon: Icons.undo_rounded, tone: Tone.warning, text: 'Returned by the reviewer — correct and resubmit',
+            sub: (ex.returnNote ?? '').trim().isEmpty ? 'No note was added.' : ex.returnNote!.trim(),
+          ),
+          SizedBox(height: 10.h),
+        ],
         if (!edit) _NavBar(roster: roster, idx: idx, onGo: go),
         if (edit && cur?.modifiedAt != null)
           Container(
@@ -235,7 +322,7 @@ class _EntryViewState extends State<_EntryView> {
               if (rank > 0) Pill('Rank #${two(rank)}', tone: Tone.brand, icon: Icons.emoji_events_outlined),
             ]),
           ])),
-          if (edit && total != null) Text('${pct.toStringAsFixed(1)}%', style: T.h1.copyWith(color: C.primary)),
+          if (edit && shownTotal != null && !ex.gradeOnly) Text('${pct.toStringAsFixed(1)}%', style: T.h1.copyWith(color: C.primary)),
         ])),
         SizedBox(height: 12.h),
         AppCard(radius: R.xl, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -251,7 +338,9 @@ class _EntryViewState extends State<_EntryView> {
             }),
           ),
         ])),
-        if (present) ...[
+        if (present && ex.hasSheet)
+          ..._sheetCards(ex, shownTotal, pct, classAvg)
+        else if (present) ...[
           SizedBox(height: 12.h),
           AppCard(radius: R.xl, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(edit ? 'AGGREGATE MARKS' : 'TOTAL AGGREGATE SCORE', style: T.capsMuted),
@@ -346,6 +435,67 @@ class _EntryViewState extends State<_EntryView> {
         ],
       ]),
     );
+  }
+
+  /// Mark-sheet entry (contract §4): one stepper per component of the scheme (max 0 ones are hidden) with range
+  /// validation and the running total, or a grade dropdown for a grade-only sheet.
+  List<Widget> _sheetCards(Exam ex, int? sheetTotal, double pct, double classAvg) {
+    final c = ex.components ?? const ExamComponents();
+    final over = errors.keys.any((k) => c.numeric.any((x) => x.key == k));
+    final passMarks = c.passMarks;
+    return [
+      SizedBox(height: 12.h),
+      if (c.gradeOnly)
+        AppCard(radius: R.xl, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('GRADE', style: T.capsMuted),
+          SizedBox(height: 6.h),
+          AppDropdown<String>(
+            label: 'Grade awarded', value: c.gradeOptions.contains(grade) ? grade : '', items: ['', ...c.gradeOptions],
+            labelOf: (g) => g.isEmpty ? 'Select a grade' : g,
+            onChanged: (g) => setState(() {
+              grade = g;
+              errors.remove('grade');
+            }),
+          ),
+          if (errors['grade'] != null) Text(errors['grade']!, style: T.small.copyWith(color: C.danger)),
+        ]))
+      else
+        AppCard(radius: R.xl, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text(edit ? 'COMPONENT MARKS' : 'MARKS BY COMPONENT', style: T.capsMuted)),
+            Text('Max Total: ${c.maxTotal}', style: T.smallStrong),
+          ]),
+          SizedBox(height: 8.h),
+          for (final x in c.numeric)
+            _SectionRow(
+              section: ExamSection(key: x.label[0], name: x.label, desc: 'Out of ${x.max}', max: x.max),
+              controller: compC[x.key] ??= TextEditingController(), error: errors[x.key], dense: edit,
+              onChanged: (v) => _compChanged(x.key, v, x.max),
+            ),
+          Container(
+            margin: EdgeInsets.only(top: 4.h), padding: EdgeInsets.all(12.r),
+            decoration: BoxDecoration(color: over ? C.dangerSoft : C.successSoft, borderRadius: BorderRadius.circular(R.md)),
+            child: Row(children: [
+              Icon(over ? Icons.error_outline_rounded : Icons.fact_check_outlined, size: 18.r, color: over ? C.danger : C.successDark), SizedBox(width: 8.w),
+              Expanded(child: Text('Total', style: T.smallStrong)),
+              Flexible(child: Text('${c.numeric.map((x) => comp[x.key] ?? 0).join(' + ')} = ${sheetTotal ?? 0} / ${c.maxTotal}', textAlign: TextAlign.end,
+                  style: T.smallStrong.copyWith(color: over ? C.danger : C.successDark))),
+            ]),
+          ),
+          if (sheetTotal != null && !over) ...[
+            SizedBox(height: 10.h),
+            Row(children: [
+              Pill('Grade ${gradeOf(pct)} • ${pct.round()}%', tone: pct >= 80 ? Tone.success : Tone.brand),
+              SizedBox(width: 6.w),
+              if (passMarks > 0) Pill(sheetTotal >= passMarks ? 'Pass (≥ $passMarks)' : 'Below pass mark $passMarks', tone: sheetTotal >= passMarks ? Tone.success : Tone.danger),
+              const Spacer(),
+              Text('Class Avg: ${classAvg.toStringAsFixed(1)}', style: T.small),
+            ]),
+            SizedBox(height: 8.h),
+            AppProgress(pct / 100),
+          ],
+        ])),
+    ];
   }
 
   double? _accuracy(Iterable<StudentMark> marks, ExamSection sc) {

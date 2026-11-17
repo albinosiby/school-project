@@ -55,3 +55,8 @@ class MarksExamSubmitted extends MarksEvent {
 class MarksRefreshed extends MarksEvent {
   const MarksRefreshed();
 }
+
+/// The screen showed [MarksState.notice]; clear it.
+class MarksNoticeDismissed extends MarksEvent {
+  const MarksNoticeDismissed();
+}

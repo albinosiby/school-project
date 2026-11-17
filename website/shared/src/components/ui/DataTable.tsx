@@ -5,6 +5,7 @@ import { cn } from "../../lib/cn";
 import { Button } from "./Button";
 import { Checkbox } from "./Field";
 import { EmptyState } from "./Misc";
+import { ListToolbar } from "./ListToolbar";
 
 export type Column<T> = {
   key: string; header: string; render?: (row: T) => React.ReactNode;
@@ -22,15 +23,19 @@ export function SearchBox({ value, onChange, placeholder = "Search…", classNam
 }
 
 export function DataTable<T extends { id: string }>({
-  rows, columns, searchText, pageSize = 8, selectable, selected, onSelectedChange, onRowClick, empty, toolbar,
+  rows, columns, searchText, pageSize = 8, selectable, selected, onSelectedChange, onRowClick, empty, toolbar, toolbarActions, resetKey,
 }: {
   rows: T[]; columns: Column<T>[]; searchText?: (row: T) => string; pageSize?: number;
   selectable?: boolean; selected?: string[]; onSelectedChange?: (ids: string[]) => void;
-  onRowClick?: (row: T) => void; empty?: React.ReactNode; toolbar?: React.ReactNode;
+  onRowClick?: (row: T) => void; empty?: React.ReactNode; toolbar?: React.ReactNode; toolbarActions?: React.ReactNode;
+  /** Reset pagination when an external directory search/filter changes, retaining the selected sort. */
+  resetKey?: string;
 }) {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
+  const [previousResetKey, setPreviousResetKey] = useState(resetKey);
+  if (previousResetKey !== resetKey) { setPreviousResetKey(resetKey); setPage(0); }
 
   const view = useMemo(() => {
     let r = rows;
@@ -53,11 +58,10 @@ export function DataTable<T extends { id: string }>({
 
   return (
     <div>
-      {(searchText || toolbar) && (
-        <div className="flex flex-wrap items-center gap-3 px-5 pb-3">
-          {searchText && <SearchBox value={q} onChange={(v) => { setQ(v); setPage(0); }} className="w-full max-w-xs" />}
-          <div className="ml-auto flex items-center gap-2">{toolbar}</div>
-        </div>
+      {(searchText || toolbar || toolbarActions) && (
+        <ListToolbar className="px-5 pb-3"
+          search={searchText && <SearchBox value={q} onChange={(v) => { setQ(v); setPage(0); }} />}
+          filters={toolbar} actions={toolbarActions} />
       )}
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-left">

@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { writeBatch } from "firebase/firestore";
 import { CheckCircle2, Download, FileText, MessageCircle, Plus, Printer, Receipt, Send, X } from "lucide-react";
-import { Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, PageHeader, Select, Tabs, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, PageHeader, Select, Tabs, useToast, type Column } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate, inr, inrFull } from "@/lib/format";
 import { db } from "@/lib/firebase";
@@ -186,10 +186,10 @@ export function FeesPage() {
             <CardHeader title="Student Fee Invoices & Dues Ledger" subtitle="Real-time status across academic year 2026-27 invoices" />
             <div className="px-5 pb-3"><Tabs value={tab} onChange={setTab} items={[{ id: "all", label: `All (${counts.all.toLocaleString("en-IN")})` }, { id: "due", label: `Unpaid / Overdue (${counts.due})` }, { id: "paid", label: `Paid (${counts.paid.toLocaleString("en-IN")})` }]} /></div>
             <DataTable rows={filtered} columns={cols} pageSize={8} selectable selected={sel} onSelectedChange={setSel} onRowClick={pickInvoice}
-              searchText={(i) => `${i.student} ${i.grn} ${i.no} ${i.guardian}`} empty={!inv.ready ? <p className="p-8 text-center text-on-surface-variant">Loading invoices…</p> : undefined}
+              searchText={(i) => `${i.student} ${i.grn} ${i.no} ${i.guardian}`} empty={!inv.ready ? <LoadingSkeleton variant="table" label="Loading invoices…" className="p-8 text-center text-on-surface-variant" /> : undefined}
               toolbar={<>
-                <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="!w-40"><option value="all">All Grades</option>{Array.from({ length: 12 }, (_, g) => <option key={g} value={g + 1}>Grade {g + 1}</option>)}</Select>
-                <Select aria-label="Term" value={term} onChange={(e) => setTerm(e.target.value)} className="!w-40"><option value="all">All Terms</option>{terms.map((x) => <option key={x}>{x}</option>)}</Select>
+                <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} ><option value="all">All Grades</option>{Array.from({ length: 12 }, (_, g) => <option key={g} value={g + 1}>Grade {g + 1}</option>)}</Select>
+                <Select aria-label="Term" value={term} onChange={(e) => setTerm(e.target.value)} ><option value="all">All Terms</option>{terms.map((x) => <option key={x}>{x}</option>)}</Select>
               </>} />
           </Card>
 
@@ -343,7 +343,7 @@ function StructureModal({ fs, taken, scopes, onClose, onSave }: { fs: Structure 
       <div className="grid grid-cols-2 gap-4">{keys.map((k) => (
         <Field key={k} label={k[0].toUpperCase() + k.slice(1)}><Input type="number" min={0} value={cur[k]} onChange={(e) => setV({ ...cur, [k]: Number(e.target.value) })} /></Field>))}</div>
       <p className="mt-4 text-sm text-on-surface-variant">Term total (excl. transport): <b>{inrFull(feeTotal(cur))}</b></p>
-      <p className="mt-2 text-xs text-on-surface-variant">Set transportation fees on each bus under Transport → Buses.</p>
+      <p className="mt-2 text-xs text-on-surface-variant">Set transport amounts in student details → Transport. Choose the collection frequency in Settings → Payments.</p>
     </Modal>
   );
 }

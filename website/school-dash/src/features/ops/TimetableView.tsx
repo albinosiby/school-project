@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, Plus } from "lucide-react";
-import { Badge, Button, Card, Field, Input, Modal, PageHeader, Select, useToast } from "@/components/ui";
+import { Badge, Button, Card, Field, Input, ListToolbar, Modal, PageHeader, Select, useToast } from "@/components/ui";
 import { classStream, isSeniorGrade, streamIdOf, streamsForGrade, type AcademicClass } from "@/lib/academicStreams";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
@@ -49,13 +49,13 @@ export function TimetableView({ embedded = false }: { embedded?: boolean } = {})
   const clash: Clash = (r) => findTeacherClash(rows, { ...r, classId });
   const conflicts = mine.filter((r) => clash(r)).length;
 
-  const actions = <>
+  const actions = <ListToolbar filters={<>
           <Select aria-label="Grade" value={grade} onChange={(e) => { setGrade(e.target.value); setStream(""); setEdit(null); }} className="w-32">{TIMETABLE_GRADES.map((g) => <option key={g} value={g}>{gradeName(g)}</option>)}</Select>
           {isSeniorGrade(grade) && streams.length > 0 && <Select aria-label="Stream" value={stream} onChange={(e) => {
             const id = e.target.value; setStream(id); setEdit(null);
             setSection(classes.filter((row) => row.grade === grade && classStream(row) === id).map((row) => row.section).sort()[0] ?? "A");
           }} className="w-44"><option value="">No stream</option>{streams.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</Select>}
-          <Select aria-label="Section" value={section} onChange={(e) => { setSection(e.target.value); setEdit(null); }} className="w-28">{sections.map((g) => <option key={g} value={g}>Sec {g}</option>)}</Select></>;
+          <Select aria-label="Section" value={section} onChange={(e) => { setSection(e.target.value); setEdit(null); }} className="w-28">{sections.map((g) => <option key={g} value={g}>Sec {g}</option>)}</Select></>} />;
 
   return (
     <div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Button, Card } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card } from "@/components/ui";
 import { schoolDaySchedule, teachingPeriods, withTimetableBreaks, type ClassActivityConfig } from "@/features/ops/classActivity";
 import { classDetailsHref, classTitle } from "@/features/ops/classDetails";
 import { periodClass, type ClassRow, type Period } from "@/features/ops/logic";
@@ -44,7 +44,7 @@ export function StaffTimetable({ member, staff }: { member: Teacher; staff: Teac
     {error ? <div className="px-5 pb-5">
       <p role="alert" className="mb-3 text-sm text-error">Could not load this teacher’s timetable. {error.message}</p>
       <Button size="sm" variant="outline" onClick={() => sources.forEach((source) => source.reload())}>Reload timetable</Button>
-    </div> : !ready ? <p role="status" className="px-5 pb-5 text-sm text-on-surface-variant">Loading teacher timetable…</p>
+    </div> : !ready ? <LoadingSkeleton variant="table" label="Loading teacher timetable…" className="px-5 pb-5 text-sm text-on-surface-variant" />
       : !schedule ? <p role="alert" className="px-5 pb-5 text-sm text-warning">School bell timings are unavailable. <Link href="/settings?section=timetable#school-timings" className="font-semibold text-secondary hover:underline">Configure school hours &amp; breaks</Link>.</p>
         : <>
           {!active.length && <p className="px-5 pb-4 text-sm text-on-surface-variant">No weekly lessons assigned yet.</p>}

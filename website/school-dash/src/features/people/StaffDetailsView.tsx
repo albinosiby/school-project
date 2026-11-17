@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import { doc, writeBatch } from "firebase/firestore";
-import { Badge, Button, Card, EmptyState, Modal, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, EmptyState, Modal, useToast } from "@/components/ui";
 import { COUNTRIES } from "@/features/onboarding/locations";
 import type { Crew } from "@/features/transport/types";
 import { useAuth } from "@/lib/authContext";
@@ -107,7 +107,7 @@ export function StaffDetailsView({ staffId }: { staffId: string }) {
   const back = <Link href="/staff" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-secondary hover:underline">
     <ArrowLeft size={16} aria-hidden="true" /> Back to staff
   </Link>;
-  if (!ready) return <div>{back}<p role="status">Loading staff details…</p></div>;
+  if (!ready) return <div>{back}<LoadingSkeleton variant="details" label="Loading staff details…" /></div>;
   if (!member || !canManage) return <div>{back}<Card>
     <EmptyState title="Staff record unavailable" hint="The record may have been removed or may not be available to your account." />
   </Card></div>;
@@ -267,7 +267,7 @@ export function StaffDetailsView({ staffId }: { staffId: string }) {
       </div>
     </Card>
 
-    {managed && !loaded && <p role="status" className="mb-4 text-sm text-on-surface-variant">Loading saved staff details…</p>}
+    {managed && !loaded && <LoadingSkeleton variant="details" label="Loading saved staff details…" className="mb-4 text-sm text-on-surface-variant" />}
     {loaded?.error && <div role="alert" className="mb-4 flex flex-wrap items-center gap-3 text-sm text-error">
       {loaded.error}
       <Button variant="outline" size="sm" onClick={() => setRevision((value) => value + 1)}>Try again</Button>

@@ -13,6 +13,15 @@ const base: Ctx = {
 };
 
 describe("attendance from ops_attendance", () => {
+  it("uses the configured school minimum for register flags and marks eligibility", () => {
+    const ctx = { ...base, attendanceMinimum: 90 };
+    expect(generate(rep("attendance"), ctx, P).rows[0]!.at(-1)).toBe("OK");
+    expect(generate(rep("attendance"), { ...ctx, attendanceMinimum: 95 }, P).rows[0]!.at(-1)).toBe("Below 95%");
+    const marks = generate(rep("marks"), { ...ctx, attendanceMinimum: 95 }, P);
+    expect(marks.columns.at(-1)).toBe("95% Rule");
+    expect(marks.rows[0]!.at(-1)).toBe("Shortage");
+    expect(generate(rep("attendance"), { ...ctx, attendanceMinimum: 0 }, P).rows.every((row) => row.at(-1) === "OK")).toBe(true);
+  });
   const att: AttRec[] = [
     { id: "1", date: "2026-11-02", classId: "cls_8A", period: 1, marks: { stu_1: "A" }, updatedAt: 1 },
     { id: "2", date: "2026-11-02", classId: "cls_8A", period: 2, marks: {}, updatedAt: 2 }, // newer record of the day wins: stu_1 present

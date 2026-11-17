@@ -10,7 +10,7 @@ import { consolidated, participates } from "../../../../functions/examOperations
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ClipboardCheck, Download, FileSpreadsheet, FileUp, Lock, LockOpen, Pencil, Plus, Send, ShieldCheck } from "lucide-react";
-import { Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Modal, PageHeader, Select, Stat, Tabs, Textarea, useToast, type Column } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, ListToolbar, Modal, PageHeader, Select, Stat, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { fmtDate } from "@/lib/format";
 import { downloadCsv, parseCsv } from "@/features/fees/csv";
@@ -301,13 +301,10 @@ export function ExamsPage({ cycleOverride, embedded = false, focus = null }: { c
 
       <Card className="mt-6">
         <CardHeader title="EXAMINATION CYCLES & SCHEDULE OVERVIEW" subtitle="Real-time timetable execution status, paper duration & invigilator allocations" />
-        <div className="flex flex-wrap items-center gap-3 px-5 pb-3">
-            <Tabs items={cycles.rows.map((c) => ({ id: c.id, label: c.short }))} value={curId} onChange={(v) => { setCycleId(v); setGradeFilter("all"); setPaperId(""); }} />
-            <Select aria-label="Filter grade" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)} className="!w-40">
+        <div className="px-5 pb-3"><Tabs items={cycles.rows.map((c) => ({ id: c.id, label: c.short }))} value={curId} onChange={(v) => { setCycleId(v); setGradeFilter("all"); setPaperId(""); }} /></div>
+        <ListToolbar className="px-5 pb-3" filters={<Select aria-label="Filter grade" value={gradeFilter} onChange={(e) => setGradeFilter(e.target.value)}>
               <option value="all">All Grades</option>{gradesInCycle.map((g) => <option key={g} value={g}>Grade {g}</option>)}
-            </Select>
-            {cur && <><Button variant="outline" size="sm" onClick={() => router.push(`/exams/${cur.id}`)}>Open examination</Button><Button variant="outline" size="sm" onClick={() => router.push(`/exams/${cur.id}/edit`)}><Pencil size={14} />{cur.status === "Draft" ? "Edit cycle" : "View setup"}</Button></>}
-        </div>
+            </Select>} actions={cur && <><Button variant="outline" size="sm" onClick={() => router.push(`/exams/${cur.id}`)}>Open examination</Button><Button variant="outline" size="sm" onClick={() => router.push(`/exams/${cur.id}/edit`)}><Pencil size={14} />{cur.status === "Draft" ? "Edit cycle" : "View setup"}</Button></>} />
         <DataTable rows={cyclePapers} columns={scheduleCols} pageSize={6}
           empty={cycles.ready && !cycles.rows.length ? <EmptyState title="No exam cycles yet" hint="Create an exam cycle to schedule papers." action={<Button size="sm" onClick={() => router.push("/exams/new")}>Create exam cycle</Button>} />
             : <EmptyState title="No papers scheduled" hint="Edit this cycle to add subject paper slots." action={cur && <Button size="sm" onClick={() => router.push(`/exams/${cur.id}/edit`)}>Add paper slots</Button>} />} />
@@ -331,7 +328,7 @@ export function ExamsPage({ cycleOverride, embedded = false, focus = null }: { c
         </div>
         <DataTable rows={roster} columns={markCols} pageSize={6} selectable={!sheet} selected={sel} onSelectedChange={setSel}
           searchText={(c) => `${c.name} ${c.roll} ${c.grn}`}
-          toolbar={sheet ? undefined : <Button size="sm" variant="outline" onClick={verifySelected} disabled={!sel.length}><ShieldCheck size={14} />Verify selected ({sel.length})</Button>}
+          toolbarActions={sheet ? undefined : <Button size="sm" variant="outline" onClick={verifySelected} disabled={!sel.length}><ShieldCheck size={14} />Verify selected ({sel.length})</Button>}
           empty={<EmptyState title="No candidates" hint="No roster found for this class." />} />
         {sheet && sheetClosed && <p className="px-5 pb-3 text-xs font-medium text-on-surface-variant"><Lock size={12} className="mr-1 inline" />{sheetLockedMessage(sheet.status)}</p>}
         {!sheet && isMarkLocked && <p className="px-5 pb-3 text-xs font-medium text-on-surface-variant"><Lock size={12} className="mr-1 inline" />Marks entry is locked for this paper. Reopen it to edit marks.</p>}

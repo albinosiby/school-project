@@ -193,7 +193,7 @@ void main() {
       expect(find.text('Subject-wise marks'), findsOneWidget);
       await _reveal(tester, find.text('Download report card (PDF)'));
       await _tap(tester, find.text('Download report card (PDF)'));
-      expect(find.textContaining('Report card saved'), findsOneWidget);
+      expect(find.textContaining('has not published a consolidated PDF'), findsOneWidget);
       await _tap(tester, find.byTooltip('Back'));
       expect(_location(tester), RoutePaths.academicsSection('marks'));
 

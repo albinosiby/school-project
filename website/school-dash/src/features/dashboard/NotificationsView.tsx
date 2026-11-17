@@ -3,7 +3,7 @@ import { useSchoolClock } from "@/lib/useSchoolClock";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { CheckCheck, Mail, MailOpen, Trash2 } from "lucide-react";
-import { Badge, Button, Card, EmptyState, SearchBox, Tabs, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, EmptyState, ListToolbar, SearchBox, Tabs, useToast } from "@/components/ui";
 import { useAuth } from "@/lib/authContext";
 import { useCollection } from "@/lib/useCollection";
 import { cn } from "@/lib/cn";
@@ -49,11 +49,11 @@ export function NotificationsView() {
           <p className="mt-1 text-on-surface-variant">Stay informed on critical school activities, approvals, statutory timelines, and operations.</p></div>
         <Button variant="outline" onClick={() => markAll(rows, "All notifications marked as read")} disabled={!unread}><CheckCheck size={15} />Mark all as read{unread ? ` (${unread})` : ""}</Button>
       </div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-outline-variant/60 pb-4">
-        <Tabs items={tabs} value={tab} onChange={(t) => { setTab(t); setPage(1); }} className="flex-wrap" />
-        <SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Filter alerts or keywords…" className="w-full sm:w-72" />
-      </div>
-      {!ready ? null : groups.length === 0 ? <Card><EmptyState title="No notifications" hint={q ? "No alerts match your filter." : "You're all caught up."} /></Card> :
+      <ListToolbar className="mb-4 border-b border-outline-variant/60 pb-4"
+        search={<SearchBox value={q} onChange={(v) => { setQ(v); setPage(1); }} placeholder="Filter alerts or keywords…" />}>
+        <Tabs items={tabs} value={tab} onChange={(t) => { setTab(t); setPage(1); }} />
+      </ListToolbar>
+      {!ready ? <LoadingSkeleton variant="table" label="Loading notifications…" /> : groups.length === 0 ? <Card><EmptyState title="No notifications" hint={q ? "No alerts match your filter." : "You're all caught up."} /></Card> :
         groups.map(({ g, items }) => (
           <section key={g} className="mb-6">
             <div className="mb-2 flex items-center gap-3 px-1"><h2 className="text-xs font-bold tracking-wide">{g}</h2><Badge tone="brand">{view.filter((n) => groupOf(n) === g).length} updates</Badge>

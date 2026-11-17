@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { Badge, Button, Card, CardHeader, DataTable, Field, Input, Modal, Select, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, CardHeader, DataTable, Field, Input, Modal, Select, useToast, type Column } from "@/components/ui";
 import { fmtDate, inrFull } from "@/lib/format";
 import { AdmissionForm } from "./AdmissionForm";
 import { EnquirySlideOver } from "./EnquirySlideOver";
@@ -54,7 +54,7 @@ export function Applications() {
           <Select aria-label="Grade or course" value={cohort} onChange={(e) => setCohort(e.target.value)}><option value="">All grades and courses</option>
             {cohorts.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
           </Select>
-        </>} /> : <p className="p-5">Loading applications…</p>}
+        </>} /> : <LoadingSkeleton variant="table" label="Loading applications…" className="p-5" />}
       <EnquirySlideOver open={adding} mode="application" onClose={() => setAdding(false)} onApplication={setDetailId} />
       {detail && <ApplicationDetail key={detail.id} application={detail} offer={offer} admissions={admissions} onClose={() => setDetailId(null)} />}
     </Card>

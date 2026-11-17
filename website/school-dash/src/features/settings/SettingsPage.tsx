@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, Briefcase, Building2, CalendarClock, CalendarDays, Download, Globe, Lock, Plug, Plus, Save, ShieldCheck, Users } from "lucide-react";
-import { Badge, Button, Card, Checkbox, Field, Input, Modal, PageHeader, ProgressBar, Select, Switch, Tabs, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, Checkbox, Field, Input, Modal, PageHeader, ProgressBar, Select, Switch, Tabs, useToast } from "@/components/ui";
 import type { Tone } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate } from "@/lib/format";
@@ -13,6 +13,8 @@ import { downloadCsv } from "@/features/fees/csv";
 import { EMAIL_RE, validPhone } from "@/features/people/staffLogic";
 import { addressErrors, addressRecord, type SchoolAddress } from "@/features/onboarding/address";
 import { SchoolAddressFields, useAddressLocations } from "@/features/onboarding/SchoolAddressFields";
+import { PaymentSettings } from "./PaymentSettings";
+import { AttendancePolicySettings } from "./AttendancePolicySettings";
 import { LeavePolicyEditor } from "./LeavePolicyEditor";
 import { AdmissionNumberSettings } from "./AdmissionNumberSettings";
 import { EmployeeNumberSettings } from "./EmployeeNumberSettings";
@@ -51,7 +53,7 @@ const DEF_BELL: Bell = { id: "bell", gates: "", classes: "", periods: "", recess
 const errText = (e: unknown) => (e instanceof Error && e.message ? e.message.replace(/^Firebase:\s*/, "") : "Unknown error");
 
 const SECTIONS = [
-  { id: "profile", label: "School Profile" }, { id: "year", label: "Academic Year" }, { id: "capacity", label: "Classes & Sections" }, { id: "timetable", label: "Timetable" }, { id: "admissions", label: "Admissions" }, { id: "staff-numbering", label: "Employee IDs" }, { id: "grading", label: "Grading" }, { id: "assessment", label: "Assessment Scheme" }, { id: "leave", label: "Leave Policy" },
+  { id: "profile", label: "School Profile" }, { id: "year", label: "Academic Year" }, { id: "capacity", label: "Classes & Sections" }, { id: "timetable", label: "Timetable" }, { id: "payments", label: "Payments" }, { id: "admissions", label: "Admissions" }, { id: "staff-numbering", label: "Employee IDs" }, { id: "grading", label: "Grading" }, { id: "assessment", label: "Assessment Scheme" }, { id: "leave", label: "Leave Policy" },
   { id: "roles", label: "Roles & Permissions" }, { id: "integrations", label: "Integrations" }, { id: "regional", label: "Localization" }, { id: "rollover", label: "Year-End Rollover" }, { id: "audit", label: "Audit Log" },
 ];
 const ALL_PERMS = ["Master Timetable", "Marks & Grades Entry", "Daily Attendance", "Homework Broadcast"];
@@ -190,7 +192,7 @@ export function SettingsPage() {
   const readiness: Record<string, boolean> = { year: terms.ready && schoolCol.ready, capacity: secs.ready && students.ready,
     roles: roles.ready, integrations: integ.ready, grading: bands.ready, rollover: excs.ready && schoolCol.ready, audit: audit.ready };
 
-  if (!p || !r || !b) return <p className="text-on-surface-variant">Loading settings…</p>;
+  if (!p || !r || !b) return <LoadingSkeleton variant="page" label="Loading settings…" className="text-on-surface-variant" />;
   const sectionRows = secs.rows.map((row) => isCourseId(row.streamId ?? "") ? {
     ...row, roster: activeStu.filter((student) => `Grade ${student.grade}` === row.grade &&
       (classStream(student) || streamFromClassId(student.classId)) === row.streamId).length,
@@ -204,7 +206,8 @@ export function SettingsPage() {
       <div className="sticky top-0 z-10 -mx-1 mb-5 bg-surface/90 px-1 py-2 backdrop-blur"><Tabs items={SECTIONS} value={active} onChange={openSection} /></div>
 
       <div id="settings-panel" role="tabpanel" aria-label={activeLabel} className="scroll-mt-24">
-        {readiness[active] === false && <p role="status" className="text-on-surface-variant">Loading {activeLabel.toLowerCase()}…</p>}
+        {active === "payments" && <PaymentSettings />}
+        {readiness[active] === false && <LoadingSkeleton variant="form" label={`Loading ${activeLabel.toLowerCase()}…`} />}
         {active === "profile" && <div className="grid items-start gap-6 xl:grid-cols-[1fr_440px]">
           <Section id="profile" icon={<Building2 size={20} />} title="School Profile, Affiliation & Official Seal" desc="Statutory credentials printed on report cards, bonafides, and CBSE manifests" badge={<Badge tone={profile?.affiliation ? "success" : "warning"}>{profile?.affiliation ? "Affiliation on file" : "Affiliation missing"}</Badge>}>
             <SchoolLogoEditor logoUrl={school?.logoUrl} disabled={!schoolCol.ready} />
@@ -271,6 +274,7 @@ export function SettingsPage() {
                 <tr key={t.id} className="border-t border-outline-variant/50"><td className="p-3 font-semibold">{t.name}</td><td className="p-3">{t.start ? fmtDate(t.start) : "—"} – {t.end ? fmtDate(t.end) : "—"}</td><td className="p-3">{t.days ?? "—"} Days</td>
                   <td className="p-3"><Badge tone={t.status === "Closed" ? "neutral" : "success"}>{t.status === "Closed" ? "Term Closed · Audited" : "Active / In Progress"}</Badge></td>
                   <td className="p-3 text-right"><Button size="sm" variant="ghost" onClick={() => setTermEdit(t)}>Edit</Button></td></tr>))}</tbody></table></div>
+            <AttendancePolicySettings />
             <div className="mt-4 rounded-lg bg-surface-container-low p-4">
               <p className="mb-3 flex items-center gap-2 font-semibold"><BookOpen size={16} className="text-secondary" />Daily Bell Structure</p>
               <div className="grid gap-3 md:grid-cols-4">

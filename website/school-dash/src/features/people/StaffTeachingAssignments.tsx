@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Card } from "@/components/ui";
+import { LoadingSkeleton, Badge, Card } from "@/components/ui";
 import type { Assignment, ClassRow } from "@/features/ops/logic";
 import { clsLabel } from "@/features/ops/shared";
 import { classStream, streamName } from "@/lib/academicStreams";
@@ -31,7 +31,7 @@ export function StaffTeachingAssignments({ staffId }: { staffId: string }) {
 
   return <Card className="min-w-0 p-5">
     <h2 className="t-label-caps mb-3 text-on-surface-variant">Assigned classes</h2>
-    {!classes.ready || !assignments.ready ? <p role="status" className="text-sm text-on-surface-variant">Loading teaching assignments…</p>
+    {!classes.ready || !assignments.ready ? <LoadingSkeleton variant="table" label="Loading teaching assignments…" className="text-sm text-on-surface-variant" />
       : <>
         <dl className="mb-4 grid gap-1 text-sm">
           <dt className="text-outline">Class teacher of</dt>

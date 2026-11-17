@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Button, Field, Input } from "@/components/ui";
+import { LoadingSkeleton, Button, Field, Input } from "@/components/ui";
 import { useAuth } from "@/lib/authContext";
 import { confirmPassword, mfaCall, mfaError, registerAdminPasskey, type MfaResult, type PasskeyStatus } from "./adminMfa";
 export function AdminPasskeyCard() {
@@ -25,7 +25,7 @@ export function AdminPasskeyCard() {
     } catch (e) { setError(mfaError(e)); } finally { setBusy(false); }
   }
   return <div className="mt-4 space-y-3 rounded-lg border border-outline-variant/60 p-4">
-    <p className="font-semibold">Hardware MFA (FIDO2)</p><p className="text-xs text-on-surface-variant">{status ? status.enabled ? "A passkey is required after your email and password." : "Register a security key or passkey to enable two-step sign-in." : "Loading passkey settings…"}</p>
+    <p className="font-semibold">Hardware MFA (FIDO2)</p>{status ? <p className="text-xs text-on-surface-variant">{status.enabled ? "A passkey is required after your email and password." : "Register a security key or passkey to enable two-step sign-in."}</p> : !error && <LoadingSkeleton variant="card" label="Loading passkey settings…" />}
     {error && <div role="alert" className="space-y-2 text-sm text-error"><p>{error}</p><Button variant="outline" size="sm" onClick={() => void load()}>Retry</Button></div>}
     {status && <>
       <ul className="space-y-2">{status.credentials.map((key) => <li key={key.id} className="rounded border border-outline-variant/60 p-2 text-sm"><p className="font-medium">{key.label}</p><p className="break-all text-xs text-outline">{key.rpId}</p><Button size="sm" variant="ghost" disabled={busy || !password || status.credentials.length <= 1} onClick={() => void run("removeCredential", key.id)}>Remove passkey</Button></li>)}</ul>

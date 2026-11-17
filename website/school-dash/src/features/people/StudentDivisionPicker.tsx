@@ -3,7 +3,7 @@
 import { useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { School } from "lucide-react";
-import { Button, Field, Modal, Select, useToast } from "@/components/ui";
+import { LoadingField, Button, Field, Modal, Select, useToast } from "@/components/ui";
 import { activeStudent } from "@/features/ops/shared";
 import { gradeName } from "@/features/onboarding/classSetup";
 import { isSeniorGrade, streamName } from "@/lib/academicStreams";
@@ -61,15 +61,15 @@ function DivisionForm({ student, students, onClose }: { student: Student; studen
     <div className="space-y-4">
       <p className="text-sm font-medium">{scope}</p>
       <Field label="Division" required hint="Only divisions configured for this grade and department are listed.">
-        <Select disabled={saving || !classes.ready} value={selected ? classId : ""} onChange={(event) => { setClassId(event.target.value); setError(""); }}>
-          <option value="">{classes.ready ? "Select a division…" : "Loading divisions…"}</option>
+        <LoadingField loading={!classes.ready} label="Loading divisions…"><Select disabled={saving || !classes.ready} value={selected ? classId : ""} onChange={(event) => { setClassId(event.target.value); setError(""); }}>
+          <option value="">Select a division…</option>
           {choices.map((row) => {
             const left = seatsLeft(row);
             return <option key={row.id} value={row.id} disabled={left === 0 && row.id !== currentId}>
               Division {row.section}{row.id === currentId ? " · Current" : left === undefined ? " · Seat limit not set" : left === 0 ? " · Full" : ` · ${left} seats available`}
             </option>;
           })}
-        </Select>
+        </Select></LoadingField>
       </Field>
       {selected && classId !== currentId && <p className="text-sm text-on-surface-variant">The roll number will be unassigned. The class teacher can assign a roll number in the new division.</p>}
       {classes.ready && !choices.length && <p className="text-sm text-on-surface-variant">

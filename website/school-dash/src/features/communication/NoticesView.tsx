@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, Download, FileText, Mail, MoreVertical, Pin, Plus, Send, Siren, Timer, TriangleAlert, Zap } from "lucide-react";
-import { Avatar, Badge, Button, Card, CardHeader, EmptyState, Modal, ProgressBar, SearchBox, Select, Tabs, Textarea, useToast } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, EmptyState, ListToolbar, Modal, ProgressBar, SearchBox, Select, Tabs, Textarea, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { CommHeader } from "./CommHeader";
@@ -88,17 +88,17 @@ export function NoticesView() {
         <Kpi label="Mandatory statutory reports" icon={<TriangleAlert size={16} />} tone="danger"><span className="t-headline-md !text-3xl">{due} Reports</span></Kpi>
       </div>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[1fr_340px]">
-        <div className="space-y-4">
-          <Card className="flex flex-wrap items-center gap-3 p-3">
-            <SearchBox value={q} onChange={setQ} placeholder="Search notices by title, grade, recipient or ID..." className="w-full max-w-xs" />
-            <Tabs value={tab} onChange={setTab} items={[
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-4">
+          <Card className="min-w-0 p-4">
+            <ListToolbar search={<SearchBox value={q} onChange={setQ} placeholder="Search notices by title, grade, recipient or ID..." />}
+              actions={<Button onClick={() => setComposer({ open: true, notice: null })}><Plus size={14} />New Notice</Button>} />
+            <Tabs className="mt-3" value={tab} onChange={setTab} items={[
               { id: "all", label: "All", count: counts("all") }, { id: "Published", label: "Published", count: counts("Published") },
               { id: "Scheduled", label: "Scheduled", count: counts("Scheduled") }, { id: "Draft", label: "Draft", count: counts("Draft") },
             ]} />
-            <Button className="ml-auto" size="sm" onClick={() => setComposer({ open: true, notice: null })}><Plus size={14} />New Notice</Button>
           </Card>
-          {!ready && <Card><p className="p-8 text-center text-on-surface-variant">Loading notices…</p></Card>}
+          {!ready && <Card><LoadingSkeleton variant="table" label="Loading notices…" className="p-8 text-center text-on-surface-variant" /></Card>}
           {ready && view.length === 0 && <Card><EmptyState title="No notices found" hint="Try a different search or filter, or compose a new notice." /></Card>}
           {view.map((n) => <NoticeCard key={n.id} n={n}
             onEdit={() => setComposer({ open: true, notice: n })} onAck={() => setAck(n)} onResend={() => resend(n)} onAct={(w) => act(n, w)} />)}

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BookOpen, Clock, MapPin, School, Users } from "lucide-react";
-import { Avatar, Badge, Card, DataTable, EmptyState, Stat, Tabs, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Card, DataTable, EmptyState, Stat, Tabs, type Column } from "@/components/ui";
 import type { Cycle, Mark as ExamMark, Paper } from "@/features/exams/types";
 import { useAuth } from "@/lib/authContext";
 import { useCollection } from "@/lib/useCollection";
@@ -53,7 +53,7 @@ export function ClassDetailsView({ classId }: { classId: string }) {
   const present = useMemo(() => currentPeriodAttendance(clock, attendance.rows).get(classId), [clock, attendance.rows, classId]);
   const back = <Link href="/classes" className="mb-4 inline-flex items-center gap-2 text-sm font-semibold text-secondary hover:underline"><ArrowLeft size={16} aria-hidden="true" />Back to classes</Link>;
   if (!canView || (classes.ready && !cls)) return <div>{back}<Card><EmptyState title="Class record unavailable" hint="The class may have been removed or may not be available to your account." /></Card></div>;
-  if (!cls || ![classes, students, staff, assignments, periods, substitutions, attendance, config].every((source) => source.ready)) return <div>{back}<p role="status">Loading class details…</p></div>;
+  if (!cls || ![classes, students, staff, assignments, periods, substitutions, attendance, config].every((source) => source.ready)) return <div>{back}<LoadingSkeleton variant="details" label="Loading class details…" /></div>;
   const genders = genderCounts(roster);
   const examOptions = classExams(cls, cycles.rows, papers.rows);
   const cycle = examOptions.find((row) => row.id === examId) || defaultClassExam(cls, cycles.rows, papers.rows);

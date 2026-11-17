@@ -82,7 +82,7 @@ void main() {
       final eta = seen.last.minutesToDrop;
       repo.advance(4);
       await _settle();
-      expect(seen.last.minutesToDrop, eta - 4);
+      expect(seen.last.minutesToDrop, eta! - 4);
       repo.advance(100); // clamps at the terminus
       await _settle();
       expect(seen.last.phase, TripPhase.completed);

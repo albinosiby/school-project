@@ -1,29 +1,38 @@
 "use client";
-// Transport > Drivers / Bus staff: tr_crew CRUD with driver-app logins (contract 14.1; provisioning mirrors Staff & HR).
+// Transport crew creation shares Staff & HR profiles; existing crew edits retain bus-allotment controls.
 import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { deleteField, doc, writeBatch } from "firebase/firestore";
-import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, SearchBox, Select, SlideOver, useToast, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, ListToolbar, Modal, SearchBox, Select, SlideOver, useToast, type Column, type Tone } from "@/components/ui";
 import { currentSchoolId, useCollection } from "@/lib/useCollection";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/lib/authContext";
+import { assignableStaffRoles } from "@/lib/staffRoles";
+import { StaffProfileForm } from "@/features/people/StaffProfileForm";
+import type { Staff } from "@/features/people/StaffView";
 import { accountError, createAccount, sendInvite } from "@/lib/staffAccount";
 import { fmtDate } from "@/lib/format";
-import { nextId, todayIso } from "@/features/ops/shared";
+import { todayIso } from "@/features/ops/shared";
 import { ROLE_LABEL, applyAllot, busLabel, isLicenseWarning, planAllot, schoolDoc, stamp } from "./shared";
 import { validateCrew } from "./logic";
+import { crewStaffDetailsHref } from "@/features/people/crewStaffProfile";
 import type { Bus, Crew, CrewRole, CrewStatus } from "./types";
 
 const statusTone: Record<CrewStatus, Tone> = { Active: "success", "On leave": "warning", Inactive: "neutral" };
 
 export function CrewPanel({ role }: { role: CrewRole }) {
+  const router = useRouter();
   const toast = useToast();
-  const canAddCrew = useAuth().user?.role === "admin";
+  const { user } = useAuth();
+  const canAddCrew = user?.role === "admin";
   const { rows: all, ready, update } = useCollection<Crew>("tr_crew");
   const buses = useCollection<Bus>("tr_buses").rows;
   const rows = useMemo(() => all.filter((c) => c.role === role), [all, role]);
   const [q, setQ] = useState(""); const [status, setStatus] = useState(""); const [busF, setBusF] = useState("");
   const [form, setForm] = useState<{ edit?: Crew } | null>(null);
+  const staff = useCollection<Staff>("staff", canAddCrew && Boolean(form && !form.edit));
   const [del, setDel] = useState<Crew | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const today = todayIso();
@@ -32,20 +41,15 @@ export function CrewPanel({ role }: { role: CrewRole }) {
   const empIdTaken = (empId: string, exceptId?: string) => all.some((r) => r.id !== exceptId && (r.empId ?? "").trim().toLowerCase() === empId.trim().toLowerCase());
   const nextEmpId = () => { let k = 1000 + all.length; while (empIdTaken(`TR-${k}`)) k++; return `TR-${k}`; };
 
-  /** Creates the Auth login + users/{uid} (role driver|attendant, crewId), then links it to crew `id` (creating the tr_crew doc when `fresh`). All-or-nothing. */
-  async function provision(id: string, body: Partial<Crew> & { name: string; email: string }, fresh: boolean, busId = "") {
+  /** Adds an app login to an existing legacy crew record; new crew use the shared staff workflow. */
+  async function provision(id: string, body: { name: string; email: string }) {
     const sid = currentSchoolId(); if (!sid) throw new Error("Not signed in");
     const acct = await createAccount(body.email);
     try {
       const batch = writeBatch(db); const st = stamp();
       batch.set(doc(db, "users", acct.uid), { schoolId: sid, role, crewId: id, email: body.email.trim(), name: body.name, createdAt: new Date().toISOString() });
       const ref = doc(db, "schools", sid, "tr_crew", id);
-      if (fresh) {
-        const plan = planAllot({ id, name: body.name, role, busId: "" }, busId, all, buses);
-        const bus = busId ? buses.find((b) => b.id === busId) : undefined;
-        batch.set(ref, { ...body, id, role, authUid: acct.uid, ...(bus ? { busId: bus.id, bus: busLabel(bus) } : {}), ...st, _o: Date.now() });
-        applyAllot(batch, plan, id);
-      } else batch.set(ref, { ...body, authUid: acct.uid, ...st }, { merge: true });
+      batch.set(ref, { ...body, authUid: acct.uid, ...st }, { merge: true });
       await batch.commit();
     } catch (e) { await acct.rollback(); throw e; }
     let invited = true;
@@ -58,7 +62,7 @@ export function CrewPanel({ role }: { role: CrewRole }) {
   async function createLogin(c: Crew) {
     if (!c.email) { setForm({ edit: c }); toast("Add an email first", "error"); return; }
     setBusy(c.id);
-    try { invited(await provision(c.id, { name: c.name, email: c.email }, false), c.email); } catch (e) { report(e); } finally { setBusy(null); }
+    try { invited(await provision(c.id, { name: c.name, email: c.email }), c.email); } catch (e) { report(e); } finally { setBusy(null); }
   }
   async function resend(c: Crew) {
     if (!c.email) return;
@@ -97,7 +101,10 @@ export function CrewPanel({ role }: { role: CrewRole }) {
     && (!q || `${c.name} ${c.empId} ${c.phone} ${c.email}`.toLowerCase().includes(q.toLowerCase()))), [rows, q, status, busF]);
 
   const cols: Column<Crew>[] = [
-    { key: "name", header: label, sortValue: (c) => c.name, render: (c) => <div className="flex items-center gap-3"><Avatar name={c.name} /><div><div className="font-semibold">{c.name}</div><div className="t-caption font-mono text-outline">{c.empId}</div></div></div> },
+    { key: "name", header: label, sortValue: (c) => c.name, render: (c) => <div className="flex items-center gap-3"><Avatar name={c.name} /><div>
+      {canAddCrew ? <Link href={crewStaffDetailsHref(c.id)} onClick={(event) => event.stopPropagation()} className="font-semibold text-secondary hover:underline">{c.name}</Link>
+        : <div className="font-semibold">{c.name}</div>}
+      <div className="t-caption font-mono text-outline">{c.empId}</div></div></div> },
     { key: "phone", header: "Phone", sortValue: (c) => c.phone, render: (c) => <span className="font-mono text-sm">{c.phone}</span> },
     { key: "email", header: "Email / login", sortValue: (c) => c.email ?? "", render: (c) => (
       <div><div className="max-w-[220px] truncate text-sm">{c.email || <span className="text-outline">No email</span>}</div>
@@ -120,24 +127,29 @@ export function CrewPanel({ role }: { role: CrewRole }) {
   return (
     <>
       <Card className="pt-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
-          <SearchBox value={q} onChange={setQ} placeholder="Search by name, ID, phone…" className="w-full max-w-xs" />
-          <Select aria-label="Bus" value={busF} onChange={(e) => setBusF(e.target.value)} className="w-44"><option value="">All buses</option><option value="none">Unassigned</option>{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)}</option>)}</Select>
-          <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} className="w-40"><option value="">All statuses</option><option>Active</option><option>On leave</option><option>Inactive</option></Select>
-          {canAddCrew && <Button className="ml-auto" onClick={() => setForm({})}><Plus size={16} />Add {label}</Button>}
-        </div>
+        <ListToolbar className="mb-3 px-5"
+          search={<SearchBox value={q} onChange={setQ} placeholder="Search by name, ID, phone…" />}
+          filters={<>
+            <Select aria-label="Bus" value={busF} onChange={(e) => setBusF(e.target.value)}><option value="">All buses</option><option value="none">Unassigned</option>{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)}</option>)}</Select>
+            <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All statuses</option><option>Active</option><option>On leave</option><option>Inactive</option></Select>
+          </>}
+          actions={canAddCrew && <Button onClick={() => setForm({})}><Plus size={16} />Add {label}</Button>} />
         {ready ? <DataTable rows={view} columns={cols} pageSize={10}
+          onRowClick={canAddCrew ? (member) => router.push(crewStaffDetailsHref(member.id)) : undefined}
           empty={<EmptyState title={rows.length ? `No ${label.toLowerCase()} match` : `No ${label.toLowerCase()} yet`} hint={rows.length ? "Try changing your search or filters." : `Add a ${label.toLowerCase()} to create their driver-app login.`} />} />
-          : <p className="px-5 pb-5 text-on-surface-variant">Loading…</p>}
+          : <LoadingSkeleton variant="table" label="Loading…" className="px-5 pb-5 text-on-surface-variant" />}
       </Card>
-      {form && <CrewForm key={form.edit?.id ?? "new"} role={role} edit={form.edit} buses={buses} today={today} nextEmpId={nextEmpId} emailTaken={emailTaken} empIdTaken={empIdTaken} onClose={() => setForm(null)}
+      {form && !form.edit && (staff.error ? <Card><p role="alert">Could not load staff records.</p><Button onClick={staff.reload}>Retry</Button></Card> : staff.ready ?
+        <StaffProfileForm staff={staff.rows} permittedRoles={assignableStaffRoles(user)} createTitle={`Add ${label}`}
+          initialProfile={{ category: "Non-Teaching", designation: role === "driver" ? "Driver" : "Bus Attendant" }} enableAppAccessInitially onClose={() => setForm(null)} />
+        : <LoadingSkeleton variant="form" label={`Loading ${label.toLowerCase()} form…`} />)}
+      {form?.edit && <CrewForm key={form.edit.id} role={role} edit={form.edit} buses={buses} today={today} nextEmpId={nextEmpId} emailTaken={emailTaken} empIdTaken={empIdTaken} onClose={() => setForm(null)}
         onSave={async (v, busId) => {
           try {
-            if (form.edit) { await saveEdit(form.edit, v, busId); toast(`${label} updated`); setForm(null); return; }
-            const id = nextId("crw", all.map((r) => r.id));
-            invited(await provision(id, { ...v, name: v.name!, email: v.email!, status: "Active" }, true, busId), v.email!);
+            await saveEdit(form.edit!, v, busId);
+            toast(`${label} updated`);
             setForm(null);
-          } catch (e) { report(e); } // nothing is left half-created: provision() rolls the Auth user back
+          } catch (e) { report(e); }
         }} />}
       <Modal open={!!del} onClose={() => setDel(null)} title={`Delete ${label.toLowerCase()}?`} subtitle={del?.name}
         footer={<><Button variant="ghost" onClick={() => setDel(null)}>Cancel</Button><Button variant="danger" disabled={!!del && busy === del.id} onClick={() => del && removeCrew(del)}>Delete</Button></>}>

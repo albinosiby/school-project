@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../config/app_config.dart';
 import '../../../utils/exceptions/app_exception.dart';
-import '../../../utils/helpers/date_helper.dart';
 import '../../../utils/services/firebase/parent_session.dart';
 import '../../../utils/services/link_launcher.dart';
 import '../../family/models/family_models.dart';
@@ -24,20 +23,40 @@ class FirebaseStudentRepository implements IStudentRepository {
   @override
   Stream<StudentProfile> watchProfile(String childId) {
     final student = _session.col('students').doc(childId).snapshots();
-    final attendance = _session.col('par_attendance').where('studentId', isEqualTo: childId).snapshots();
-    final results = _session.col('par_results').where('studentId', isEqualTo: childId).snapshots();
+    final attendance = _session
+        .col('par_attendance')
+        .where('studentId', isEqualTo: childId)
+        .snapshots();
+    final results = _session
+        .col('par_results')
+        .where('studentId', isEqualTo: childId)
+        .snapshots();
     // the bus card is optional: a missing or unreadable projection shows "not on a school bus", never an error
     final bus = _session
         .col('par_transport')
         .doc(childId)
         .snapshots()
         .map<Json?>((s) => s.data())
-        .transform(StreamTransformer<Json?, Json?>.fromHandlers(handleError: (_, _, sink) => sink.add(null)));
-    return combineLatest<Object?>([student, attendance, results, bus]).asyncMap((all) async {
-      final d = (all[0] as DocumentSnapshot<Json>).data() ?? const <String, dynamic>{};
+        .transform(
+          StreamTransformer<Json?, Json?>.fromHandlers(
+            handleError: (_, _, sink) => sink.add(null),
+          ),
+        );
+    return combineLatest<Object?>([
+      student,
+      attendance,
+      results,
+      bus,
+    ]).asyncMap((all) async {
+      final d =
+          (all[0] as DocumentSnapshot<Json>).data() ??
+          const <String, dynamic>{};
       final cid = '${d['classId'] ?? ''}';
-      final cls = cid.isEmpty ? null : (await _session.col('classes').doc(cid).get()).data();
-      final school = (await _session.col('school').doc('school').get()).data() ?? const {};
+      final cls = cid.isEmpty
+          ? null
+          : (await _session.col('classes').doc(cid).get()).data();
+      final school =
+          (await _session.col('school').doc('school').get()).data() ?? const {};
       var present = 0, absent = 0, working = 0;
       for (final doc in (all[1] as QuerySnapshot<Json>).docs) {
         final days = doc.data()['days'];
@@ -48,10 +67,20 @@ class FirebaseStudentRepository implements IStudentRepository {
           if (c == 'A') absent++;
         }
       }
-      final papers = (all[2] as QuerySnapshot<Json>).docs.map((p) => p.data()).toList();
-      final got = papers.fold<double>(0, (a, p) => a + ((p['obtained'] as num?)?.toDouble() ?? 0));
-      final max = papers.fold<double>(0, (a, p) => a + ((p['max'] as num?)?.toDouble() ?? 0));
-      final cgpa = max == 0 ? null : double.parse((got / max * 10).toStringAsFixed(1));
+      final papers = (all[2] as QuerySnapshot<Json>).docs
+          .map((p) => p.data())
+          .toList();
+      final got = papers.fold<double>(
+        0,
+        (a, p) => a + ((p['obtained'] as num?)?.toDouble() ?? 0),
+      );
+      final max = papers.fold<double>(
+        0,
+        (a, p) => a + ((p['max'] as num?)?.toDouble() ?? 0),
+      );
+      final cgpa = max == 0
+          ? null
+          : double.parse((got / max * 10).toStringAsFixed(1));
       final guardian = GuardianContact(
         name: '${d['guardian'] ?? _session.user['name'] ?? ''}',
         relation: '${d['relation'] ?? 'Parent'}',
@@ -73,7 +102,10 @@ class FirebaseStudentRepository implements IStudentRepository {
         academicYear: '${school['academicYear'] ?? ''}',
         dob: parseDay(d['dob']) ?? DateTime(2000),
         gender: '${d['gender'] ?? ''}',
-        admissionDate: parseDay(d['admissionDate']) ?? parseTime(d['createdAt']) ?? DateTime.now(),
+        admissionDate:
+            parseDay(d['admissionDate']) ??
+            parseTime(d['createdAt']) ??
+            DateTime.now(),
         house: '${d['house'] ?? ''}',
         houseRole: '',
         present: present,
@@ -82,7 +114,9 @@ class FirebaseStudentRepository implements IStudentRepository {
         attendancePercent: working == 0 ? 0 : present / working * 100,
         cgpa: cgpa,
         cgpaTag: cgpa == null ? 'No results yet' : 'Published results',
-        evaluation: cgpa == null ? '' : '${papers.length} subject${papers.length == 1 ? '' : 's'} published',
+        evaluation: cgpa == null
+            ? ''
+            : '${papers.length} subject${papers.length == 1 ? '' : 's'} published',
         meritPoints: 0,
         meritTag: '',
         honors: const [],
@@ -90,8 +124,22 @@ class FirebaseStudentRepository implements IStudentRepository {
         address: '${d['address'] ?? ''}',
         addressVerified: false,
         transport: transportOf(all[3] as Json?),
-        medical: MedicalInfo(bloodGroup: '${d['bloodGroup'] ?? ''}', allergies: _none, conditions: _none, medications: _none, doctor: '', doctorPhone: '', heightCm: 0, weightKg: 0, lastCheckup: DateTime.now()),
-        emergency: EmergencyContact(name: guardian.name, relation: guardian.relation, phone: guardian.phone),
+        medical: MedicalInfo(
+          bloodGroup: '${d['bloodGroup'] ?? ''}',
+          allergies: _none,
+          conditions: _none,
+          medications: _none,
+          doctor: '',
+          doctorPhone: '',
+          heightCm: 0,
+          weightKg: 0,
+          lastCheckup: DateTime.now(),
+        ),
+        emergency: EmergencyContact(
+          name: guardian.name,
+          relation: guardian.relation,
+          phone: guardian.phone,
+        ),
         documents: const [],
       );
     });
@@ -99,38 +147,65 @@ class FirebaseStudentRepository implements IStudentRepository {
 
   @override
   Stream<List<Certificate>> watchCertificates(String childId) => _session
-      .whenReady(() => _session.col('certificates').where('studentId', isEqualTo: childId).snapshots())
-      .map((q) => [for (final d in q.docs) if (d.data()['status'] != 'Rejected') certificateFromDoc(d.id, d.data(), childId)]
-        ..sort((a, b) => b.issuedOn.compareTo(a.issuedOn)));
+      .whenReady(
+        () => _session
+            .col('certificates')
+            .where('studentId', isEqualTo: childId)
+            .snapshots(),
+      )
+      .map(
+        (q) => [
+          for (final d in q.docs)
+            if (d.data()['status'] != 'Rejected')
+              certificateFromDoc(d.id, d.data(), childId),
+        ]..sort((a, b) => b.issuedOn.compareTo(a.issuedOn)),
+      );
 
   /// Opens the signed PDF when the office attached one; otherwise the signed copy is collected at the office.
   @override
-  Future<Certificate> recordDownload({required String childId, required String certificateId}) async {
+  Future<Certificate> recordDownload({
+    required String childId,
+    required String certificateId,
+  }) async {
     final ref = _session.col('certificates').doc(certificateId);
     final d = (await ref.get()).data();
-    if (d == null || d['status'] != 'Issued') throw AppException(message: 'This certificate is still being prepared.');
+    if (d == null || d['status'] != 'Issued')
+      throw AppException(message: 'This certificate is still being prepared.');
     final url = '${d['fileUrl'] ?? ''}';
     if (url.isEmpty) {
       throw AppException(
-        message: 'The signed copy${d['refNo'] == null ? '' : ' (ref ${d['refNo']})'} is ready to collect from the school office.',
+        message:
+            'The signed copy${d['refNo'] == null ? '' : ' (ref ${d['refNo']})'} is ready to collect from the school office.',
       );
     }
     await _links.open(_reachable(url));
     final at = nowUtc();
     try {
-      await ref.update({'downloadedAt': at, 'updatedAt': at, 'updatedBy': _session.uid});
+      await ref.update({
+        'downloadedAt': at,
+        'updatedAt': at,
+        'updatedBy': _session.uid,
+      });
     } catch (_) {
       // opening the file is what matters; the "downloaded" mark is a convenience
     }
-    return certificateFromDoc(certificateId, {...d, 'downloadedAt': at}, childId);
+    return certificateFromDoc(certificateId, {
+      ...d,
+      'downloadedAt': at,
+    }, childId);
   }
 
   /// Test builds on a phone reach the emulators over Wi-Fi: a Storage emulator link made on the computer says localhost.
-  static String _reachable(String url) =>
-      AppConfig.useEmulator ? url.replaceFirst('://localhost:', '://${AppConfig.emulatorHost}:') : url;
+  static String _reachable(String url) => AppConfig.useEmulator
+      ? url.replaceFirst('://localhost:', '://${AppConfig.emulatorHost}:')
+      : url;
 
   @override
-  Future<Certificate> requestCertificate({required String childId, required CertificateRequestType type, required String purpose}) async {
+  Future<Certificate> requestCertificate({
+    required String childId,
+    required CertificateRequestType type,
+    required String purpose,
+  }) async {
     final child = await _session.student(childId);
     final now = nowUtc();
     final data = <String, dynamic>{
@@ -153,35 +228,33 @@ class FirebaseStudentRepository implements IStudentRepository {
     return certificateFromDoc(ref.id, data, childId);
   }
 
-  /// `par_transport/{studentId}` -> the profile's transport card ("Bus #14", "Route 4B", "06:58 AM"...).
+  /// `par_transport/{studentId}` -> the profile's transport card (bus, route, stop and crew).
   static TransportInfo transportOf(Json? d) {
     if (d == null) return const TransportInfo.none();
-    String clock(Object? hhmm) {
-      final m = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch('${hhmm ?? ''}'.trim());
-      return m == null ? '' : fmtMinute(int.parse(m[1]!) * 60 + int.parse(m[2]!));
-    }
-
-    Json person(Object? v) => v is Map ? Map<String, dynamic>.from(v) : const {};
+    Json person(Object? v) =>
+        v is Map ? Map<String, dynamic>.from(v) : const {};
     final driver = person(d['driver']), attendant = person(d['attendant']);
-    final bus = '${d['bus'] ?? ''}'.trim().replaceFirst(RegExp(r'^bus\s*#?\s*', caseSensitive: false), '');
+    final bus = '${d['bus'] ?? ''}'.trim().replaceFirst(
+      RegExp(r'^bus\s*#?\s*', caseSensitive: false),
+      '',
+    );
     final busNo = bus.isEmpty ? '${d['busId'] ?? ''}' : bus;
     return TransportInfo(
       busNo: busNo.isEmpty ? '' : 'Bus #$busNo',
       route: '${d['routeName'] ?? ''}'.trim(),
-      pickup: clock(d['pickupTime']),
-      drop: clock(d['dropTime']),
       stopName: '${d['stop'] ?? ''}'.trim(),
       stopAddress: '',
       driver: '${driver['name'] ?? ''}'.trim(),
       driverPhone: '${driver['phone'] ?? ''}'.trim(),
       supervisorPhone: '${attendant['phone'] ?? ''}'.trim(),
       attendant: '${attendant['name'] ?? ''}'.trim(),
-      scheduleBased: true,
+      statusOnly: true,
     );
   }
 
   static CertificateCategory categoryOf(Object? v) =>
-      CertificateCategory.values.where((c) => c.name == '$v').firstOrNull ?? CertificateCategory.bonafide;
+      CertificateCategory.values.where((c) => c.name == '$v').firstOrNull ??
+      CertificateCategory.bonafide;
 
   static Certificate certificateFromDoc(String id, Json d, String childId) {
     final requested = d['status'] != 'Issued';
@@ -194,11 +267,22 @@ class FirebaseStudentRepository implements IStudentRepository {
       issuer: '${d['issuer'] ?? 'School office'}',
       summary: requested
           ? 'Requested${'${d['purpose'] ?? ''}'.isEmpty ? '' : ' for ${d['purpose']}'}. The office will notify you when it is ready.'
-          : ['${d['note'] ?? ''}', hasFile ? '' : 'Collect the signed copy from the school office.'].where((s) => s.isNotEmpty).join(' '),
-      issuedOn: (requested ? parseTime(d['requestedAt']) : parseDay(d['issuedOn'])) ?? parseTime(d['updatedAt']) ?? DateTime.now(),
-      tags: [if (requested) 'Requested' else 'Issued', if ('${d['refNo'] ?? ''}'.isNotEmpty) '${d['refNo']}'],
+          : [
+              '${d['note'] ?? ''}',
+              hasFile ? '' : 'Collect the signed copy from the school office.',
+            ].where((s) => s.isNotEmpty).join(' '),
+      issuedOn:
+          (requested ? parseTime(d['requestedAt']) : parseDay(d['issuedOn'])) ??
+          parseTime(d['updatedAt']) ??
+          DateTime.now(),
+      tags: [
+        if (requested) 'Requested' else 'Issued',
+        if ('${d['refNo'] ?? ''}'.isNotEmpty) '${d['refNo']}',
+      ],
       size: hasFile ? 'Signed copy' : '',
-      signature: requested ? 'Pending' : 'Signed by ${d['issuer'] ?? 'the school'}',
+      signature: requested
+          ? 'Pending'
+          : 'Signed by ${d['issuer'] ?? 'the school'}',
       refNo: '${d['refNo'] ?? ''}'.isEmpty ? null : '${d['refNo']}',
       validTill: parseDay(d['validTill']),
       downloadedAt: parseTime(d['downloadedAt']),

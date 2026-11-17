@@ -2,7 +2,7 @@
 // Transport > Crew attendance: driver-app punches (tr_crew_attendance, contract 14.5) per month, admin corrections, check-in policy.
 import { useMemo, useState } from "react";
 import { AlarmClock, Pencil, Plus, Save } from "lucide-react";
-import { Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Select, useToast, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, Select, useToast, type Column, type Tone } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { fmtDate } from "@/lib/format";
 import { todayIso } from "@/features/ops/shared";
@@ -81,7 +81,7 @@ export function CrewAttendancePanel() {
           <Field label="Crew member"><Select value={crewId} onChange={(e) => setCrewId(e.target.value)} className="w-52"><option value="">Everyone</option>{crew.filter((c) => !role || c.role === (role as CrewRole)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>
           <Button variant="outline" className="ml-auto" onClick={() => setAdding(true)}><Plus size={14} />Add day</Button>
         </div>
-        {!att.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading…</p> : <DataTable rows={rows} columns={cols} pageSize={15} empty={<EmptyState title="No check-ins this month" hint="Crew punch in and out from the driver app. Use Add day to record one by hand." />} />}
+        {!att.ready ? <LoadingSkeleton variant="table" label="Loading…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={rows} columns={cols} pageSize={15} empty={<EmptyState title="No check-ins this month" hint="Crew punch in and out from the driver app. Use Add day to record one by hand." />} />}
       </Card>
       {adding && <PickDayModal crew={crew} onClose={() => setAdding(false)} onPick={(cid, date) => { setAdding(false); setEdit({ rec: att.rows.find((a) => a.id === crewAttId(date, cid)), crewId: cid, date }); }} />}
       {edit && <CorrectModal key={`${edit.crewId}_${edit.date}`} rec={edit.rec} name={crew.find((c) => c.id === edit.crewId)?.name ?? edit.crewId} date={edit.date} checkInBy={policy.checkInBy} onClose={() => setEdit(null)}

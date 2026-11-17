@@ -135,6 +135,26 @@ List<String> myClassIds(AdapterContext ctx, Remote r) {
   return ids.toList()..sort();
 }
 
+/// Additional classes assigned to this teacher only for exam entry: paper evaluator allocations and the mark sheets
+/// she owns (an admin can assign a sheet to any teacher, `sheetAssign`).
+List<String> examClassIds(AdapterContext ctx, Remote remote) {
+  final ids = <String>{};
+  for (final paper in _docs(remote, 'exm_papers')) {
+    final evaluators = Map<String, dynamic>.from(paper['evaluatorIds'] as Map? ?? const {});
+    for (final entry in evaluators.entries) {
+      if (entry.value == ctx.staffId) ids.add(entry.key);
+    }
+  }
+  for (final s in _docs(remote, 'exm_sheets')) {
+    final classId = s['classId'] ?? ExamsAdapter.parseSheetId('${s['id']}')?.classId;
+    if (s['ownerId'] == ctx.staffId && classId != null && '$classId'.isNotEmpty) ids.add('$classId');
+  }
+  return ids.toList()..sort();
+}
+
+/// The teacher's own mark sheets (contract §2 rules: readable where `ownerId == myStaffId()`).
+RemoteQuery ownedSheetsQuery(AdapterContext ctx) => RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId});
+
 /// Firestore `whereIn` takes at most 30 values: split into several queries.
 List<RemoteQuery> inQueries(String collection, String field, Iterable<String> values) {
   final v = values.toSet().toList()..sort();
@@ -287,12 +307,14 @@ class ClassesAdapter extends StoreAdapter {
   @override
   bool get readOnly => true;
   @override
-  Set<String> get sources => {'classes', 'assignments', 'ops_periods', 'students'};
+  Set<String> get sources => {'classes', 'assignments', 'ops_periods', 'students', 'exm_papers', 'exm_sheets'};
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) {
-    final ids = myClassIds(ctx, remote);
+    final ids = {...myClassIds(ctx, remote), ...examClassIds(ctx, remote)}.toList()..sort();
     return [
+      const RemoteQuery('exm_papers'),
+      ownedSheetsQuery(ctx),
       RemoteQuery('assignments', eq: {'teacherId': ctx.staffId}),
       RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
       RemoteQuery('classes', eq: {'classTeacherId': ctx.staffId}),
@@ -302,7 +324,7 @@ class ClassesAdapter extends StoreAdapter {
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
-    final ids = myClassIds(ctx, remote);
+    final ids = {...myClassIds(ctx, remote), ...examClassIds(ctx, remote)}.toList()..sort();
     final rows = <Rec>[];
     for (final id in ids) {
       final c = _byId(remote, 'classes', id);
@@ -329,10 +351,13 @@ class StudentsAdapter extends StoreAdapter {
   @override
   bool get readOnly => true;
   @override
-  Set<String> get sources => {'students'};
+  Set<String> get sources => {'students', 'exm_papers', 'exm_sheets'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => inQueries('students', 'classId', myClassIds(ctx, remote));
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) {
+    final ids = {...myClassIds(ctx, remote), ...examClassIds(ctx, remote)};
+    return [const RemoteQuery('exm_papers'), ownedSheetsQuery(ctx), ...inQueries('students', 'classId', ids)];
+  }
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -597,26 +622,58 @@ bool subjectCovers(String paper, String assigned) {
 /// The admin locked the marks window (paper or cycle), or published [classId]'s results (`published` lists class labels
 /// like "10-B"): marks of that paper and class are read-only (contract §10, §11).
 bool paperLocked(Rec paper, Rec? cycle, String? classId) {
+  if (paper['setupPublished'] == false || ['Postponed', 'Cancelled'].contains(paper['scheduleStatus'])) return true;
   if (paper['locked'] == true || cycle?['locked'] == true) return true;
+  if ((paper['lockedClassIds'] as List? ?? const []).contains(classId) || (paper['publishedClassIds'] as List? ?? const []).contains(classId)) return true;
   if (classId == null) return false;
   final published = [for (final c in paper['published'] as List? ?? const []) '$c'];
   return published.contains(classId) || published.contains(classLabelOf(classId));
 }
 
+/// Sheet statuses in which the owner may still enter marks and submit (EXAMS_SHEETS_RESULTS_CONTRACT §1).
+const sheetOpenStatuses = {'NotStarted', 'InProgress', 'Returned'};
+
+/// `exm_sheets.status` -> the teacher app's exam status (contract §4).
+String sheetLocalStatus(Object? remote) => switch ('$remote') {
+      'Submitted' => 'Submitted',
+      'Returned' => 'Returned',
+      'Approved' || 'Locked' => 'Locked',
+      _ => 'Draft',
+    };
+
+/// The sheet of a paper × class the signed-in teacher owns, if any (`exm_sheets/{paperId}__{classId}`).
+Rec? ownedSheet(AdapterContext ctx, Remote remote, String paperId, String? classId) {
+  if (classId == null) return null;
+  final s = _byId(remote, 'exm_sheets', ExamsAdapter.sheetId(paperId, classId));
+  return s != null && s['ownerId'] == ctx.staffId ? s : null;
+}
+
 /// `att_exams` <- the admin's `exm_papers` (+ `exm_cycles` for the name): one exam per paper and class the teacher
 /// teaches that subject in. Local id `{paperId}@{classId}`. A paper without `classIds` covers every class of its grade.
 /// Submitting is the teacher's own state, kept in the private `att_exam_state` overlay (teachers cannot edit papers).
+///
+/// Mark sheets (contract §4): every `exm_sheets` doc the teacher owns becomes one exam too (same local id; the sheet id
+/// is `{paperId}__{classId}`), carrying the sheet's `components`, `rosterIds` and status. Submitting a sheet exam writes
+/// the sheet's status transition instead of `att_exam_state`. A paper × class without a sheet keeps the legacy listing.
 class ExamsAdapter extends StoreAdapter {
   const ExamsAdapter() : super('att_exams');
 
   static String localId(String paperId, String classId) => '$paperId@$classId';
+  static String sheetId(String paperId, String classId) => '${paperId}__$classId';
   static ({String paperId, String? classId}) parse(String localId) {
     final i = localId.indexOf('@');
     return i < 0 ? (paperId: localId, classId: null) : (paperId: localId.substring(0, i), classId: localId.substring(i + 1));
   }
 
+  /// `{paperId}__{classId}` -> (paperId, classId). Class ids never contain `__`, paper ids may not either, so the last
+  /// `__` splits (the sheet doc carries both ids anyway; this is the fallback).
+  static ({String paperId, String classId})? parseSheetId(String sheetId) {
+    final i = sheetId.lastIndexOf('__');
+    return i <= 0 ? null : (paperId: sheetId.substring(0, i), classId: sheetId.substring(i + 2));
+  }
+
   @override
-  Set<String> get sources => {'exm_papers', 'exm_cycles', 'assignments', 'classes', 'att_exam_state'};
+  Set<String> get sources => {'exm_papers', 'exm_cycles', 'assignments', 'classes', 'att_exam_state', 'exm_sheets'};
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
@@ -624,27 +681,68 @@ class ExamsAdapter extends StoreAdapter {
         const RemoteQuery('exm_cycles'),
         RemoteQuery('assignments', eq: {'teacherId': ctx.staffId}),
         RemoteQuery('att_exam_state', eq: {'teacherId': ctx.staffId}),
+        RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId}),
       ];
+
+  Rec _sheetRow(Remote remote, Rec s) {
+    final ids = parseSheetId('${s['id']}');
+    final paperId = '${s['paperId'] ?? ids?.paperId ?? ''}', classId = '${s['classId'] ?? ids?.classId ?? ''}';
+    final paper = _byId(remote, 'exm_papers', paperId);
+    final cycle = _byId(remote, 'exm_cycles', '${s['cycleId'] ?? paper?['cycleId'] ?? ''}');
+    final c = Map<String, dynamic>.from(s['components'] as Map? ?? const {});
+    final components = {
+      'mode': '${c['mode'] ?? paper?['assessmentMode'] ?? 'marks'}',
+      'theory': (c['theory'] as num?)?.toInt() ?? (paper?['theory'] as num?)?.toInt() ?? 0,
+      'practical': (c['practical'] as num?)?.toInt() ?? (paper?['practical'] as num?)?.toInt() ?? 0,
+      'internal': (c['internal'] as num?)?.toInt() ?? (paper?['internal'] as num?)?.toInt() ?? 0,
+      'passMarks': (c['passMarks'] as num?)?.toInt() ?? (paper?['passMarks'] as num?)?.toInt() ?? 0,
+      'gradeOptions': [for (final g in c['gradeOptions'] as List? ?? paper?['gradeOptions'] as List? ?? const []) '$g'],
+    };
+    final roster = [for (final id in s['rosterIds'] as List? ?? const []) '$id'];
+    final status = sheetLocalStatus(s['status']);
+    return {
+      'id': localId(paperId, classId), 'classId': localClassId(classId), 'name': '${cycle?['short'] ?? cycle?['title'] ?? 'Exam'}',
+      'subject': '${s['subject'] ?? paper?['subject'] ?? ''}', 'max': components['theory'],
+      'status': status, 'submittedAt': s['submittedAt'], 'sections': const <Rec>[],
+      'date': paper?['date'], 'paperId': paperId, 'studentIds': roster, 'rosterIds': roster, 'components': components,
+      'returnNote': ?(status == 'Returned' ? s['returnNote'] : null), 'hasSheet': true, 'sheetId': s['id'],
+    };
+  }
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final mine = [for (final a in _docs(remote, 'assignments')) if (a['teacherId'] == ctx.staffId) a];
     final rows = <Rec>[];
+    final sheeted = <String>{};
+    for (final s in _docs(remote, 'exm_sheets')) {
+      if (s['ownerId'] != ctx.staffId) continue;
+      final row = _sheetRow(remote, s);
+      if (sheeted.add('${row['id']}')) rows.add(row);
+    }
     for (final p in _docs(remote, 'exm_papers')) {
       final listed = [for (final c in p['classIds'] as List? ?? const []) '$c'];
       final cycle = _byId(remote, 'exm_cycles', '${p['cycleId'] ?? ''}');
-      for (final a in mine) {
+      final evaluators = Map<String, dynamic>.from(p['evaluatorIds'] as Map? ?? const {});
+      final allocations = [
+        ...mine,
+        for (final entry in evaluators.entries)
+          if (entry.value == ctx.staffId) <String, dynamic>{'classId': entry.key, 'subject': p['subject']},
+      ];
+      final included = <String>{};
+      for (final a in allocations) {
         final classId = '${a['classId']}';
         final inPaper = listed.isNotEmpty ? listed.contains(classId) : gradeSectionOf(classId).grade == '${p['grade']}';
-        if (!inPaper || !subjectCovers('${p['subject'] ?? ''}', '${a['subject'] ?? ''}')) continue;
+        if (evaluators[classId] != null && evaluators[classId] != '' && evaluators[classId] != ctx.staffId) continue;
+        if (!inPaper || !subjectCovers('${p['subject'] ?? ''}', '${a['subject'] ?? ''}') || !included.add(classId)) continue;
         final id = localId('${p['id']}', classId);
+        if (sheeted.contains(id)) continue; // the sheet row above replaces the legacy one
         final st = _byId(remote, 'att_exam_state', id);
-        final locked = paperLocked(p, cycle, classId);
+        final locked = paperLocked(p, cycle, classId) || p['assessmentMode'] == 'grade' || p['theory'] == 0;
         rows.add({
           'id': id, 'classId': localClassId(classId), 'name': '${cycle?['short'] ?? cycle?['title'] ?? 'Exam'}',
           'subject': '${p['subject'] ?? a['subject']}', 'max': (p['theory'] as num?)?.toInt() ?? 100,
           'status': locked ? 'Locked' : '${st?['status'] ?? 'Draft'}', 'submittedAt': st?['submittedAt'], 'sections': const <Rec>[],
-          'date': p['date'], 'paperId': p['id'],
+          'date': p['date'], 'paperId': p['id'], 'studentIds': p['studentIds'],
         });
       }
     }
@@ -653,12 +751,31 @@ class ExamsAdapter extends StoreAdapter {
   }
 
   @override
-  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
-        RemoteWrite('att_exam_state', '${row['id']}', stamp(ctx, {'status': row['status'], 'submittedAt': row['submittedAt'], 'teacherId': ctx.staffId})),
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
+    if (row['hasSheet'] == true) {
+      // the only teacher transition on a sheet is "submit" (contract §1): status + submittedAt/By + stamp, nothing
+      // else (the rules take exactly these keys), and only while the sheet is still open and owned by this teacher
+      final ex = parse('${row['id']}');
+      final sheet = ownedSheet(ctx, remote, ex.paperId, ex.classId);
+      if (row['status'] != 'Submitted' || sheet == null || !sheetOpenStatuses.contains('${sheet['status']}')) return const [];
+      return [
+        RemoteWrite('exm_sheets', '${sheet['id']}', {
+          'status': 'Submitted', 'submittedAt': row['submittedAt'] ?? ctx.now.toIso8601String(), 'submittedBy': ctx.staffId,
+          'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid,
+        }),
       ];
+    }
+    return [
+      RemoteWrite('att_exam_state', '${row['id']}', stamp(ctx, {'status': row['status'], 'submittedAt': row['submittedAt'], 'teacherId': ctx.staffId})),
+    ];
+  }
 }
 
 /// `att_marks` <-> `exm_marks` (admin shape + studentId/teacherId/classId). Local exam ids are `{paperId}@{classId}`.
+///
+/// With a mark sheet the teacher owns (contract §1 "Marks write rules") the write carries every component the
+/// scheme has (`theory`, `practical`, `internal`, `gradeValue`) and is allowed while the sheet is open and the student
+/// is rostered; the legacy paper-level checks do not apply. Without a sheet the legacy theory-only write is unchanged.
 class MarksAdapter extends StoreAdapter {
   const MarksAdapter() : super('att_marks');
 
@@ -668,8 +785,12 @@ class MarksAdapter extends StoreAdapter {
   Set<String> get sources => {'exm_marks', 'students'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) =>
-      [RemoteQuery('exm_marks', eq: {'teacherId': ctx.staffId}), const RemoteQuery('exm_papers'), const RemoteQuery('exm_cycles')];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+        RemoteQuery('exm_marks', eq: {'teacherId': ctx.staffId}),
+        const RemoteQuery('exm_papers'),
+        const RemoteQuery('exm_cycles'),
+        RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId}),
+      ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) => [
@@ -679,15 +800,41 @@ class MarksAdapter extends StoreAdapter {
 
   Rec _local(Rec d, String classId) {
     final examId = classId.isEmpty ? '${d['paperId']}' : ExamsAdapter.localId('${d['paperId']}', classId);
+    final hasAny = d['theory'] != null || d['practical'] != null || d['internal'] != null || '${d['gradeValue'] ?? ''}'.isNotEmpty;
     return {
-      'id': '${examId}_${d['studentId']}', 'examId': examId, 'studentId': d['studentId'], 'status': d['status'] ?? (d['theory'] == null ? 'Absent' : 'Present'),
-      'marks': d['theory'], 'tag': d['tag'] ?? '', 'note': d['note'] ?? '',
+      'id': '${examId}_${d['studentId']}', 'examId': examId, 'studentId': d['studentId'], 'status': d['status'] ?? (hasAny ? 'Present' : 'Absent'),
+      'marks': d['theory'], 'practical': d['practical'], 'internal': d['internal'], 'gradeValue': '${d['gradeValue'] ?? ''}',
+      'tag': d['tag'] ?? '', 'note': d['note'] ?? '',
     };
   }
+
+  static int? _int(Object? v) => (v as num?)?.toInt();
 
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
     final ex = ExamsAdapter.parse('${row['examId']}'), st = '${row['studentId']}';
+    final now = ctx.now.toIso8601String();
+    final sheet = ownedSheet(ctx, remote, ex.paperId, ex.classId);
+    if (sheet != null) {
+      // sheet branch: open sheet, rostered student, every component within the scheme's maxima (the rules check the same)
+      if (!sheetOpenStatuses.contains('${sheet['status']}')) return const [];
+      if (!(sheet['rosterIds'] as List? ?? const []).contains(st)) return const [];
+      final c = Map<String, dynamic>.from(sheet['components'] as Map? ?? const {});
+      final theory = _int(row['marks']), practical = _int(row['practical']), internal = _int(row['internal']);
+      bool over(int? v, Object? max) => v != null && (v < 0 || v > (_int(max) ?? 0));
+      if (over(theory, c['theory']) || over(practical, c['practical']) || over(internal, c['internal'])) return const [];
+      final grade = '${row['gradeValue'] ?? ''}';
+      final options = [for (final g in c['gradeOptions'] as List? ?? const []) '$g'];
+      if (grade.isNotEmpty && options.isNotEmpty && !options.contains(grade)) return const [];
+      return [
+        RemoteWrite('exm_marks', remoteId(ex.paperId, st), {
+          'paperId': ex.paperId, 'candId': 'cand_$st', 'studentId': st, 'classId': ex.classId,
+          'theory': theory, 'practical': practical, 'internal': internal, 'gradeValue': grade,
+          'status': row['status'], 'tag': row['tag'] ?? '', 'note': row['note'] ?? '', 'teacherId': ctx.staffId,
+          'enteredAt': now, 'updatedAt': now, 'updatedBy': ctx.authUid,
+        }),
+      ];
+    }
     // a locked paper (or a class whose results are published) is read-only: the rules reject the write (`paperOpen`)
     final paper = _byId(remote, 'exm_papers', ex.paperId);
     if (paper != null && paperLocked(paper, _byId(remote, 'exm_cycles', '${paper['cycleId'] ?? ''}'), ex.classId)) return const [];
@@ -696,7 +843,7 @@ class MarksAdapter extends StoreAdapter {
         // internal marks, medical flag and verification belong to the admin's exam cell: never sent, so never overwritten
         'paperId': ex.paperId, 'candId': 'cand_$st', 'studentId': st, 'classId': ?ex.classId, 'theory': row['marks'],
         'status': row['status'], 'tag': row['tag'] ?? '', 'note': row['note'] ?? '', 'teacherId': ctx.staffId,
-        'enteredAt': ctx.now.toIso8601String(), 'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid,
+        'enteredAt': now, 'updatedAt': now, 'updatedBy': ctx.authUid,
       }),
     ];
   }

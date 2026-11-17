@@ -2,6 +2,8 @@
 // StoreAdapter, plus a rules-conformance sweep over all of them (see website/firestore.rules, teacher section).
 import 'package:flutter_test/flutter_test.dart';
 import 'package:teacher_app/di/injection.dart';
+import 'package:teacher_app/modules/attendance/models/marks_models.dart';
+import 'package:teacher_app/utils/services/data_store.dart';
 import 'package:teacher_app/utils/services/firebase/store_adapters.dart';
 import 'helpers/firebase_app.dart';
 
@@ -18,6 +20,7 @@ final _private = RegExp(r'^(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*');
 /// Would the teacher rules allow this listener? Owner-scoped collections need the owner filter in the query itself.
 bool queryAllowed(RemoteQuery q, String staffId) {
   if (_openRead.contains(q.collection)) return true;
+  if (q.collection == 'exm_sheets') return q.eq['ownerId'] == staffId; // EXAMS_SHEETS_RESULTS_CONTRACT §2 Rules
   if (const {'staff_leaves', 'staff_attendance', 'staff_regularizations'}.contains(q.collection)) return q.eq['staffId'] == staffId;
   if (_private.hasMatch(q.collection) || const {'msg_threads', 'msg_messages', 'ptm_slots', 'ptm_bookings'}.contains(q.collection)) return q.eq['teacherId'] == staffId;
   return false;
@@ -29,6 +32,12 @@ bool writeAllowed(RemoteWrite w, String staffId) {
   switch (w.collection) {
     case 'ops_attendance' || 'ops_homework' || 'exm_marks' || 'live_classes':
       return !w.delete && d['teacherId'] == staffId;
+    case 'exm_sheets':
+      // owner submit only: onlyKeys([status, submittedAt, submittedBy, updatedAt, updatedBy]), status Submitted, submittedBy == me
+      return !w.delete &&
+          d.keys.toSet().difference({'status', 'submittedAt', 'submittedBy', 'updatedAt', 'updatedBy'}).isEmpty &&
+          d['status'] == 'Submitted' &&
+          d['submittedBy'] == staffId;
     case 'staff_leaves':
       return w.delete || (d['staffId'] == staffId && d['status'] == 'Pending');
     case 'staff_attendance':
@@ -245,6 +254,9 @@ void main() {
       expect(a.write(ctx, {'exm_papers': [{'id': 'pap_1', 'published': ['10-A']}]}, row), hasLength(1));
       expect(a.queries(ctx, {}).map((q) => q.collection), containsAll(['exm_marks', 'exm_papers', 'exm_cycles']));
       expect(paperLocked({'published': ['cls_10B']}, null, 'cls_10B'), isTrue);
+      expect(paperLocked({'lockedClassIds': ['cls_10B']}, null, 'cls_10B'), isTrue);
+      expect(paperLocked({'lockedClassIds': ['cls_10B']}, null, 'cls_10A'), isFalse);
+      expect(paperLocked({'publishedClassIds': ['custom11']}, null, 'custom11'), isTrue);
       expect(paperLocked({}, null, null), isFalse);
     });
 
@@ -343,6 +355,159 @@ void main() {
       expect((d.collection, d.id, d.data.containsKey('role')), ('ed_duty_state', 'dut_1_stf_025', false));
       final c = const ExamCandidatesAdapter().write(ctx, {}, {'id': 'dut_1__cand_stu_1', 'dutyId': 'dut_1', 'candId': 'cand_stu_1', 'status': 'absent', 'name': 'ignored'}).single;
       expect((c.collection, c.id, c.data['status'], c.data.containsKey('name')), ('ed_cand_state', 'dut_1__cand_stu_1_stf_025', 'absent', false));
+    });
+  });
+
+  group('mark sheets (EXAMS_SHEETS_RESULTS_CONTRACT §4)', () {
+    const comps = {'mode': 'marks', 'theory': 80, 'practical': 20, 'internal': 0, 'passMarks': 33, 'gradeOptions': <String>[]};
+    Rec sheet(String paper, String cls, String status, {Map<String, dynamic> components = comps, List<String> roster = const ['stu_1', 'stu_2'], Map<String, dynamic> more = const {}}) => {
+          'id': '${paper}__$cls', 'paperId': paper, 'classId': cls, 'cycleId': 'cyc_1', 'subject': 'Mathematics', 'ownerId': 'stf_025',
+          'components': components, 'rosterIds': roster, 'status': status, ...more,
+        };
+    final Remote remote = {
+      'exm_cycles': [{'id': 'cyc_1', 'short': 'Half-Yearly'}],
+      'exm_papers': [
+        {'id': 'pap_a', 'cycleId': 'cyc_1', 'grade': '10', 'subject': 'Mathematics', 'theory': 80, 'classIds': ['cls_10A', 'cls_10B'], 'date': '2026-11-10'},
+        {'id': 'pap_b', 'cycleId': 'cyc_1', 'grade': '10', 'subject': 'Mathematics', 'theory': 80, 'classIds': ['cls_10B'], 'date': '2026-11-11'},
+        {'id': 'pap_c', 'cycleId': 'cyc_1', 'grade': '10', 'subject': 'Mathematics', 'theory': 80, 'classIds': ['cls_10B'], 'date': '2026-11-12', 'locked': true},
+      ],
+      'assignments': [{'id': 'a1', 'teacherId': 'stf_025', 'classId': 'cls_10B', 'subject': 'Mathematics'}],
+      'att_exam_state': [{'id': 'pap_b@cls_10B', 'status': 'Submitted', 'submittedAt': '2026-11-12', 'teacherId': 'stf_025'}],
+      'exm_sheets': [
+        sheet('pap_a', 'cls_10B', 'NotStarted'),
+        sheet('pap_a', 'cls_10A', 'InProgress'), // a class I am not assigned to: the sheet alone lists it
+        sheet('pap_c', 'cls_10B', 'Returned', more: {'returnNote': 'Roll 7 looks swapped with roll 8'}),
+        sheet('pap_d', 'cls_10B', 'Submitted', more: {'submittedAt': '2026-11-13T10:00:00'}),
+        sheet('pap_e', 'cls_10B', 'Approved'),
+        sheet('pap_f', 'cls_10B', 'Locked'),
+        sheet('pap_g', 'cls_10B', 'InProgress', components: {'mode': 'grade', 'theory': 0, 'practical': 0, 'internal': 0, 'passMarks': 0, 'gradeOptions': ['A', 'B', 'C']}),
+        {...sheet('pap_h', 'cls_10B', 'InProgress'), 'ownerId': 'stf_999'}, // someone else's: never listed
+      ],
+    };
+
+    test('listing: one exam per owned sheet, status mapped, legacy rows only for papers without a sheet', () {
+      const a = ExamsAdapter();
+      expect(a.queries(ctx, remote).map((q) => q.key), contains(RemoteQuery('exm_sheets', eq: {'ownerId': 'stf_025'}).key));
+      final rows = {for (final r in a.build(ctx, remote)) '${r['id']}': r};
+      expect(rows.keys.toSet(), {'pap_a@cls_10B', 'pap_a@cls_10A', 'pap_b@cls_10B', 'pap_c@cls_10B', 'pap_d@cls_10B', 'pap_e@cls_10B', 'pap_f@cls_10B', 'pap_g@cls_10B'});
+      expect({for (final e in rows.entries) e.key: e.value['status']}, {
+        'pap_a@cls_10B': 'Draft', 'pap_a@cls_10A': 'Draft', 'pap_b@cls_10B': 'Submitted', 'pap_c@cls_10B': 'Returned', 'pap_d@cls_10B': 'Submitted',
+        'pap_e@cls_10B': 'Locked', 'pap_f@cls_10B': 'Locked', 'pap_g@cls_10B': 'Draft',
+      });
+      final s = rows['pap_a@cls_10B']!;
+      expect((s['hasSheet'], s['sheetId'], s['classId'], s['name'], s['subject'], s['max'], s['date']), (true, 'pap_a__cls_10B', 'cls_10B', 'Half-Yearly', 'Mathematics', 80, '2026-11-10'));
+      expect(s['components'], comps);
+      expect(s['rosterIds'], ['stu_1', 'stu_2']);
+      expect(s['studentIds'], ['stu_1', 'stu_2'], reason: 'the roster also drives the legacy studentIds filter');
+      expect(rows['pap_c@cls_10B']!['returnNote'], 'Roll 7 looks swapped with roll 8');
+      expect(rows['pap_c@cls_10B']!['status'], 'Returned', reason: 'a Returned sheet is editable even though the legacy paper is locked');
+      expect(rows['pap_d@cls_10B']!['submittedAt'], '2026-11-13T10:00:00');
+      expect(rows['pap_a@cls_10B']!.containsKey('returnNote'), isFalse);
+      // legacy row: assignment based, att_exam_state status, no sheet fields
+      final legacy = rows['pap_b@cls_10B']!;
+      expect((legacy['hasSheet'], legacy['status'], legacy['submittedAt'], legacy.containsKey('components')), (null, 'Submitted', '2026-11-12', false));
+      // the Exam model reads the sheet fields
+      final ex = Exam.fromJson(s);
+      expect((ex.hasSheet, ex.readOnly, ex.maxTotal, ex.components!.practical), (true, false, 100, 20));
+      expect(ex.rosterIds, ['stu_1', 'stu_2']);
+      expect(Exam.fromJson(rows['pap_d@cls_10B']!).readOnly, isTrue, reason: 'Submitted sheet is read-only');
+      expect(Exam.fromJson(rows['pap_c@cls_10B']!).readOnly, isFalse, reason: 'Returned sheet is editable');
+      expect(Exam.fromJson(rows['pap_e@cls_10B']!).lockedByAdmin, isTrue);
+      expect(Exam.fromJson(rows['pap_g@cls_10B']!).gradeOnly, isTrue);
+      expect(Exam.fromJson(legacy).readOnly, isFalse, reason: 'legacy Submitted still takes edits with a reason');
+      expect(sheetLocalStatus('Whatever'), 'Draft');
+      // the roster of a sheet-only class (cls_10A: no assignment) is still loaded: students and classes follow owned sheets
+      expect(examClassIds(ctx, remote), ['cls_10A', 'cls_10B']);
+      final studentIn = const StudentsAdapter().queries(ctx, remote).where((q) => q.inField == 'classId').expand((q) => q.inValues);
+      expect(studentIn, containsAll(['cls_10A', 'cls_10B']));
+      expect(const StudentsAdapter().queries(ctx, remote).map((q) => q.key), contains(ownedSheetsQuery(ctx).key));
+      expect(const ClassesAdapter().queries(ctx, remote).map((q) => q.key), contains(ownedSheetsQuery(ctx).key));
+    });
+
+    test('marks: with a sheet every component is written; range, roster and sheet status are enforced', () {
+      const a = MarksAdapter();
+      expect(a.queries(ctx, remote).map((q) => q.key), contains(RemoteQuery('exm_sheets', eq: {'ownerId': 'stf_025'}).key));
+      final row = {'examId': 'pap_a@cls_10B', 'studentId': 'stu_1', 'status': 'Present', 'marks': 70, 'practical': 15, 'internal': null, 'gradeValue': '', 'tag': 'Consistent', 'note': 'Good'};
+      final w = a.write(ctx, remote, row).single;
+      expect((w.collection, w.id), ('exm_marks', 'pap_a__cand_stu_1'));
+      expect(w.data.keys.toSet(), {'paperId', 'candId', 'studentId', 'classId', 'theory', 'practical', 'internal', 'gradeValue', 'status', 'tag', 'note', 'teacherId', 'enteredAt', 'updatedAt', 'updatedBy'});
+      expect((w.data['theory'], w.data['practical'], w.data['internal'], w.data['gradeValue'], w.data['classId'], w.data['teacherId'], w.data['enteredAt']), (70, 15, null, '', 'cls_10B', 'stf_025', _now.toIso8601String()));
+      expect(writeAllowed(w, 'stf_025'), isTrue);
+      // out of range, not rostered, sheet not open -> nothing is written (the rules would reject it)
+      expect(a.write(ctx, remote, {...row, 'marks': 81}), isEmpty, reason: 'theory above max');
+      expect(a.write(ctx, remote, {...row, 'practical': 21}), isEmpty, reason: 'practical above max');
+      expect(a.write(ctx, remote, {...row, 'internal': 1}), isEmpty, reason: 'internal max is 0');
+      expect(a.write(ctx, remote, {...row, 'marks': -1}), isEmpty);
+      expect(a.write(ctx, remote, {...row, 'studentId': 'stu_9'}), isEmpty, reason: 'not in rosterIds');
+      expect(a.write(ctx, remote, {...row, 'examId': 'pap_d@cls_10B'}), isEmpty, reason: 'Submitted');
+      expect(a.write(ctx, remote, {...row, 'examId': 'pap_e@cls_10B'}), isEmpty, reason: 'Approved');
+      expect(a.write(ctx, remote, {...row, 'examId': 'pap_f@cls_10B'}), isEmpty, reason: 'Locked');
+      expect(a.write(ctx, remote, {...row, 'examId': 'pap_c@cls_10B'}), hasLength(1), reason: 'Returned: editable, and the legacy paper lock no longer applies');
+      // grade-only sheet: gradeValue from the options, numeric components null
+      final g = a.write(ctx, remote, {'examId': 'pap_g@cls_10B', 'studentId': 'stu_2', 'status': 'Present', 'gradeValue': 'B'}).single;
+      expect((g.data['gradeValue'], g.data['theory'], g.data['practical'], g.data['internal']), ('B', null, null, null));
+      expect(a.write(ctx, remote, {'examId': 'pap_g@cls_10B', 'studentId': 'stu_2', 'status': 'Present', 'gradeValue': 'Z'}), isEmpty, reason: 'not a grade option');
+      // an absent student carries no marks
+      final ab = a.write(ctx, remote, {'examId': 'pap_a@cls_10B', 'studentId': 'stu_2', 'status': 'Medical Slip'}).single;
+      expect((ab.data['status'], ab.data['theory'], ab.data['practical']), ('Medical Slip', null, null));
+      // reading back
+      final local = a.build(ctx, {'exm_marks': [{...w.data, 'id': w.id}]}).single;
+      expect((local['examId'], local['marks'], local['practical'], local['internal'], local['gradeValue'], local['status']), ('pap_a@cls_10B', 70, 15, null, '', 'Present'));
+      final m = StudentMark.fromJson(local);
+      expect((m.total, m.entered, m.componentOf('practical')), (85, true, 15));
+    });
+
+    test('marks: without a sheet the legacy theory-only write is unchanged', () {
+      const a = MarksAdapter();
+      final w = a.write(ctx, remote, {'examId': 'pap_b@cls_10B', 'studentId': 'stu_1', 'status': 'Present', 'marks': 40, 'practical': 15, 'internal': 9}).single;
+      expect(w.data.keys.toSet(), {'paperId', 'candId', 'studentId', 'classId', 'theory', 'status', 'tag', 'note', 'teacherId', 'enteredAt', 'updatedAt', 'updatedBy'});
+      expect(w.data['theory'], 40);
+      expect(w.data.keys, isNot(contains('internal')));
+      expect(w.data.keys, isNot(contains('practical')));
+      expect(a.write(ctx, remote, {'examId': 'pap_b@cls_10B', 'studentId': 'stu_1', 'marks': 81}), hasLength(1), reason: 'legacy has no component maxima here (the screen validates)');
+      // the sheet of another teacher (pap_h) does not exist for me: the write falls to the legacy path and there is no paper to lock it
+      expect(a.write(ctx, remote, {'examId': 'pap_h@cls_10B', 'studentId': 'stu_1', 'marks': 1}).single.data.keys, isNot(contains('practical')));
+    });
+
+    test('submit: a sheet exam writes only the sheet transition; no att_exam_state; read-only states write nothing', () {
+      const a = ExamsAdapter();
+      final rows = {for (final r in a.build(ctx, remote)) '${r['id']}': r};
+      final w = a.write(ctx, remote, {...rows['pap_a@cls_10B']!, 'status': 'Submitted', 'submittedAt': '2026-11-14T09:00:00'}).single;
+      expect((w.collection, w.id), ('exm_sheets', 'pap_a__cls_10B'));
+      expect(w.data, {'status': 'Submitted', 'submittedAt': '2026-11-14T09:00:00', 'submittedBy': 'stf_025', 'updatedAt': _now.toIso8601String(), 'updatedBy': 'uid1'});
+      expect(writeAllowed(w, 'stf_025'), isTrue);
+      expect(w.data.keys, isNot(contains('teacherId')), reason: 'the rules take exactly the transition keys');
+      // submittedAt defaults to now
+      expect(a.write(ctx, remote, {...rows['pap_c@cls_10B']!, 'status': 'Submitted', 'submittedAt': null}).single.data['submittedAt'], _now.toIso8601String());
+      expect(a.write(ctx, remote, {...rows['pap_c@cls_10B']!, 'status': 'Submitted'}).single.id, 'pap_c__cls_10B', reason: 'Returned -> Submitted again');
+      expect(a.write(ctx, remote, {...rows['pap_d@cls_10B']!, 'status': 'Submitted'}), isEmpty, reason: 'already Submitted');
+      expect(a.write(ctx, remote, {...rows['pap_e@cls_10B']!, 'status': 'Submitted'}), isEmpty, reason: 'Approved');
+      expect(a.write(ctx, remote, {...rows['pap_f@cls_10B']!, 'status': 'Submitted'}), isEmpty, reason: 'Locked');
+      expect(a.write(ctx, remote, {...rows['pap_a@cls_10B']!, 'status': 'Draft'}), isEmpty, reason: 'only the submit transition exists for a sheet');
+      // legacy exam: unchanged private overlay write
+      final l = a.write(ctx, remote, {...rows['pap_b@cls_10B']!, 'status': 'Submitted', 'submittedAt': '2026-11-14'}).single;
+      expect((l.collection, l.id, l.data['status'], l.data['teacherId']), ('att_exam_state', 'pap_b@cls_10B', 'Submitted', 'stf_025'));
+      // the after-submit listing is read-only
+      final after = {...remote, 'exm_sheets': [for (final s in remote['exm_sheets']!) s['id'] == 'pap_a__cls_10B' ? {...s, ...w.data} : s]};
+      final ex = Exam.fromJson(a.build(ctx, after).firstWhere((r) => r['id'] == 'pap_a@cls_10B'));
+      expect((ex.status, ex.readOnly, ex.submittedAt), ('Submitted', true, '2026-11-14T09:00:00'));
+    });
+
+    test('submit validation: every rostered student needs all components in range, or a non-Present status', () {
+      final ex = Exam.fromJson(const ExamsAdapter().build(ctx, remote).firstWhere((r) => r['id'] == 'pap_a@cls_10B'));
+      StudentMark mk(String id, {String status = 'Present', int? marks, int? practical, String grade = ''}) =>
+          StudentMark(examId: ex.id, studentId: id, status: status, marks: marks, practical: practical, gradeValue: grade);
+      expect(sheetSubmitProblem(ex, {}), '2 of 2 students still pending: enter every component or mark them Absent.');
+      expect(sheetSubmitProblem(ex, {'stu_1': mk('stu_1', marks: 70, practical: 15)}), startsWith('1 of 2 students still pending'));
+      expect(sheetSubmitProblem(ex, {'stu_1': mk('stu_1', marks: 70), 'stu_2': mk('stu_2', status: 'Absent')}), startsWith('1 of 2'), reason: 'practical missing');
+      expect(sheetSubmitProblem(ex, {'stu_1': mk('stu_1', marks: 90, practical: 15), 'stu_2': mk('stu_2', status: 'Medical Slip')}), '1 mark is out of range.');
+      expect(sheetSubmitProblem(ex, {'stu_1': mk('stu_1', marks: 70, practical: 15), 'stu_2': mk('stu_2', status: 'Disqualified')}), isNull);
+      final g = Exam.fromJson(const ExamsAdapter().build(ctx, remote).firstWhere((r) => r['id'] == 'pap_g@cls_10B'));
+      expect(sheetSubmitProblem(g, {'stu_1': mk('stu_1', grade: 'A'), 'stu_2': mk('stu_2', grade: 'B')}), isNull);
+      expect(sheetSubmitProblem(g, {'stu_1': mk('stu_1', grade: 'A'), 'stu_2': mk('stu_2')}), startsWith('1 of 2'));
+      // stats count any entered component and average totals against the sheet maximum (100)
+      final st = examStats(ex, ['stu_1', 'stu_2'], {'stu_1': mk('stu_1', marks: 70, practical: 15), 'stu_2': mk('stu_2', status: 'Absent')});
+      expect((st.graded, st.pending, st.absent, st.avg), (2, 0, 1, 85.0));
     });
   });
 

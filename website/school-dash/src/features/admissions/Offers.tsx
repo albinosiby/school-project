@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Clock, MessageSquare, Plus, X } from "lucide-react";
-import { Avatar, Badge, Button, Card, DataTable, Field, Modal, Select, Stat, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, Field, Modal, Select, Stat, useToast, type Column } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate, inrFull } from "@/lib/format";
 import { pct, useAdm, useToday } from "./lib";
@@ -64,7 +64,7 @@ export function Offers() {
           <div role="tablist" className="flex flex-wrap gap-1">{tabs.map(([id, l]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id!)} className={cn("cursor-pointer rounded px-3 py-1.5 text-sm font-medium", tab === id ? "bg-secondary text-on-secondary" : "text-on-surface-variant hover:bg-surface-container")}>{l}</button>)}</div>
           <Button className="ml-auto" onClick={() => setGen(true)}><Plus size={16} />Generate offer</Button>
         </div>
-        {!ready ? <p className="p-5">Loading…</p> : <DataTable rows={rows} columns={cols} pageSize={10} selectable selected={sel} onSelectedChange={setSel} searchText={(o) => `${o.ref} ${o.name} ${o.guardian} ${o.phone}`} />}
+        {!ready ? <LoadingSkeleton variant="table" label="Loading…" className="p-5" /> : <DataTable rows={rows} columns={cols} pageSize={10} selectable selected={sel} onSelectedChange={setSel} searchText={(o) => `${o.ref} ${o.name} ${o.guardian} ${o.phone}`} />}
       </Card>
 
       {sel.length > 0 && (

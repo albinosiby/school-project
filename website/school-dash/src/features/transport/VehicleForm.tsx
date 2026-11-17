@@ -18,10 +18,11 @@ type VehicleValues = NonNullable<ReturnType<typeof validateVehicle>["values"]>;
 
 export function VehicleForm({ bus, existing, assigned, onSave, onClose }: {
   bus?: Bus; existing: Bus[]; assigned: number;
-  onSave: (values: VehicleValues) => Promise<void>;
+  onSave: (values: VehicleValues, snapshot?: Bus) => Promise<void>;
   onClose: () => void;
 }) {
-  const [form, setForm] = useState(() => vehicleInput(bus));
+  const [snapshot] = useState(bus);
+  const [form, setForm] = useState(() => vehicleInput(snapshot));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
@@ -44,11 +45,11 @@ export function VehicleForm({ bus, existing, assigned, onSave, onClose }: {
   async function submit() {
     if (saving) return;
     setSaveError("");
-    const result = validateVehicle(form, existing, Number(todayIso().slice(0, 4)), bus, assigned);
+    const result = validateVehicle(form, existing, Number(todayIso().slice(0, 4)), snapshot, assigned);
     setErrors(result.errors);
     if (!result.values) return;
     setSaving(true);
-    try { await onSave(result.values); }
+    try { await onSave(result.values, snapshot); }
     catch (error) { setSaveError(error instanceof Error ? error.message : "Could not save the bus."); }
     finally { setSaving(false); }
   }

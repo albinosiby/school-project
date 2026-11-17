@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Card, CardHeader, DataTable, Stat, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Card, CardHeader, DataTable, Stat, type Column } from "@/components/ui";
 import { useAdm, type SeatRow } from "./lib";
 import { gradeLabel } from "./types";
 
@@ -19,7 +19,7 @@ export function Seats() {
   const reserved = seatRows.reduce((sum, row) => sum + row.held - row.enrolled, 0);
   const filled = seatRows.reduce((sum, row) => sum + row.enrolled, 0);
   const available = seatRows.reduce((sum, row) => sum + Math.max(0, row.free), 0);
-  if (!ready) return <p>Loading seats…</p>;
+  if (!ready) return <LoadingSkeleton variant="table" label="Loading seats…" />;
 
   return (
     <div className="space-y-5">

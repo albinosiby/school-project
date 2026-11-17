@@ -66,17 +66,13 @@ export function ApprovalsView() {
         <div className="min-w-0 space-y-5">
           <Tabs items={tabs} value={tab} onChange={(t) => { setTab(t); setSel([]); }} />
           <Card>
-            <div className="flex flex-wrap items-center gap-3 p-4">
-              <p className="text-sm text-on-surface-variant">Showing <b>{view.length}</b> of {rows.length} requests</p>
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <Select aria-label="Status" className="!w-36" value={status} onChange={(e) => setStatus(e.target.value)}><option value="pending">Pending</option><option value="approved">Authorized</option><option value="rejected">Rejected</option><option value="all">All statuses</option></Select>
-                <Select aria-label="Urgency" className="!w-44" value={urgency} onChange={(e) => setUrgency(e.target.value)}><option value="all">All Urgencies</option>{urgencies.map((u) => <option key={u}>{u}</option>)}</Select>
-                <Select aria-label="Department" className="!w-44" value={dept} onChange={(e) => setDept(e.target.value)}><option value="all">All Departments</option>{depts.map((u) => <option key={u}>{u}</option>)}</Select>
-                <Button variant="outline" size="sm" aria-label="Reset filters" onClick={() => { setStatus("pending"); setUrgency("all"); setDept("all"); setTab("all"); toast("Filters reset"); }}><RefreshCw size={14} /></Button>
-              </div>
-            </div>
+            <p className="px-5 py-3 text-sm text-on-surface-variant">Showing <b>{view.length}</b> of {rows.length} requests</p>
             <DataTable rows={view} columns={columns} pageSize={6} selectable selected={sel} onSelectedChange={setSel} onRowClick={(r) => setDetail(r.id)}
-              searchText={(r) => `${r.requester} ${r.ref} ${r.title} ${r.dept}`} />
+              searchText={(r) => `${r.requester} ${r.ref} ${r.title} ${r.dept}`}
+              toolbar={<><Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}><option value="pending">Pending</option><option value="approved">Authorized</option><option value="rejected">Rejected</option><option value="all">All statuses</option></Select>
+                <Select aria-label="Urgency" value={urgency} onChange={(e) => setUrgency(e.target.value)}><option value="all">All Urgencies</option>{urgencies.map((u) => <option key={u}>{u}</option>)}</Select>
+                <Select aria-label="Department" value={dept} onChange={(e) => setDept(e.target.value)}><option value="all">All Departments</option>{depts.map((u) => <option key={u}>{u}</option>)}</Select>
+                <Button variant="outline" size="sm" aria-label="Reset filters" onClick={() => { setStatus("pending"); setUrgency("all"); setDept("all"); setTab("all"); toast("Filters reset"); }}><RefreshCw size={14} /></Button></>} />
           </Card>
           {selPending.length > 0 && (
             <div className="rounded-lg border border-secondary/30 bg-info-container/60 p-4 shadow-card">

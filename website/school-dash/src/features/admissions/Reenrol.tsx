@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { CalendarClock, MessageSquare, Pencil, X } from "lucide-react";
-import { Avatar, Badge, Button, Card, DataTable, Field, Input, Modal, ProgressBar, Select, Stat, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, Field, Input, Modal, ProgressBar, Select, Stat, Textarea, useToast, type Column } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate, inrFull } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
@@ -103,7 +103,7 @@ export function Reenrolment() {
         <div className="flex flex-wrap gap-1 p-4 pb-0" role="tablist">{([["all", "All", stat.total], ["confirmed", "Confirmed", stat.conf], ["pending", "Pending", stat.pend], ["exit", "Exit / TC", stat.exit]] as const).map(([id, l, n]) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={cn("cursor-pointer rounded px-3 py-1.5 text-sm font-medium", tab === id ? "bg-secondary text-on-secondary" : "text-on-surface-variant hover:bg-surface-container")}>{l} <span className="ml-1 text-xs opacity-80">{n}</span></button>))}
           {wing && <Button size="sm" variant="ghost" onClick={() => setWing("")}>Clear cohort filter ✕</Button>}</div>
-        <div className="pt-4">{!re.ready ? <p className="p-5">Loading…</p> : <DataTable rows={rows} columns={cols} pageSize={10} selectable selected={sel} onSelectedChange={setSel} onRowClick={(r) => setRowId(r.id)} searchText={(r) => `${r.name} ${r.admNo}`} />}</div>
+        <div className="pt-4">{!re.ready ? <LoadingSkeleton variant="table" label="Loading…" className="p-5" /> : <DataTable rows={rows} columns={cols} pageSize={10} selectable selected={sel} onSelectedChange={setSel} onRowClick={(r) => setRowId(r.id)} searchText={(r) => `${r.name} ${r.admNo}`} />}</div>
       </Card>
 
       {sel.length > 0 && (

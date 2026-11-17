@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Phone } from "lucide-react";
-import { Button } from "@/components/ui";
+import { LoadingSkeleton, Button } from "@/components/ui";
 import { loadStaffProfile } from "@/features/people/staffProfiles";
 import { useAuth } from "@/lib/authContext";
 import type { ClassTeacher } from "./classDetails";
@@ -28,7 +28,7 @@ export function TeacherPhone({ teacher, icon = false }: { teacher?: ClassTeacher
   }, [key, staffId]);
 
   const loaded = key && result?.key === key ? result : undefined;
-  if (key && !loaded) return <span role="status">Loading phone…</span>;
+  if (key && !loaded) return <LoadingSkeleton variant="inline" label="Loading phone…" />;
   if (loaded?.failed) return <span className="inline-flex flex-wrap items-center gap-2">Phone unavailable
     <Button variant="ghost" size="sm" onClick={(event) => { event.stopPropagation(); setAttempt((value) => value + 1); }}>Retry phone</Button>
   </span>;

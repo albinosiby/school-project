@@ -17,7 +17,6 @@ Future<void> showStudentSheet(BuildContext context, BusStudent s, Bus bus) => sh
   subtitle: [s.classLabel, s.rollLabel, if (s.grn.isNotEmpty) s.grn].where((e) => e.isNotEmpty).join(' · '),
   useRootNavigator: true,
   builder: (ctx) {
-    final stop = bus.stop(s.busStopId);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       if (s.medicalNote.isNotEmpty) ...[
         AppSurfaceCard(
@@ -30,11 +29,7 @@ Future<void> showStudentSheet(BuildContext context, BusStudent s, Bus bus) => sh
         ),
         SizedBox(height: 12.h),
       ],
-      Row(children: [
-        Expanded(child: InfoCell('Stop', s.busStop.isEmpty ? 'Not set' : s.busStop, icon: Icons.place_rounded)),
-        SizedBox(width: 8.w),
-        Expanded(child: InfoCell('Pickup / Drop', stop == null ? '--' : '${clock24(stop.pickupTime)} / ${clock24(stop.dropTime)}', icon: Icons.schedule_rounded)),
-      ]),
+      InfoCell('Stop', s.busStop.isEmpty ? 'Not set' : s.busStop, icon: Icons.place_rounded),
       SizedBox(height: 12.h),
       AppSurfaceCard(
         child: Row(children: [

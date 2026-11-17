@@ -2,7 +2,7 @@
 import Image from "next/image";
 import { useState } from "react";
 import { Download, Plus } from "lucide-react";
-import {
+import { LoadingSkeleton,
   Badge,
   Button,
   Card,
@@ -400,7 +400,7 @@ export function ReportCards({
             </p>
           </>
         ) : (
-          <p>Loading saved preview…</p>
+          <LoadingSkeleton variant="image" label="Loading saved preview…" />
         )}
         {error && (
           <p role="alert" className="mt-3 text-error">

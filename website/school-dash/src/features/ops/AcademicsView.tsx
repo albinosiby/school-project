@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { BookText, CheckCircle2, Clock, Plus, Trash2 } from "lucide-react";
-import { Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, ProgressBar, Select, Stat, Tabs, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, DataTable, EmptyState, Field, Input, ListToolbar, Modal, PageHeader, ProgressBar, Select, Stat, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { classStream, isSeniorGrade, streamFromClassId, streamsForGrade, type AcademicClass } from "@/lib/academicStreams";
 import { useCollection } from "@/lib/useCollection";
@@ -56,15 +56,13 @@ export function AcademicsView() {
         <Stat label="Overall submission rate" value={`${tot ? Math.round((sub / tot) * 100) : 0}%`} icon={<CheckCircle2 size={16} />} />
       </div>
       <Card className="pt-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
+        <div className="mb-3 space-y-3 px-5">
           <Tabs value={tab} onChange={setTab} items={[{ id: "all", label: "All", count: rows.length }, { id: "open", label: "Open", count: n("open") }, { id: "overdue", label: "Overdue", count: n("overdue") }, { id: "closed", label: "Completed", count: n("closed") }, ...(n("draft") ? [{ id: "draft", label: "Drafts", count: n("draft") }] : [])]} />
-          <div className="ml-auto flex flex-wrap gap-2">
-            <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-32"><option value="">All grades</option>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select>
+          <ListToolbar filters={<><Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} className="w-32"><option value="">All grades</option>{GRADES.map((g) => <option key={g} value={g}>Grade {g}</option>)}</Select>
             <Select aria-label="Section" value={section} onChange={(e) => setSection(e.target.value)} className="w-32"><option value="">All sections</option>{SECTIONS.map((g) => <option key={g}>{g}</option>)}</Select>
-            <Select aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="w-44"><option value="">All subjects</option>{subjects.map((g) => <option key={g}>{g}</option>)}</Select>
-          </div>
+            <Select aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} className="w-44"><option value="">All subjects</option>{subjects.map((g) => <option key={g}>{g}</option>)}</Select></>} />
         </div>
-        {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading homework…</p> : <DataTable rows={view} columns={cols} onRowClick={(h) => setForm({ edit: h })}
+        {!ready ? <LoadingSkeleton variant="table" label="Loading homework…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={view} columns={cols} onRowClick={(h) => setForm({ edit: h })}
           empty={<EmptyState title={rows.length ? "No homework matches" : "No homework yet"} hint={rows.length ? "Try another tab or filter." : "Create homework, or wait for teachers to post it from the app."} />} />}
       </Card>
       {form && <HWForm classes={classes} key={form.edit?.id ?? "new"} edit={form.edit} teachers={teachers} staff={staff}

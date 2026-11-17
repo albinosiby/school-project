@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Clock, MapPin, Plus, School, Search, UserRound, Wand2 } from "lucide-react";
-import { Avatar, Badge, Button, Card, EmptyState, Field, Input, Modal, PageHeader, Select, Stat, useToast } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, EmptyState, Field, Input, ListToolbar, Modal, PageHeader, Select, Stat, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { useNow } from "@/lib/useNow";
 import { CLASS_GRADES, SECTIONS, activeStudent, classIdOf, clsLabel, studentClassId, teachingStaff, type StaffRef } from "./shared";
@@ -116,20 +116,20 @@ export function ClassesView() {
           <Wand2 size={16} />{missing.length} class-section{missing.length > 1 ? "s" : ""} in the student roster {missing.length > 1 ? "have" : "has"} no class record.
           <Button size="sm" className="ml-auto" disabled={generating} onClick={generate}>{generating ? "Creating…" : "Create them"}</Button>
         </div>)}
-      <Card className="mb-4 flex flex-wrap items-center gap-3 p-4">
-        <div className="relative min-w-0 flex-1 basis-64">
+      <Card className="mb-4 min-w-0 p-4">
+        <ListToolbar search={<div className="relative min-w-0 flex-1 basis-64">
           <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
           <Input type="search" aria-label="Search classes" placeholder="Search class, teacher or room…" className="pl-9" value={query}
             onChange={(event) => { setQuery(event.target.value); setPage(0); }} />
-        </div>
-        <Select aria-label="Filter by grade" className="w-full sm:w-44" value={grade}
+        </div>}
+          filters={<Select aria-label="Filter by grade" className="w-full sm:w-44" value={grade}
           onChange={(event) => { setGrade(event.target.value); setPage(0); }}>
           <option value="">All grades</option>
           {grades.map((value) => <option key={value} value={value}>{gradeLabel(value)}</option>)}
-        </Select>
-        <Button variant="ghost" disabled={!filtered} onClick={clearFilters}>Clear filters</Button>
+        </Select>}
+          actions={<Button variant="ghost" disabled={!filtered} onClick={clearFilters}>Clear filters</Button>} />
       </Card>
-      {!classes.ready ? <Card className="p-5"><p role="status" className="text-on-surface-variant">Loading classes…</p></Card> : <>
+      {!classes.ready ? <Card className="p-5"><LoadingSkeleton variant="table" label="Loading classes…" className="text-on-surface-variant" /></Card> : <>
         <p role="status" className="mb-3 text-sm text-on-surface-variant">{view.length} of {classes.rows.length} classes</p>
         {visible.length === 0 ? <Card><EmptyState title={classes.rows.length ? "No classes match" : "No classes yet"}
           hint={classes.rows.length ? "Try changing your search or grade filter." : "Add a class or create them from the student roster."} /></Card> :
@@ -160,7 +160,7 @@ export function ClassesView() {
                     {teacher ? <Avatar name={teacher} size={36} className="bg-surface-container-low" /> :
                       <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-full bg-surface-container-low text-outline"><UserRound size={17} /></span>}
                     <dl className="min-w-0 text-sm"><dt className="text-xs text-on-surface-variant">Class teacher</dt>
-                      <dd className={`mt-0.5 break-words font-medium ${teacher ? "text-on-surface" : "text-on-surface-variant"}`}>{staffRecords.ready ? teacher || "Not assigned" : "Loading…"}</dd></dl>
+                      <dd className={`mt-0.5 break-words font-medium ${teacher ? "text-on-surface" : "text-on-surface-variant"}`}>{staffRecords.ready ? teacher || "Not assigned" : <LoadingSkeleton variant="inline" label="Loading teacher…" />}</dd></dl>
                   </div>
                   <CurrentPeriodDetails clock={clock} lesson={lessons.get(c.id)} ready={activityReady} />
                   <dl className="mt-auto grid grid-cols-3 divide-x divide-outline-variant/40 border-t border-outline-variant/40 pt-4">
@@ -200,7 +200,7 @@ function CurrentPeriodDetails({ clock, lesson, ready }: { clock: PeriodClock; le
       <p className={`flex items-center gap-1.5 text-xs font-medium ${active ? "text-secondary" : "text-on-surface-variant"}`}><Clock size={14} aria-hidden="true" />Current period</p>
       {ready && clock.state === "period" && <Badge tone={active ? "info" : "neutral"}>{clock.label}</Badge>}
     </div>
-    {!ready ? <p role="status" className="mt-3 text-on-surface-variant">Loading…</p> : <>
+    {!ready ? <LoadingSkeleton variant="table" label="Loading…" className="mt-3 text-on-surface-variant" /> : <>
       {clock.state !== "period" && <p className="mt-3 font-medium text-on-surface-variant">{clock.label}</p>}
       {clock.state === "period" && (lesson?.conflict ? <p className="mt-2 text-warning">Timetable conflict</p> :
         <dl className="mt-3 space-y-2.5">

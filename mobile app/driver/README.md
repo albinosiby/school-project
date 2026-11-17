@@ -74,3 +74,7 @@ their own bus's records (`website/firestore.rules`, tested in `website/tools/rul
 trip, attendant marking and undo, roster search and Call (`tel:`), student card, check-in / out, leave apply / withdraw,
 notices, edit profile, trip history. `test/firebase_repositories_test.dart` runs the Firestore repositories against
 `fake_cloud_firestore`.
+
+### Route stop details
+Stop configuration is name-based. Planned pickup/drop timing fields are not displayed in route or student screens.
+Actual trip start/end and boarding/drop attendance timestamps are retained.

@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent } from "@testing-library/react";
+import * as staffProfiles from "@/features/people/staffProfiles";
 import { CrewPanel } from "./CrewPanel";
-import { authAccounts, dialog, field, fieldError, getRow, renderUI, screen, seed, sentInvites, within, writes } from "@/test/render";
+import { authAccounts, authState, callableCalls, dialog, field, fieldError, getRow, renderUI, router, screen, seed, sentInvites, within, writes } from "@/test/render";
 
 const bus14 = { id: "bus_01", number: "14", regNo: "DL-01-AB-4092", capacity: 42, routeName: "Route 4B", driverId: "crw_001", driver: "Ramesh Kumar", attendantId: "crw_002", attendant: "Suresh Yadav",
   stops: [], pickupStart: "06:45", dropStart: "15:30", status: "Active", studentCount: 0 };
@@ -14,98 +15,119 @@ beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new 
 afterEach(() => { vi.useRealTimers(); });
 
 const setDate = (el: HTMLElement, v: string) => fireEvent.change(el, { target: { value: v } });
+
+it.each(["driver", "attendant"] as const)("opens the %s staff details from the name and row while keeping edit actions separate", async (role) => {
+  const member = role === "driver" ? ramesh : suresh;
+  seed({ tr_crew: [ramesh, suresh], tr_buses: [bus14] });
+  const { user } = renderUI(<CrewPanel role={role} />);
+  const link = screen.getByRole("link", { name: member.name });
+  expect(link).toHaveAttribute("href", `/staff/transport/${member.id}`);
+  await user.click(link.closest("tr")!);
+  expect(router.push).toHaveBeenCalledWith(`/staff/transport/${member.id}`);
+  router.push.mockClear();
+  await user.click(screen.getByRole("button", { name: `Edit ${member.name}` }));
+  expect(router.push).not.toHaveBeenCalled();
+  expect(dialog(role === "driver" ? "Edit Driver" : "Edit Bus staff")).toBeInTheDocument();
+  expect(writes).toHaveLength(0);
+});
+
+it("does not offer private staff profile navigation to a non-admin account", () => {
+  seed({ tr_crew: [ramesh] });
+  authState.user = { ...authState.user!, role: "staff" };
+  renderUI(<CrewPanel role="driver" />);
+  expect(screen.queryByRole("link", { name: ramesh.name })).not.toBeInTheDocument();
+});
 async function openAdd(role: "driver" | "attendant") {
   const r = renderUI(<CrewPanel role={role} />);
   const label = role === "driver" ? "Driver" : "Bus staff";
   await r.user.click(screen.getByRole("button", { name: `Add ${label}` }));
   const d = dialog(`Add ${label}`);
-  return { ...r, d, submit: () => r.user.click(within(d).getByRole("button", { name: `Add ${label} & Create Login` })) };
+  return { ...r, d, submit: () => r.user.click(within(d).getByRole("button", { name: "Save profile and enable app access" })) };
 }
 
 describe("Add driver / bus staff validation", () => {
-  it("shows the required-field errors for a driver (license included) and writes nothing", async () => {
-    const { d, submit } = await openAdd("driver");
-    await submit();
-    expect(fieldError("Full name", d)).toBe("Name is required");
-    expect(fieldError("Phone", d)).toBe("Enter a valid phone number");
-    expect(fieldError("Email (driver-app login)", d)).toBe("A valid email is required (it is the driver-app login)");
-    expect(fieldError("License no", d)).toBe("License number is required for a driver");
-    expect(fieldError("License expiry", d)).toBe("License expiry is required for a driver");
+  it.each(["driver", "attendant"] as const)("uses the shared staff form for %s and cancels without creating records", async (role) => {
+    const { user, d } = await openAdd(role);
+    expect(field("Staff category", d)).toHaveValue("Non-Teaching");
+    expect(field("Designation", d)).toHaveValue(role === "driver" ? "Driver" : "Bus Attendant");
+    expect(within(d).getByRole("switch", { name: "Enable app access" })).toBeChecked();
+    expect(field("First name", d)).toBeInTheDocument();
+    expect(within(d).queryByRole("textbox", { name: "Driving licence number" }) !== null).toBe(role === "driver");
+    expect(within(d).queryByLabelText("Email (driver-app login)")).not.toBeInTheDocument();
+    await user.click(within(d).getByRole("button", { name: "Cancel" }));
+    expect(callableCalls).toHaveLength(0);
     expect(writes).toHaveLength(0);
     expect(authAccounts.size).toBe(0);
   });
 
-  it("does not ask bus staff for a license", async () => {
-    const { d, submit } = await openAdd("attendant");
-    expect(within(d).queryByText("License no")).toBeNull();
+  it.each(["driver", "attendant"] as const)("retains the %s draft on server validation errors without creating a login", async (role) => {
+    vi.spyOn(staffProfiles, "saveStaffProfile").mockRejectedValueOnce(Object.assign(new Error("Check the staff profile fields."), {
+      details: { fields: { phone: "Enter a valid mobile number.", licenseExpiry: "Enter a valid date." } },
+    }));
+    const { user, d, submit } = await openAdd(role);
+    await user.type(field("First name", d), "Vijay");
+    await user.type(field("Login email", d), "vijay@school.test");
+    await user.click(within(d).getByRole("button", { name: "Generate password" }));
     await submit();
-    expect(fieldError("Full name", d)).toBe("Name is required");
+    expect(fieldError("Mobile number", d)).toBe("Enter a valid mobile number.");
+    if (role === "driver") expect(fieldError("Licence expiry date", d)).toBe("Enter a valid date.");
+    expect(field("First name", d)).toHaveValue("Vijay");
+    expect(callableCalls.filter(([name]) => name === "setStaffAppLogin")).toHaveLength(0);
     expect(writes).toHaveLength(0);
   });
 
-  it("rejects a malformed phone / email, an expired license, and an email or employee ID already used", async () => {
-    seed({ tr_crew: [ramesh, suresh], tr_buses: [bus14] });
-    const { user, d, submit } = await openAdd("driver");
-    await user.type(field("Full name", d), "Vijay Singh");
-    await user.type(field("Phone", d), "98ab");
-    await user.type(field("Email (driver-app login)", d), "vijay@school");
-    await user.type(field("License no", d), "DL-0420110099999");
-    setDate(field("License expiry", d), "2026-11-02");
+  it.each(["driver", "attendant"] as const)("saves a staff profile and enables the linked %s login through the shared workflow", async (role) => {
+    seed({ staff: [{ id: "existing", name: "Existing", empId: "FC-0028" }], set_config: [
+      { id: "staff_numbering", template: "FC-{SEQ:4}", start: 10, next: 28 },
+    ] });
+    const { user, d, submit } = await openAdd(role);
+    expect(field("Employee ID", d)).toHaveValue("FC-0029");
+    await user.type(field("First name", d), "Vijay");
+    await user.type(field("Last name", d), "Singh");
+    setDate(field("Date of birth", d), "1990-04-10");
+    await user.selectOptions(field("Gender", d), "Male");
+    await user.selectOptions(field("Nationality", d), "IN");
+    await user.type(field("Mobile number", d), "9000000031");
+    setDate(field("Joining date", d), "2026-01-01");
+    await user.selectOptions(field("Employment type", d), "Permanent");
+    if (role === "driver") {
+      await user.type(field("Driving licence number", d), "TEST-0001");
+      setDate(field("Licence expiry date", d), "2030-01-01");
+    }
+    await user.type(field("Login email", d), "vijay@school.test");
+    await user.click(within(d).getByRole("button", { name: "Generate password" }));
+    const password = field("Password", d).value;
+    expect(password).toMatch(/^\d{6}$/);
     await submit();
-    expect(fieldError("Phone", d)).toBe("Enter a valid phone number");
-    expect(fieldError("Email (driver-app login)", d)).toBe("A valid email is required (it is the driver-app login)");
-    expect(fieldError("License expiry", d)).toBe("The license has expired; enter the renewed expiry date");
-    await user.clear(field("Email (driver-app login)", d)); await user.type(field("Email (driver-app login)", d), "Attendant@E2E.test");
-    await user.type(field("Employee ID", d), "tr-1001");
-    await submit();
-    expect(fieldError("Email (driver-app login)", d)).toBe("Another crew member already uses this email");
-    expect(fieldError("Employee ID", d)).toBe("Another crew member has this employee ID");
-    expect(writes).toHaveLength(0);
+    expect(callableCalls[0]).toEqual(["saveStaffProfile", expect.objectContaining({ profile: expect.objectContaining({
+      firstName: "Vijay", lastName: "Singh", category: "Non-Teaching", designation: role === "driver" ? "Driver" : "Bus Attendant",
+      empId: "", licenseNumber: role === "driver" ? "TEST-0001" : "", licenseExpiry: role === "driver" ? "2030-01-01" : "",
+    }) })]);
+    // The staff role is helper; the existing callable maps it to attendant app/crew access.
+    expect(callableCalls.at(-1)).toEqual(["setStaffAppLogin", { staffId: "stf_new_profile", email: "vijay@school.test", role: role === "driver" ? "driver" : "helper", password }]);
+    expect(within(d).getByLabelText("App password")).toHaveTextContent(password);
+    expect(authAccounts.size).toBe(0);
+    expect(sentInvites).toHaveLength(0);
+    await user.click(within(d).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog", { name: role === "driver" ? "Add Driver" : "Add Bus staff" })).not.toBeInTheDocument();
   });
 
-  it("creates the crew doc, the driver login (users role driver + crewId) and allots the bus in one batch", async () => {
-    seed({ tr_crew: [ramesh, suresh], tr_buses: [bus14, bus15] });
-    const { user, d, submit } = await openAdd("driver");
-    await user.type(field("Full name", d), " Vijay Singh ");
-    await user.type(field("Phone", d), "+91 98100 00031");
-    await user.type(field("Email (driver-app login)", d), "Vijay@School.test");
-    await user.type(field("License no", d), "dl-0420110099999");
-    setDate(field("License expiry", d), "2026-11-03");
-    await user.selectOptions(field("Bus", d), "bus_01");
-    await submit();
-    expect(getRow("tr_crew", "crw_003")).toMatchObject({ name: "Vijay Singh", role: "driver", status: "Active", email: "vijay@school.test", phone: "+91 98100 00031",
-      licenseNo: "DL-0420110099999", licenseExpiry: "2026-11-03", authUid: "uid_new_1", busId: "bus_01", bus: "Bus 14", updatedBy: "admin_uid" });
-    expect((getRow("tr_crew", "crw_003") as { empId: string }).empId).toMatch(/^TR-\d{4}$/);
-    expect(getRow("users", "uid_new_1")).toMatchObject({ schoolId: "sch_test", role: "driver", crewId: "crw_003", email: "vijay@school.test", name: "Vijay Singh" });
-    // the seat's previous holder is freed; the attendant seat is untouched
-    expect(getRow("tr_buses", "bus_01")).toMatchObject({ driverId: "crw_003", driver: "Vijay Singh", attendantId: "crw_002" });
-    expect(getRow("tr_crew", "crw_001")).not.toHaveProperty("busId");
-    expect(sentInvites).toEqual(["vijay@school.test"]);
-    expect(await screen.findByText("Login created. Password email sent to vijay@school.test")).toBeInTheDocument();
-  });
-
-  it("creates a bus-staff login with role attendant and no license fields", async () => {
+  it("retries attendant app access without saving another staff profile", async () => {
+    const login = vi.spyOn(staffProfiles, "setStaffAppLogin").mockRejectedValueOnce(new Error("This email is already linked."));
     const { user, d, submit } = await openAdd("attendant");
-    await user.type(field("Full name", d), "Anil Verma");
-    await user.type(field("Phone", d), "9810000032");
-    await user.type(field("Email (driver-app login)", d), "anil@school.test");
+    await user.type(field("First name", d), "Anil");
+    await user.type(field("Login email", d), "taken@school.test");
     await submit();
-    const row = getRow<Record<string, unknown>>("tr_crew", "crw_001")!;
-    expect(row).toMatchObject({ name: "Anil Verma", role: "attendant", status: "Active" });
-    expect(row).not.toHaveProperty("licenseNo");
-    expect(row).not.toHaveProperty("busId");
-    expect(getRow("users", "uid_new_1")).toMatchObject({ role: "attendant", crewId: "crw_001" });
-  });
-
-  it("reports an email that already has a Firebase login and leaves nothing half-created", async () => {
-    authAccounts.set("taken@school.test", "uid_other");
-    const { user, d, submit } = await openAdd("attendant");
-    await user.type(field("Full name", d), "Anil Verma");
-    await user.type(field("Phone", d), "9810000032");
-    await user.type(field("Email (driver-app login)", d), "taken@school.test");
-    await submit();
-    expect(await screen.findByText(/This email already has a login/)).toBeInTheDocument();
-    expect(writes).toHaveLength(0);
+    expect(await within(d).findByText("Staff profile saved. This email is already linked.")).toBeInTheDocument();
+    expect(field("Login email", d)).toHaveValue("taken@school.test");
+    await user.clear(field("Login email", d));
+    await user.type(field("Login email", d), "anil@school.test");
+    await user.click(within(d).getByRole("button", { name: "Save app login" }));
+    expect(login).toHaveBeenLastCalledWith("stf_new_profile", { email: "anil@school.test", role: "helper" });
+    expect(callableCalls.filter(([name]) => name === "saveStaffProfile")).toHaveLength(1);
+    expect(within(d).getByLabelText("App password")).toHaveTextContent("024681");
+    expect(authAccounts.size).toBe(0);
+    expect(sentInvites).toHaveLength(0);
   });
 });
 

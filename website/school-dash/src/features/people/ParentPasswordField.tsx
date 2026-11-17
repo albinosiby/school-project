@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useLayoutEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui";
+import { LoadingSkeleton, Button } from "@/components/ui";
 import { revealParentPassword } from "@/lib/parentAccount";
 
 export function ParentPasswordField({ studentId, version }: { studentId: string; version: string }) {
@@ -57,7 +57,7 @@ export function ParentPasswordField({ studentId, version }: { studentId: string;
         <Button type="button" variant="outline" size="sm" onClick={() => { setPassword(""); setMessage(""); }}>Hide password</Button>
         <Button type="button" variant="outline" size="sm" onClick={copy}>Copy password</Button>
       </> : <Button type="button" variant="outline" size="sm" disabled={loading} onClick={show}>
-        {loading ? "Showing…" : "Show password"}
+        {loading ? <LoadingSkeleton variant="inline" label="Loading parent password…" /> : "Show password"}
       </Button>}
     </div>
     {message && <p role="status" className="text-on-surface-variant">{message}</p>}

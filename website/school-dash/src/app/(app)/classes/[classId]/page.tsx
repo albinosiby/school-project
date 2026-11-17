@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from "@/components/ui";
 import { Suspense } from "react";
 import { ClassDetailsView } from "@/features/ops/ClassDetailsView";
 
@@ -8,5 +9,5 @@ async function ClassDetails({ params }: Props) {
   return <ClassDetailsView key={classId} classId={classId} />;
 }
 export default function Page({ params }: Props) {
-  return <Suspense fallback={<p role="status">Loading class details…</p>}><ClassDetails params={params} /></Suspense>;
+  return <Suspense fallback={<LoadingSkeleton variant="details" label="Loading class details…" />}><ClassDetails params={params} /></Suspense>;
 }

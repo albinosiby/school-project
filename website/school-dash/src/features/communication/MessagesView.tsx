@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { Avatar, Badge, Card, DataTable, EmptyState, SearchBox, Select, SlideOver, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Card, DataTable, EmptyState, ListToolbar, SearchBox, Select, SlideOver, type Column } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { db } from "@/lib/firebase";
 import { currentSchoolId, useCollection } from "@/lib/useCollection";
@@ -39,12 +39,11 @@ export function MessagesView() {
     <div>
       <CommHeader active="messages" />
       <Card className="pt-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
-          <SearchBox value={q} onChange={setQ} placeholder="Search student, guardian, teacher or text…" className="w-full max-w-xs" />
-          <Select aria-label="Class" value={cls} onChange={(e) => setCls(e.target.value)} className="w-40"><option value="">All classes</option>{classIds.map((c) => <option key={c} value={c}>Grade {clsLabel(c)}</option>)}</Select>
-          <p className="t-caption ml-auto text-outline">Parent ↔ teacher conversations from the apps. Read-only for oversight.</p>
-        </div>
-        {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading conversations…</p>
+        <ListToolbar className="mb-3 px-5"
+          search={<SearchBox value={q} onChange={setQ} placeholder="Search student, guardian, teacher or text…" />}
+          filters={<Select aria-label="Class" value={cls} onChange={(e) => setCls(e.target.value)}><option value="">All classes</option>{classIds.map((c) => <option key={c} value={c}>Grade {clsLabel(c)}</option>)}</Select>} />
+        <p className="px-5 pb-3 text-xs text-outline">Parent ↔ teacher conversations from the apps. Read-only for oversight.</p>
+        {!ready ? <LoadingSkeleton variant="table" label="Loading conversations…" className="px-5 pb-5 text-on-surface-variant" />
           : <DataTable rows={view} columns={cols} pageSize={12} onRowClick={(t) => setOpen(t.id)} empty={<EmptyState title={rows.length ? "No conversations match" : "No conversations yet"} hint="Messages between parents and teachers appear here." />} />}
       </Card>
       <SlideOver open={!!live} onClose={() => setOpen(null)} width="max-w-lg" title={live?.studentName ?? "Conversation"}
@@ -66,7 +65,7 @@ function ThreadMessages({ threadId }: { threadId: string }) {
       () => { setErr(true); setMsgs([]); });
   }, [threadId]);
   if (err) return <p className="text-error">Could not load the messages.</p>;
-  if (!msgs) return <p className="text-on-surface-variant">Loading messages…</p>;
+  if (!msgs) return <LoadingSkeleton variant="table" label="Loading messages…" className="text-on-surface-variant" />;
   if (!msgs.length) return <EmptyState title="No messages yet" />;
   return (
     <ul className="space-y-3">{msgs.map((m) => (

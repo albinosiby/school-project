@@ -99,7 +99,7 @@ void main() {
       expect(const ClassesAdapter().readOnly, isTrue);
     });
     test('students query follows the teacher\'s class ids, rows sorted by roll, letter grade not in grade', () {
-      final q = const StudentsAdapter().queries(ctx, fake).single;
+      final q = const StudentsAdapter().queries(ctx, fake).singleWhere((q) => q.inField == 'classId');
       expect(q.inField, 'classId');
       expect(q.inValues, ['cls_10B', 'cls_8C']);
       final rows = const StudentsAdapter().build(ctx, fake);

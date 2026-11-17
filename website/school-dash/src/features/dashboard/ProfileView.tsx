@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Building2, Camera, Check, FileText, GraduationCap, Pencil, ShieldCheck, Users } from "lucide-react";
-import { Avatar, Badge, Button, Card, EmptyState, Field, Input, Select, Switch, Textarea, useToast } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, EmptyState, Field, Input, Select, Switch, Textarea, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { errMsg, useHydrated } from "./data";
 import { AdminPasskeyCard } from "@/features/auth/AdminPasskeyCard";
@@ -60,7 +60,7 @@ export function ProfileView() {
   };
   const pref = async (patch: Partial<Prefs>, ok = "Preference saved") => { try { await updPrefs(patch); toast(ok); } catch (e) { toast(errMsg(e), "error"); } };
 
-  if (!ready) return <div className="h-96" />;
+  if (!ready) return <LoadingSkeleton variant="details" label="Loading profile…" />;
   if (!m) return <Card><EmptyState title="Profile not found" hint="Your administrator profile has not been created for this school yet." /></Card>;
   const activeStudents = students.filter((s) => !s.status || s.status === "Active").length;
   const tag = (icon: React.ReactNode, t: string) => <span className="inline-flex items-center gap-1.5 rounded bg-surface-container px-2 py-1 text-xs text-on-surface-variant">{icon}{t}</span>;

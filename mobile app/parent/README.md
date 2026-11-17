@@ -117,3 +117,9 @@ tests: `bloc_child_data_test`, `bloc_actions_test`. Field validation on the real
 section, every More hub entry and every deep link, plus loading / empty / error states. `button_crawl_test`
 (opt-in, `--dart-define=CRAWL=true`) opens each of 32 routes, scrolls through it and taps every tappable element
 from a fresh app, reporting taps that throw or change nothing. Tests set `MockLatency.delay = Duration.zero`.
+
+### Route stop details
+Stop configuration is name-based. Planned pickup/drop timing fields are not displayed in route or student screens.
+Actual trip start/end and boarding/drop attendance timestamps are retained.
+The school transport feed uses recorded trip status and marks, with a schematic route and crew contacts.
+It ignores legacy stop timings and does not infer an ETA, passed stops or a live position from them.

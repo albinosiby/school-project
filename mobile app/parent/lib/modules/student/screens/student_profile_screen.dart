@@ -800,11 +800,11 @@ class _TransportSection extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        t.scheduleBased
+                        t.statusOnly
                             ? const Pill(
-                                'Schedule-based',
+                                'Bus assigned',
                                 tone: Tone.neutral,
-                                icon: Icons.schedule_rounded,
+                                icon: Icons.directions_bus_outlined,
                               )
                             : const Pill(
                                 'Live In Transit',
@@ -820,7 +820,7 @@ class _TransportSection extends StatelessWidget {
                     ),
                   ),
                   AppButton(
-                    t.scheduleBased ? 'TRACK BUS' : 'LIVE GPS',
+                    t.statusOnly ? 'TRACK BUS' : 'LIVE GPS',
                     icon: Icons.my_location_rounded,
                     small: true,
                     expand: false,
@@ -829,10 +829,6 @@ class _TransportSection extends StatelessWidget {
                 ],
               ),
               SizedBox(height: 12.h),
-              _TileGrid([
-                (Icons.wb_sunny_outlined, 'MORNING PICKUP', t.pickup),
-                (Icons.nights_stay_outlined, 'AFTERNOON DROP', t.drop),
-              ]),
               AppInfoTile(
                 icon: Icons.place_outlined,
                 iconColor: C.primary,
@@ -868,7 +864,8 @@ class _TransportSection extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Call ${t.driver.isEmpty ? 'the driver' : t.driver}',
+                    tooltip:
+                        'Call ${t.driver.isEmpty ? 'the driver' : t.driver}',
                     onPressed: () => simulateCall(
                       context,
                       t.driver.isEmpty ? 'the driver' : t.driver,
@@ -886,7 +883,9 @@ class _TransportSection extends StatelessWidget {
                           'Call ${t.attendant.isEmpty ? 'the bus supervisor' : t.attendant}',
                       onPressed: () => simulateCall(
                         context,
-                        t.attendant.isEmpty ? 'the bus supervisor' : t.attendant,
+                        t.attendant.isEmpty
+                            ? 'the bus supervisor'
+                            : t.attendant,
                         t.supervisorPhone,
                       ),
                       icon: Icon(

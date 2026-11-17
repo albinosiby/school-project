@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, RefreshCw } from "lucide-react";
-import { Button, Card } from "@/components/ui";
+import { LoadingSkeleton, Button, Card } from "@/components/ui";
 import { retryCollection, useCollectionFailures, useCollectionPending } from "@/lib/useCollection";
 
 /** Keep readers mounted for retries while preventing failed reads from looking like empty records. */
@@ -16,7 +16,7 @@ export function CollectionGuard({ children }: { children: React.ReactNode }) {
         failures.forEach((failure) => retryCollection(failure.collection));
       }}><RefreshCw size={16} />Retry loading</Button>
     </Card>}
-    {!failures.length && pending.length > 0 && <Card className="mb-5 p-5"><p role="status">Loading school data…</p></Card>}
+    {!failures.length && pending.length > 0 && <LoadingSkeleton variant="page" label="Loading school data…" className="mb-5" />}
     <div hidden={failures.length > 0 || pending.length > 0}>{children}</div>
   </>;
 }

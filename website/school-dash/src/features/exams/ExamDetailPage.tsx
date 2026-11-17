@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import {
+import { LoadingSkeleton,
   Badge,
   Button,
   Card,
@@ -86,7 +86,7 @@ export function ExamDetailPage() {
               }
             />
           ) : (
-            <p>Loading examination…</p>
+            <LoadingSkeleton variant="details" label="Loading examination…" />
           )}
         </Card>
       </CollectionGuard>

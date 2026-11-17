@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
-import { Avatar, Button, Modal } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Button, Modal } from "@/components/ui";
 import { readAdmissionDocument, type AdmissionUpload } from "./admissionDocuments";
 
 type Preview = { status: "loading" } | { status: "unavailable"; message: string } | { status: "ready"; url: string; kind: "image" | "pdf" };
@@ -38,11 +38,12 @@ function useFilePreview(path: string, readFile = readAdmissionDocument): Preview
 export function StudentPortrait({ name, path }: { name: string; path: string }) {
   const preview = useFilePreview(path);
   const [failedUrl, setFailedUrl] = useState<string>();
+  if (preview.status === "loading") return <LoadingSkeleton variant="avatar" label="Loading photo…" />;
   if (preview.status !== "ready" || preview.kind !== "image" || failedUrl === preview.url) {
     return <div className="text-center">
       <Avatar name={name} size={96} />
       <span role="status" className="mt-1 block text-xs text-on-surface-variant">
-        {preview.status === "loading" ? "Loading photo…" : "Photo unavailable"}
+        Photo unavailable
       </span>
     </div>;
   }
@@ -77,7 +78,7 @@ export function FilePreview({ path, name, title, onClose, onDownload, downloadin
       <Button variant="outline" disabled={downloading} onClick={onDownload}><Download size={16} />Download</Button>
       <Button onClick={onClose}>Done</Button>
     </>}>
-    {preview.status === "loading" && <p role="status" className="py-8 text-center text-on-surface-variant">Loading preview…</p>}
+    {preview.status === "loading" && <LoadingSkeleton variant="image" label="Loading preview…" className="py-8 text-center text-on-surface-variant" />}
     {(preview.status === "unavailable" || (preview.status === "ready" && failedImage === preview.url))
       && <p role="status" className="py-8 text-center text-on-surface-variant">
         {preview.status === "unavailable" ? preview.message : "This image could not be displayed."}

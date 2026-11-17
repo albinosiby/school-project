@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { ExternalLink, Users, Video } from "lucide-react";
-import { Badge, Button, Card, DataTable, EmptyState, Input, PageHeader, Select, Stat, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, DataTable, EmptyState, Input, ListToolbar, PageHeader, Select, Stat, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import { clsLabel, type StaffRef } from "./shared";
@@ -55,14 +55,13 @@ export function LiveClassesView() {
         <Stat label="Upcoming" value={n("Upcoming")} />
       </div>
       <Card className="pt-4">
-        <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
+        <ListToolbar className="mb-3 px-5" filters={<>
           <Select aria-label="Class" value={classId} onChange={(e) => setClassId(e.target.value)} className="w-40"><option value="">All classes</option>{classIds.map((c) => <option key={c} value={c}>{clsLabel(c)}</option>)}</Select>
           <Select aria-label="Teacher" value={teacherId} onChange={(e) => setTeacherId(e.target.value)} className="w-56"><option value="">All teachers</option>{teacherIds.map((t) => <option key={t} value={t}>{name(t)}</option>)}</Select>
           <Input aria-label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-44" />
           <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} className="w-36"><option value="">All statuses</option>{STATES.map((s) => <option key={s} value={s}>{s}</option>)}</Select>
-          {(classId || teacherId || date || status) && <Button variant="ghost" size="sm" onClick={() => { setClassId(""); setTeacherId(""); setDate(""); setStatus(""); }}>Clear filters</Button>}
-        </div>
-        {!live.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading live classes…</p> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title={rows.length ? "No sessions match" : "No live classes"} hint={rows.length ? "Try clearing the filters." : "Sessions scheduled in the teacher app appear here."} />} />}
+        </>} actions={(classId || teacherId || date || status) && <Button variant="ghost" size="sm" onClick={() => { setClassId(""); setTeacherId(""); setDate(""); setStatus(""); }}>Clear filters</Button>} />
+        {!live.ready ? <LoadingSkeleton variant="table" label="Loading live classes…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title={rows.length ? "No sessions match" : "No live classes"} hint={rows.length ? "Try clearing the filters." : "Sessions scheduled in the teacher app appear here."} />} />}
       </Card>
     </div>
   );

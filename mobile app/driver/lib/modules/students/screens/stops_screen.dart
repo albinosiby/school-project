@@ -8,7 +8,7 @@ import '../bloc/roster_bloc.dart';
 import '../models/student_models.dart';
 import 'widgets/student_sheet.dart';
 
-/// Figma 2.1 View Stops: the route in order with times and the pupils at each stop.
+/// Figma 2.1 View Stops: the route in order with landmarks and the pupils at each stop.
 class StopsScreen extends StatelessWidget {
   const StopsScreen({super.key});
 
@@ -40,10 +40,6 @@ class StopsScreen extends StatelessWidget {
                           if (stop.landmark.isNotEmpty) Text(stop.landmark, style: T.small),
                         ]),
                       ),
-                      Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                        Text('↑ ${clock24(stop.pickupTime)}', style: T.smallStrong),
-                        Text('↓ ${clock24(stop.dropTime)}', style: T.small),
-                      ]),
                     ]),
                     SizedBox(height: 10.h),
                     Builder(builder: (context) {

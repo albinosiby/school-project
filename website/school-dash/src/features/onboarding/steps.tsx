@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { writeBatch } from "firebase/firestore";
-import { Button, Field, Input, Select } from "@/components/ui";
+import { LoadingSkeleton, Button, Field, Input, Select } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { db } from "@/lib/firebase";
 import { AddStaffFields } from "@/features/people/AddStaffFields";
@@ -34,7 +34,7 @@ const upsert = (c: Coll, id: string, data: Record<string, unknown>) => (c.rows.s
 function Step1(props: StepProps) {
   const schoolC = useCollection<any>("school");
   const cfgC = useCollection<any>("set_config");
-  if (!schoolC.ready || !cfgC.ready) return <p role="status" className="text-on-surface-variant">Loading school profile…</p>;
+  if (!schoolC.ready || !cfgC.ready) return <LoadingSkeleton variant="form" label="Loading school profile…" className="text-on-surface-variant" />;
   return <SchoolProfileForm {...props} schoolC={schoolC} cfgC={cfgC} />;
 }
 
@@ -207,13 +207,13 @@ function Step5(props: StepProps) {
   const school = useCollection<any>("school");
   const terms = useCollection<any>("set_terms");
   const classes = useCollection<any>("classes");
-  if (![fs, cfg, school, terms, classes].every((collection) => collection.ready)) return <p role="status">Loading fee configuration…</p>;
+  if (![fs, cfg, school, terms, classes].every((collection) => collection.ready)) return <LoadingSkeleton variant="form" label="Loading fee configuration…" />;
   const grades = classes.rows.length ? feeScopesForClasses(classes.rows) : SETUP_GRADES.filter((grade) => !isSeniorGrade(grade));
   return <FeeSetupForm {...props} fs={fs} defaults={{ grades, academicYear: school.rows.find((row) => row.id === "school")?.academicYear ?? ayLabel(AY_START), termsPerYear: Math.max(1, terms.rows.length || 2) }} policy={cfg.rows.find((row) => row.id === "fee_policy")} />;
 }
 
 function FeeSetupForm({ initial, busy, onSubmit, back, fs, defaults, policy }: StepProps & { fs: Coll; defaults: { grades: string[]; academicYear: string; termsPerYear: number }; policy?: Partial<FeePlan> }) {
-  const [value, setValue] = useState<FeePlan>(() => initialFeePlan(initial ?? policy, fs.rows, defaults));
+  const [value, setValue] = useState<FeePlan>(() => initialFeePlan(initial ? { ...initial, ...(policy?.transportFrequency !== undefined ? { transportFrequency: policy.transportFrequency } : {}) } : policy, fs.rows, defaults));
   const [error, setError] = useState("");
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -234,7 +234,7 @@ function FeeSetupForm({ initial, busy, onSubmit, back, fs, defaults, policy }: S
         }, { merge: true });
       }
       for (const row of fs.rows) if (isSeniorGrade(row.grade) && !classStream(row) && plan.grades.some((key) => parseFeeScope(key).grade === row.grade && parseFeeScope(key).streamId)) batch.delete(schoolDoc("fee_structure", row.id));
-      batch.set(schoolDoc("set_config", "fee_policy"), { schemaVersion: 2, academicYear: plan.academicYear, termsPerYear: plan.termsPerYear, late: plan.late, upi: plan.upi, card: plan.card, ...createStamp() }, { merge: true });
+      batch.set(schoolDoc("set_config", "fee_policy"), { schemaVersion: 2, academicYear: plan.academicYear, termsPerYear: plan.termsPerYear, transportFrequency: plan.transportFrequency ?? "", late: plan.late, upi: plan.upi, card: plan.card, ...createStamp() }, { merge: true });
       await batch.commit();
     });
   };
@@ -282,7 +282,7 @@ function Step6({ initial, busy, onSubmit, back }: StepProps) {
       for (const c of classes.rows) if (c.classTeacherId && !want.has(c.id) && options.some((o) => classIdOfLabel(o) === c.id)) await classes.update(c.id, { classTeacherId: "", classTeacher: "" } as never);
     });
   };
-  if (!staff.ready || !secs.ready || !classes.ready) return <p role="status" className="text-on-surface-variant">Loading staff allocations…</p>;
+  if (!staff.ready || !secs.ready || !classes.ready) return <LoadingSkeleton variant="form" label="Loading staff allocations…" className="text-on-surface-variant" />;
 
   return (
     <form onSubmit={submit} noValidate>

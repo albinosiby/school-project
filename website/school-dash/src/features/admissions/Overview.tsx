@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { Badge, Button, Card, CardHeader, DataTable, Field, Input, Modal, Select, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, CardHeader, DataTable, Field, Input, Modal, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { useAdm, useToday } from "./lib";
 import { AdmissionForm } from "./AdmissionForm";
@@ -66,7 +66,7 @@ export function Overview() {
       {ready ? <DataTable rows={rows} columns={columns} pageSize={10} searchText={(row) => `${row.name} ${row.guardian} ${row.phone} ${row.ref}`}
         toolbar={<Select aria-label="Enquiry status" value={stage} onChange={(event) => setStage(event.target.value)}>
           <option value="">All statuses</option>{Object.entries(stages).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-        </Select>} /> : <p className="p-5">Loading enquiries…</p>}
+        </Select>} /> : <LoadingSkeleton variant="table" label="Loading enquiries…" className="p-5" />}
       <EnquirySlideOver open={add} onClose={() => setAdd(false)} />
       {admitting && <AdmissionForm mode="direct" enquiry={admitting} onClose={() => setAdmitting(undefined)} />}
       {deleting && <DeleteEnquiryDialog key={deleting.id} row={deleting} onClose={() => setDeleteId(undefined)}

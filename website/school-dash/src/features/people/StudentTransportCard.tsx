@@ -2,84 +2,112 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Bus as BusIcon } from "lucide-react";
-import { Button, Card, Field, Modal, Select, useToast } from "@/components/ui";
+import { Bus as BusIcon, Pencil } from "lucide-react";
+import { LoadingSkeleton, LoadingField, Button, Card, Field, Input, Modal, Select, useToast } from "@/components/ui";
 import { busStudentCounts } from "@/features/transport/logic";
 import { busLabel, stopsOf } from "@/features/transport/shared";
 import { assignStudentBuses } from "@/features/transport/studentBusAssignment";
+import { saveStudentTransportFee } from "@/features/transport/studentTransportFee";
+import { parseTransportFee, studentTransportFee, transportFeeVersion, type StudentTransportFee, type TransportFeeStudent } from "@/features/transport/transportFees";
+import { cleanStopName, stopNameError, stopNameKey } from "@/features/transport/busStops";
 import type { Bus } from "@/features/transport/types";
+import { useAuth } from "@/lib/authContext";
+import { inrFull } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import type { Student } from "./StudentsView";
+import { StudentStopPicker } from "./StudentStopPicker";
 
 export function StudentTransportCard({ student, students }: { student: Student; students: Student[] }) {
+  const { user } = useAuth();
+  const canManage = user?.role === "admin" || user?.role === "owner";
+  const fees = useCollection<StudentTransportFee>("student_transport_fees", canManage, [["studentId", "==", student.id]]);
+  const withFee = { ...student, transportFee: fees.rows.find((fee) => fee.id === student.id) };
+  const amount = studentTransportFee(withFee);
   const [editing, setEditing] = useState(false);
   return <Card className="p-5">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
       <h2 className="t-label-caps text-on-surface-variant">Transport</h2>
-      <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-        <BusIcon size={15} />{student.busId ? "Change Bus" : "Assign Bus"}
-      </Button>
+      {canManage && <Button size="sm" variant="outline" disabled={!fees.ready} onClick={() => setEditing(true)}>
+        {student.busId ? <Pencil size={15} /> : <BusIcon size={15} />}{student.busId ? "Edit transport" : "Assign Bus"}
+      </Button>}
     </div>
-    <p className="text-sm">{student.bus ? `${student.bus} · ${student.busStop || "No stop set"}` : "No bus"}</p>
-    {editing && <StudentBusForm student={student} students={students} onClose={() => setEditing(false)} />}
+    {student.busId ? <dl className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+      <dt className="text-on-surface-variant">Bus</dt><dd>{student.bus || "Assigned bus"}</dd>
+      <dt className="text-on-surface-variant">Bus stop</dt><dd>{student.busStop || "No stop set"}</dd>
+      {canManage && <><dt className="text-on-surface-variant">Fee amount</dt><dd>{fees.error ? "Fee unavailable" : !fees.ready ? <LoadingSkeleton variant="inline" label="Loading fee…" /> : amount === null ? "Not configured" : inrFull(amount)}</dd></>}
+    </dl> : <p className="text-sm">No bus</p>}
+    {fees.error && <p role="alert" className="mt-2 text-sm text-error">Could not load the transport fee. <Button size="sm" variant="ghost" onClick={fees.reload}>Retry</Button></p>}
+    {editing && <StudentBusForm student={withFee} students={students} onClose={() => setEditing(false)} />}
   </Card>;
 }
 
-function StudentBusForm({ student, students, onClose }: { student: Student; students: Student[]; onClose: () => void }) {
+function StudentBusForm({ student, students, onClose }: { student: TransportFeeStudent; students: Student[]; onClose: () => void }) {
+  const [snapshot] = useState(student);
   const buses = useCollection<Bus>("tr_buses");
   const toast = useToast();
-  const [busId, setBusId] = useState(student.busId ?? "");
-  const [stopId, setStopId] = useState(student.busStopId ?? "");
+  const [busId, setBusId] = useState(snapshot.busId ?? "");
+  const [stopDraft, setStopDraft] = useState<{ name: string; id?: string } | null>(null);
+  const initialAmount = studentTransportFee(snapshot);
+  const initialFee = initialAmount === null ? "" : String(initialAmount);
+  const [fee, setFee] = useState(initialFee);
+  const [feeError, setFeeError] = useState("");
+  const [stopError, setStopError] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const choices = buses.rows.filter((bus) => bus.status === "Active" || bus.id === student.busId);
+  const choices = buses.rows.filter((bus) => bus.status === "Active" || bus.id === snapshot.busId);
   const selected = choices.find(({ id }) => id === busId);
   const stops = stopsOf(selected);
+  const currentStop = busId === snapshot.busId ? stops.find((stop) => stop.id === snapshot.busStopId) : undefined;
+  const stopName = stopDraft?.name ?? currentStop?.name ?? (busId === snapshot.busId ? snapshot.busStop ?? "" : "");
+  const stopId = stopDraft?.id ?? stops.find((stop) => stopNameKey(stop.name) === stopNameKey(stopName))?.id;
   const counts = busStudentCounts(students);
-  const dirty = busId !== (student.busId ?? "") || stopId !== (student.busStopId ?? "");
+  const assignmentDirty = busId !== (snapshot.busId ?? "") || (stopId ?? "") !== (snapshot.busStopId ?? "") || stopNameKey(stopName) !== stopNameKey(currentStop?.name ?? snapshot.busStop ?? "");
+  const feeDirty = Boolean(busId && fee.trim() !== initialFee);
+  const dirty = assignmentDirty || feeDirty;
   const free = selected ? Math.max(0, selected.capacity - Math.max(counts.get(selected.id) ?? 0, selected.studentCount || 0)) : 0;
   async function save() {
     if (saving || !buses.ready || !dirty) return;
-    setSaving(true);
-    setError("");
+    const problem = busId ? stopNameError(stopName) : "";
+    const parsed = busId ? parseTransportFee(fee) : { amount: null };
+    setStopError(problem); setFeeError(parsed.error || "");
+    if (problem || parsed.error) return;
+    setSaving(true); setError("");
     try {
-      await assignStudentBuses([{ studentId: student.id, busId: busId || null, stopId: stopId || undefined }], students, buses.rows);
-      toast(busId ? "Bus assignment saved" : "Bus assignment removed");
-      onClose();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not save the bus assignment.");
-    } finally { setSaving(false); }
+      if (!assignmentDirty && busId) await saveStudentTransportFee(snapshot, busId, fee);
+      else await assignStudentBuses([{ studentId: snapshot.id, busId: busId || null, stopId,
+        ...(busId ? { stopName: cleanStopName(stopName) } : {}),
+        ...(busId && (busId !== snapshot.busId || feeDirty) ? { fee: { input: fee, expectedVersion: transportFeeVersion(snapshot.transportFee) } } : {}),
+      }], students.map((row) => row.id === snapshot.id ? snapshot : row), buses.rows);
+      toast(busId ? "Transport details saved" : "Bus assignment removed"); onClose();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the transport details."); }
+    finally { setSaving(false); }
   }
 
-  return <Modal open title="Assign Bus" subtitle={student.name} onClose={() => { if (!saving) onClose(); }}
+  return <Modal open title={snapshot.busId ? "Edit transport" : "Assign Bus"} subtitle={snapshot.name} onClose={() => { if (!saving) onClose(); }}
     footer={<><Button variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
       <Button disabled={!buses.ready || saving || !dirty} onClick={save}>{saving ? "Saving…" : "Save assignment"}</Button></>}>
     <div className="space-y-4">
       <Field label="Bus">
-        <Select disabled={saving || !buses.ready} value={busId} onChange={(event) => {
-          setBusId(event.target.value); setStopId(""); setError("");
+        <LoadingField loading={!buses.ready} label="Loading buses…"><Select disabled={saving || !buses.ready} value={busId} onChange={(event) => {
+          const next = event.target.value;
+          setBusId(next); setFee(next === snapshot.busId ? initialFee : ""); setFeeError("");
+          setStopDraft({ name: "" }); setStopError(""); setError("");
         }}>
-          <option value="">{buses.ready ? "No bus" : "Loading buses…"}</option>
-          {student.busId && !choices.some(({ id }) => id === student.busId) &&
-            <option value={student.busId} disabled>{student.bus || "Previous bus"} · unavailable</option>}
-          {choices.map((bus) => <option key={bus.id} value={bus.id}>
-            {busLabel(bus)}{bus.endPoint || bus.routeName ? ` · ${bus.endPoint || bus.routeName}` : ""}
-            {bus.status !== "Active" ? ` · ${bus.status}` : ""}
-          </option>)}
-        </Select>
+          <option value="">No bus</option>
+          {snapshot.busId && !choices.some(({ id }) => id === snapshot.busId) &&
+            <option value={snapshot.busId} disabled>{snapshot.bus || "Previous bus"} · unavailable</option>}
+          {choices.map((bus) => <option key={bus.id} value={bus.id}>{busLabel(bus)}{bus.endPoint || bus.routeName ? ` · ${bus.endPoint || bus.routeName}` : ""}{bus.status !== "Active" ? ` · ${bus.status}` : ""}</option>)}
+        </Select></LoadingField>
       </Field>
       {selected && <>
         <p className="text-sm text-on-surface-variant">{selected.regNo} · {free} seats available</p>
-        {stops.length > 0 && <Field label="Bus stop" hint="Optional">
-          <Select disabled={saving} value={stopId} onChange={(event) => { setStopId(event.target.value); setError(""); }}>
-            <option value="">No stop set</option>
-            {stops.map(({ id, name }) => <option key={id} value={id}>{name}</option>)}
-          </Select>
-        </Field>}
+        <StudentStopPicker buses={buses.rows} busId={busId} name={stopName} disabled={saving} error={stopError}
+          onChange={(name, id) => { setStopDraft({ name, id }); setStopError(""); setError(""); }} />
+        <Field label="Transport fee amount (₹)" error={feeError} hint="Blank = not configured; 0 = free. Collection frequency is set in Settings → Payments.">
+          <Input inputMode="decimal" value={fee} disabled={saving} placeholder="e.g. 1200" onChange={(event) => { setFee(event.target.value); setFeeError(""); setError(""); }} />
+        </Field>
       </>}
-      {buses.ready && !choices.length && <p className="text-sm text-on-surface-variant">
-        Add an active bus under <Link href="/transport" className="text-secondary underline">Transport</Link>.
-      </p>}
+      {buses.ready && !choices.length && <p className="text-sm text-on-surface-variant">Add an active bus under <Link href="/transport" className="text-secondary underline">Transport</Link>.</p>}
       {error && <p role="alert" className="text-sm text-error">{error}</p>}
     </div>
   </Modal>;

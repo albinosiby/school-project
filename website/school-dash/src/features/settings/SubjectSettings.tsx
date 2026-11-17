@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { runTransaction } from "firebase/firestore";
-import { Badge, Button, Checkbox, Field, Input, Modal, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Checkbox, Field, Input, Modal, useToast } from "@/components/ui";
 import { schoolDoc, stamp } from "@/features/fees/logic";
 import { db } from "@/lib/firebase";
 import { normalizeSubjects, subjectCatalogId, subjectKey, subjectName, subjectSettingsId, useSchoolSubjects, type SchoolDepartment, type SchoolSubject } from "@/lib/schoolSubjects";
@@ -87,7 +87,7 @@ export function SubjectSettings() {
       aliasIds: editing?.aliasIds ?? [] }, editing);
   }
 
-  if (!ready) return <p className="text-sm text-on-surface-variant">Loading subjects…</p>;
+  if (!ready) return <LoadingSkeleton variant="table" label="Loading subjects…" className="text-sm text-on-surface-variant" />;
 
   return <fieldset disabled={busy} className="space-y-4">
     <section className="space-y-2 border-b border-outline-variant/60 pb-4">

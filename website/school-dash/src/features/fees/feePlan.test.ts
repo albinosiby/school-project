@@ -71,7 +71,7 @@ describe("fee plans", () => {
     expect(feePlanError(plan)).toBe("");
     expect(feePlanError({ ...plan, items: [] })).toBe("Add at least one fee item.");
     expect(feePlanError(withItem({ name: " " }))).toContain("enter a name");
-    expect(feePlanError(withItem({ name: "Bus fee" }))).toBe("Set transportation fees per bus under Transport → Buses.");
+    expect(feePlanError(withItem({ name: "Bus fee" }))).toBe("Set transport amounts in student details → Transport, and choose the collection frequency under Payments.");
     for (const amount of [0, -1, NaN, Infinity, 0.001, 10000001]) expect(feePlanError(withItem({ amount }))).toContain("enter an amount");
     expect(feePlanError(withItem({ grades: [] }))).toContain("applicable class");
     expect(feePlanError(withItem({ grades: ["7"] }))).toContain("applicable class");
@@ -98,4 +98,13 @@ describe("fee plans", () => {
     expect(gradeFeeRecord(saved, "5").items).toHaveLength(1);
     expect(batchFeeItems({ ...legacy, items: saved.items }, "Monthly")).toEqual([tuition]);
   });
+});
+
+
+it("stores the transport collection frequency separately from student amounts and general class charges", () => {
+  const restored = initialFeePlan({ ...plan, transportFrequency: "Term-wise" }, [], defaults);
+  expect(restored.transportFrequency).toBe("Term-wise");
+  expect(normalizedFeePlan(restored).transportFrequency).toBe("Term-wise");
+  expect(feePlanError({ ...restored, items: [] })).toBe("");
+  expect(recurringTotal(restored.items, restored.termsPerYear)).toBe(24000);
 });

@@ -3,7 +3,7 @@
 // each counts towards and with what weight. The exam wizard offers these in its Exam type picker.
 import { useState } from "react";
 import { Plus } from "lucide-react";
-import { Badge, Button, Checkbox, Field, Input, Modal, Select, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Checkbox, Field, Input, Modal, Select, useToast } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { examTypeError, examTypeId, newExamType, STARTER_EXAM_TYPES, termWeightTotals, type ExamType } from "@/features/exams/assessmentScheme";
 
@@ -17,7 +17,7 @@ export function ExamTypeSettings() {
   const [edit, setEdit] = useState<ExamType | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  if (!types.ready || !terms.ready) return <p className="text-sm text-on-surface-variant">Loading exam types…</p>;
+  if (!types.ready || !terms.ready) return <LoadingSkeleton variant="table" label="Loading exam types…" className="text-sm text-on-surface-variant" />;
   const sortedTerms = [...terms.rows].sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
   const rows = [...types.rows].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   const totals = termWeightTotals(types.rows);

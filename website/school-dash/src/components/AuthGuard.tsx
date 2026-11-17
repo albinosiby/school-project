@@ -1,4 +1,5 @@
 "use client";
+import { LoadingSkeleton } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { homeFor, useAuth } from "@/lib/authContext";
@@ -20,14 +21,7 @@ export function AuthGuard({ children, role = "admin" }: { children: React.ReactN
   }, [user, isLoading, router, role]);
 
   if (isLoading) {
-    return (
-      <div className="grid min-h-screen place-items-center bg-surface">
-        <div className="text-center">
-          <div className="size-12 animate-spin rounded-full border-4 border-outline-variant border-t-secondary mx-auto mb-4"></div>
-          <p className="text-on-surface-variant">Loading...</p>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-surface p-4 sm:p-6"><LoadingSkeleton variant="page" label="Loading..." className="mx-auto max-w-6xl" /></div>;
   }
 
   if (!user || wrongRole) {

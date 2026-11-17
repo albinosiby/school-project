@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import { Avatar, Badge, Button, Card, Checkbox, DataTable, EmptyState, Field, Input, Modal, Select, Tabs, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, Checkbox, DataTable, EmptyState, Field, Input, Modal, Select, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { useCollection } from "@/lib/useCollection";
 import { useNow } from "@/lib/useNow";
@@ -81,11 +81,11 @@ export function MeetingsPanel({ students }: { students: Stu[] }) {
     <Card className="pt-4">
       <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
         <Tabs value={tab} onChange={setTab} items={[{ id: "upcoming", label: "Booked", count: upcoming.length }, { id: "open", label: "Open slots", count: open.length }, { id: "past", label: "Past & cancelled", count: past.length }]} />
-        <Select aria-label="Teacher" value={teacher} onChange={(e) => setTeacher(e.target.value)} className="w-48"><option value="">All teachers</option>{teachers.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</Select>
+        <Select aria-label="Teacher" value={teacher} onChange={(e) => setTeacher(e.target.value)} className="w-full sm:w-44"><option value="">All teachers</option>{teachers.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</Select>
         <Button className="ml-auto" onClick={() => setPublishing(true)}><Plus size={16} />Publish slots</Button>
       </div>
       <p className="t-caption mb-3 px-5 text-outline">Parents book these slots in the parent app (More &gt; Parent-Teacher Meeting). The teacher is notified of each booking.</p>
-      {!slots.ready || !bookings.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading meetings…</p>
+      {!slots.ready || !bookings.ready ? <LoadingSkeleton variant="table" label="Loading meetings…" className="px-5 pb-5 text-on-surface-variant" />
         : tab === "open" ? <DataTable rows={open} columns={slotCols} pageSize={10} empty={<EmptyState title="No open slots" hint="Publish slots so parents can book a meeting." />} />
         : <DataTable rows={tab === "past" ? past : upcoming} columns={tab === "past" ? pastCols : upcomingCols} pageSize={10}
             empty={<EmptyState title={tab === "past" ? "No past meetings" : "No meetings booked"} hint="Meetings booked by parents show up here." />} />}

@@ -57,7 +57,7 @@ export function FeePlanEditor({ value, onChange, disabled = false, compact = fal
         <span className="mr-1 text-xs text-on-surface-variant">Quick add</span>
         {TEMPLATES.map((template) => <button key={template.name} type="button" onClick={() => add(template)} className="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-full border border-outline-variant/60 px-3 text-xs text-on-surface-variant hover:border-secondary hover:text-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary"><Plus size={12} aria-hidden="true" />{template.name}</button>)}
       </div>
-      <p className="flex items-start gap-2 rounded-lg bg-surface-container-low p-3 text-xs leading-5 text-on-surface-variant"><Bus size={16} className="mt-0.5 shrink-0" aria-hidden="true" />Transportation fees are configured per bus under Transport → Buses. The applicable rate depends on the student&apos;s assigned bus.</p>
+      <p className="flex items-start gap-2 rounded-lg bg-surface-container-low p-3 text-xs leading-5 text-on-surface-variant"><Bus size={16} className="mt-0.5 shrink-0" aria-hidden="true" />Set each student’s transport amount when assigning a bus or editing student details → Transport.</p>
       {hasStreams && <p className="text-xs leading-5 text-on-surface-variant">Grades 11–12 use the streams configured in Classes &amp; Sections. Select a class and stream below to give Science, Commerce, or Humanities its own fee amount.</p>}
       {value.items.length === 0 && <div className="rounded-xl border border-dashed border-outline-variant px-5 py-9 text-center"><ReceiptText size={28} className="mx-auto text-outline" aria-hidden="true" /><p className="mt-3 font-semibold">Start with your first fee item</p><p className="mt-1 text-sm text-on-surface-variant">Add tuition, admission, or a fee specific to your school.</p></div>}
       {value.items.map((item, index) => <fieldset key={item.id} className="min-w-0 overflow-hidden rounded-xl border border-outline-variant/60">
@@ -105,6 +105,15 @@ export function FeePlanEditor({ value, onChange, disabled = false, compact = fal
         <ul className="divide-y divide-outline-variant/40">{preview.map((item) => <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"><div className="min-w-0"><p className="break-words font-medium">{item.name || "Untitled fee"}</p><p className="mt-0.5 text-xs text-on-surface-variant">{item.frequency}{!item.mandatory && " · Optional"}{item.newStudentsOnly && " · New admissions only"}</p></div><span className="font-mono">{inrFull(item.amount)} / collection</span></li>)}</ul>
         {preview.length === 0 && <p className="px-4 py-5 text-sm text-on-surface-variant">No fees assigned to this class.</p>}
         <div className="border-t border-outline-variant/60 bg-info-container/25 px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-medium">Mandatory recurring total / year</span><b className="text-lg text-secondary">{inrFull(recurringTotal(preview, value.termsPerYear))}</b></div><p className="mt-1 text-xs leading-5 text-on-surface-variant">Assumes 12 monthly collections or {value.termsPerYear} terms. Excludes optional, one-time, and new-admission-only fees.</p></div>
+      </section>
+
+      <section aria-labelledby="transport-fees-heading" className="space-y-3 rounded-xl border border-outline-variant/60 p-4">
+        <div><h3 id="transport-fees-heading" className="font-semibold">Transport payments</h3><p className="mt-1 text-sm text-on-surface-variant">Amounts are set separately for each student in their Transport details. Choose how often those amounts are collected here.</p></div>
+        <Field label="Transport collection frequency" hint="Saving this setting does not create invoices or charge families.">
+          <Select value={value.transportFrequency ?? ""} onChange={(event) => onChange({ ...value, transportFrequency: event.target.value as FeeFrequency | "" })}>
+            <option value="">Not configured</option>{FEE_FREQUENCIES.map((frequency) => <option key={frequency}>{frequency}</option>)}
+          </Select>
+        </Field>
       </section>
 
       <section aria-labelledby="payment-rules-heading" className="space-y-4 rounded-xl border border-outline-variant/60 p-4">

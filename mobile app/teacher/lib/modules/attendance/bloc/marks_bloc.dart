@@ -37,16 +37,26 @@ class MarksBloc extends Bloc<MarksEvent, MarksState> {
     on<MarksFilterChanged>((e, emit) => emit(state.copyWith(filter: e.filter)));
     on<MarksQueryChanged>((e, emit) => emit(state.copyWith(query: e.query)));
     on<MarkSaved>((e, emit) async {
-      // a locked paper never takes marks (the rules reject the write too)
-      if (state.exams.where((x) => x.id == e.mark.examId).firstOrNull?.lockedByAdmin == true) return;
+      // a locked paper, or a sheet under review, never takes marks (the rules reject the write too)
+      if (state.exams.where((x) => x.id == e.mark.examId).firstOrNull?.readOnly == true) return;
       // optimistic update so text fields don't flicker
       emit(state.copyWith(marks: [for (final m in state.marks) if (m.id != e.mark.id) m, e.mark]));
       await _repo.saveMark(e.mark);
     });
-    on<MarksExamSubmitted>((e, _) async {
-      if (state.exams.where((x) => x.id == e.examId).firstOrNull?.lockedByAdmin == true) return;
+    on<MarksExamSubmitted>((e, emit) async {
+      final ex = state.exams.where((x) => x.id == e.examId).firstOrNull;
+      if (ex == null || ex.readOnly) return;
+      if (ex.hasSheet) {
+        // contract §4: every rostered student needs a mark or a non-Present status before the sheet can be submitted
+        final problem = sheetSubmitProblem(ex, state.marksOf(ex.id));
+        if (problem != null) {
+          emit(state.copyWith(notice: problem, filter: 'Pending'));
+          return;
+        }
+      }
       await _repo.submitExam(e.examId);
     });
+    on<MarksNoticeDismissed>((e, emit) => emit(state.copyWith(clearNotice: true)));
     _sub = _repo.watch().listen((_) => add(const MarksRefreshed()));
   }
 

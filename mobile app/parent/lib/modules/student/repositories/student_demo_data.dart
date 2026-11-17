@@ -110,8 +110,6 @@ class StudentDemoData {
       transport: TransportInfo(
         busNo: aarav ? 'Bus #14' : 'Bus #09',
         route: aarav ? 'Route 4B' : 'Route 2A',
-        pickup: aarav ? '07:15 AM' : '07:25 AM',
-        drop: aarav ? '03:45 PM' : '02:55 PM',
         stopName: 'Designated Stop #12',
         stopAddress: 'Sector 14 Home Gate, Main Road',
         driver: aarav ? 'Mahesh Singh' : 'Ravi Kumar',

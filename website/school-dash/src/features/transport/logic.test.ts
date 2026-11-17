@@ -150,20 +150,15 @@ describe("buses and stops", () => {
     expect(regKey("dl 01-ab 4092")).toBe(regKey("DL-01-AB-4092"));
   });
   const st = (name: string, pickupTime: string, dropTime: string) => ({ name, pickupTime, dropTime });
-  it("accepts stops in route order (equal times allowed)", () => {
-    expect(stopsError([st("A", "06:45", "15:40"), st("B", "06:58", "15:55"), st("C", "06:58", "16:05")], "06:45", "15:30")).toBe("");
-    expect(stopsError([], "06:45", "15:30")).toBe("");
+  it("accepts name-only stops in route order without requiring timing fields", () => {
+    expect(stopsError([{ name: "A" }, { name: "B" }])).toBe("");
+    expect(stopsError([])).toBe("");
   });
-  it("names the first problem with the stops", () => {
-    expect(stopsError([st("A", "06:45", "15:40"), st(" ", "06:50", "15:50")], "06:45", "15:30")).toBe("Every stop needs a name");
-    expect(stopsError([st("Nehru Place", "06:45", "15:40"), st("nehru place ", "06:50", "15:50")], "06:45", "15:30")).toBe('Two stops are named "nehru place"');
-    expect(stopsError([st("A", "06:45", "")], "06:45", "15:30")).toBe("Stop 1 (A) needs pickup and drop times (HH:mm)");
-    expect(stopsError([st("A", "06:40", "15:40")], "06:45", "15:30")).toBe("Stop 1 (A): pickup time is before the pickup start (06:45)");
-    expect(stopsError([st("A", "06:50", "15:40"), st("B", "06:48", "15:50")], "06:45", "15:30")).toBe("Stop 2 (B): pickup time is earlier than the stop before it");
-    expect(stopsError([st("A", "06:50", "15:20")], "06:45", "15:30")).toBe("Stop 1 (A): drop time is before the drop start (15:30)");
-    expect(stopsError([st("A", "06:50", "15:50"), st("B", "06:55", "15:45")], "06:45", "15:30")).toBe("Stop 2 (B): drop time is earlier than the stop before it");
+  it("requires unique nonempty stop names", () => {
+    expect(stopsError([{ name: "A" }, { name: " " }])).toBe("Every stop needs a name");
+    expect(stopsError([{ name: "Nehru Place" }, { name: "nehru   place " }])).toBe('Two stops are named "nehru place"');
   });
-  const ok = { number: "15", regNo: "DL-01-AB-5000", capacity: "40", routeName: "Route 5", pickupStart: "06:45", dropStart: "15:30" };
+  const ok = { number: "15", regNo: "DL-01-AB-5000", capacity: "40", routeName: "Route 5" };
   const existing = [{ id: "bus_01", number: "14", regNo: "DL-01-AB-4092" }];
   it("validates a bus: required, formats, duplicates, capacity bounds", () => {
     expect(validateBus(ok, [], existing)).toEqual({});
@@ -178,14 +173,10 @@ describe("buses and stops", () => {
     expect(validateBus({ ...ok, number: "14", regNo: "DL-01-AB-4092" }, [], existing, "bus_01")).toEqual({});
     expect(validateBus({ ...ok, capacity: "4" }, [], existing, "bus_01", 5).capacity).toBe("5 students are on this bus; capacity cannot be lower");
   });
-  it("accepts a bus-specific monthly fee, an unset fee, and explicitly free transport", () => {
-    for (const monthlyFee of [undefined, "", "0", "1200", "1500.50"]) expect(validateBus({ ...ok, monthlyFee }, [], existing)).toEqual({});
-    for (const monthlyFee of ["-1", "abc", "Infinity", "1.001", "10000001"]) expect(validateBus({ ...ok, monthlyFee }, [], existing).monthlyFee).toContain("Enter an amount from ₹0");
-  });
-  it("checks the start times and the stops", () => {
-    expect(validateBus({ ...ok, pickupStart: "", dropStart: "06:00" }, [], existing)).toEqual({ pickupStart: "Enter a time as HH:mm" });
-    expect(validateBus({ ...ok, dropStart: "06:00" }, [], existing)).toEqual({ dropStart: "The drop must start after the pickup" });
-    expect(validateBus(ok, [st("", "06:50", "15:40")], existing)).toEqual({ stops: "Every stop needs a name" });
+  it("validates stop names independently of legacy timing values", () => {
+    expect(validateBus(ok, [{ name: "" }], existing)).toEqual({ stops: "Every stop needs a name" });
+    const legacyStops = [st("A", "07:00", "16:00"), st("B", "06:50", ""), st("Library", "", "")];
+    expect(validateBus(ok, legacyStops, existing)).toEqual({});
   });
 });
 

@@ -1,7 +1,7 @@
 "use client";
 // Transport > Trips: tr_trips for one day (created by the driver app, contract 14.3). Row click opens the trip's attendance.
 import { useMemo, useState } from "react";
-import { Badge, Button, Card, DataTable, EmptyState, Field, Input, Select, type Column, type Tone } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, DataTable, EmptyState, Field, Input, ListToolbar, Select, type Column, type Tone } from "@/components/ui";
 import { useCollection } from "@/lib/useCollection";
 import { todayIso } from "@/features/ops/shared";
 import { busLabel, isoTime } from "./shared";
@@ -39,13 +39,12 @@ export function TripsPanel({ onOpenTrip }: { onOpenTrip: (t: Trip) => void }) {
 
   return (
     <Card className="pt-4">
-      <div className="mb-3 flex flex-wrap items-end gap-3 px-5">
-        <Field label="Date"><Input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} className="w-44" /></Field>
-        {date !== todayIso() && <Button variant="ghost" size="sm" onClick={() => setDate(todayIso())}>Today</Button>}
-        <Field label="Bus"><Select value={busId} onChange={(e) => setBusId(e.target.value)} className="w-48"><option value="">All buses</option>{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)} · {b.routeName}</option>)}</Select></Field>
-        <p className="t-caption ml-auto text-outline">Trips are created by the driver app when the crew opens it. Click a trip for its attendance.</p>
-      </div>
-      {!trips.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading trips…</p> : <DataTable rows={view} columns={cols} pageSize={12} onRowClick={onOpenTrip}
+      <ListToolbar className="mb-3 px-5" filters={<>
+        <Field label="Date"><Input type="date" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} /></Field>
+        <Field label="Bus"><Select value={busId} onChange={(e) => setBusId(e.target.value)}><option value="">All buses</option>{buses.map((b) => <option key={b.id} value={b.id}>{busLabel(b)} · {b.routeName}</option>)}</Select></Field>
+      </>} actions={date !== todayIso() && <Button variant="ghost" onClick={() => setDate(todayIso())}>Today</Button>} />
+      <p className="px-5 pb-3 text-xs text-outline">Trips are created by the driver app when the crew opens it. Click a trip for its attendance.</p>
+      {!trips.ready ? <LoadingSkeleton variant="table" label="Loading trips…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={view} columns={cols} pageSize={12} onRowClick={onOpenTrip}
         empty={<EmptyState title="No trips on this day" hint="The driver app creates the pickup and drop trips when a crew member opens it." />} />}
     </Card>
   );

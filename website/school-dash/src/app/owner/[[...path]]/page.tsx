@@ -1,3 +1,4 @@
+import { LoadingSkeleton } from "@/components/ui";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { siteUrls } from "@edvio/shared/sites";
@@ -19,5 +20,5 @@ async function OwnerRedirect({ params, searchParams }: Props) {
 }
 
 export default function Page(props: Props) {
-  return <Suspense fallback={null}><OwnerRedirect {...props} /></Suspense>;
+  return <Suspense fallback={<LoadingSkeleton variant="page" />}><OwnerRedirect {...props} /></Suspense>;
 }

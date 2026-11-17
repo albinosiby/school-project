@@ -3,22 +3,32 @@
 import { deleteField, runTransaction } from "firebase/firestore";
 import type { Student } from "@/features/people/StudentsView";
 import { db } from "@/lib/firebase";
-import { busStudentCounts, capacityError } from "./logic";
+import { busStudentCounts, capacityError, nextStopId } from "./logic";
+import { cleanStopName, stopNameError, stopNameKey } from "./busStops";
 import { busLabel, schoolDoc, stamp, stopsOf } from "./shared";
-import type { Bus } from "./types";
+import { parseTransportFee, transportFeeVersion, type StudentTransportFee } from "./transportFees";
+import type { Bus, BusStop } from "./types";
 
-type Change = { studentId: string; busId: string | null; stopId?: string };
+export type BusAssignmentChange = { studentId: string; busId: string | null; stopId?: string; stopName?: string;
+  fee?: { input: string; expectedVersion: string } };
 
-export async function assignStudentBuses(changes: Change[], students: Student[], buses: Bus[]) {
+export async function assignStudentBuses(changes: BusAssignmentChange[], students: Student[], buses: Bus[]) {
   if (!changes.length) return;
   if (new Set(changes.map(({ studentId }) => studentId)).size !== changes.length) {
     throw new Error("Each student can be assigned only once.");
   }
   const rosterCounts = busStudentCounts(students);
   const entries = changes.map((change) => {
+    const parsedFee = change.fee ? parseTransportFee(change.fee.input) : undefined;
+    if (parsedFee?.error) throw new Error(parsedFee.error);
+    if (change.fee && !change.busId) throw new Error("Choose a bus before setting its fee.");
+    if (change.busId && change.stopName !== undefined) {
+      const problem = stopNameError(change.stopName);
+      if (problem) throw new Error(problem);
+    }
     const student = students.find(({ id }) => id === change.studentId);
     if (!student) throw new Error("The student record is unavailable.");
-    return { ...change, student, ref: schoolDoc("students", student.id) };
+    return { ...change, feeAmount: parsedFee?.amount ?? null, student, ref: schoolDoc("students", student.id) };
   });
   const busIds = [...new Set(entries.flatMap(({ student, busId }) => [student.busId, busId]).filter((id): id is string => !!id))];
   const busRefs = busIds.map((id) => schoolDoc("tr_buses", id));
@@ -26,8 +36,11 @@ export async function assignStudentBuses(changes: Change[], students: Student[],
   await runTransaction(db, async (tx) => {
     const savedStudents = await Promise.all(entries.map(({ ref }) => tx.get(ref)));
     const savedBuses = await Promise.all(busRefs.map((ref) => tx.get(ref)));
+    const savedFees = await Promise.all(entries.map((entry) => entry.fee
+      ? tx.get(schoolDoc("student_transport_fees", entry.studentId)) : Promise.resolve(null)));
     const counts = new Map<string, number>();
     const deltas = new Map<string, number>();
+    const changedStops = new Map<string, BusStop[]>();
     for (const [index, id] of busIds.entries()) {
       const saved = savedBuses[index];
       const expected = buses.find((bus) => bus.id === id);
@@ -43,8 +56,15 @@ export async function assignStudentBuses(changes: Change[], students: Student[],
     const updates = entries.map((entry, index) => {
       const saved = savedStudents[index];
       if (!saved.exists() || saved.get("deleted") === true ||
-          (saved.get("busId") ?? "") !== (entry.student.busId ?? "")) {
+          (saved.get("busAssignmentRevision") ?? 0) !== (entry.student.busAssignmentRevision ?? 0) ||
+          (saved.get("busId") ?? "") !== (entry.student.busId ?? "") ||
+          (saved.get("busStopId") ?? "") !== (entry.student.busStopId ?? "") ||
+          (saved.get("busStop") ?? "") !== (entry.student.busStop ?? "")) {
         throw new Error("This student's bus assignment changed. Reopen the assignment.");
+      }
+      const savedFee = savedFees[index];
+      if (entry.fee && transportFeeVersion(savedFee?.exists() ? savedFee.data() as StudentTransportFee : undefined) !== entry.fee.expectedVersion) {
+        throw new Error("This fee changed in another window. Cancel and reopen the assignment to review it.");
       }
       const oldBusId = saved.get("busId") as string | undefined;
       if (oldBusId !== (entry.busId || undefined)) {
@@ -56,14 +76,25 @@ export async function assignStudentBuses(changes: Change[], students: Student[],
         throw new Error("Choose an active bus.");
       }
       const bus = target?.exists() ? { ...target.data(), id: target.id } as Bus : undefined;
-      const stop = bus && entry.stopId ? stopsOf(bus).find(({ id }) => id === entry.stopId) : undefined;
+      const stops = bus ? changedStops.get(bus.id) ?? stopsOf(bus) : [];
+      let stop = bus && entry.stopId ? stops.find(({ id }) => id === entry.stopId) : undefined;
       if (entry.stopId && !stop) throw new Error("This stop is no longer available on the selected bus.");
+      if (bus && !entry.stopId && entry.stopName !== undefined) {
+        const name = cleanStopName(entry.stopName);
+        stop = stops.find((row) => stopNameKey(row.name) === stopNameKey(name));
+        if (!stop) {
+          stop = { id: nextStopId(stops), name, pickupTime: "", dropTime: "" };
+          changedStops.set(bus.id, [...stops, stop]);
+        }
+      }
       return {
         ref: entry.ref,
         patch: bus ? {
           busId: bus.id, bus: busLabel(bus),
           busStopId: stop?.id ?? deleteField(), busStop: stop?.name ?? deleteField(),
-        } : { busId: deleteField(), bus: deleteField(), busStopId: deleteField(), busStop: deleteField() },
+          ...(oldBusId !== bus.id ? { busAssignmentRevision: (saved.get("busAssignmentRevision") ?? 0) + 1 } : {}),
+        } : { busId: deleteField(), bus: deleteField(), busStopId: deleteField(), busStop: deleteField(),
+          busAssignmentRevision: (saved.get("busAssignmentRevision") ?? 0) + 1 },
       };
     });
 
@@ -77,12 +108,24 @@ export async function assignStudentBuses(changes: Change[], students: Student[],
       if (error) throw new Error(error);
     }
     const audit = stamp();
-    for (const { ref, patch } of updates) tx.update(ref, { ...patch, ...audit });
+    for (const [index, { ref, patch }] of updates.entries()) {
+      tx.update(ref, { ...patch, ...audit });
+      const entry = entries[index];
+      const busChanged = (savedStudents[index].get("busId") ?? "") !== (entry.busId ?? "");
+      if (entry.fee) {
+        tx.set(schoolDoc("student_transport_fees", entry.studentId), {
+          id: entry.studentId, studentId: entry.studentId, busId: entry.busId, amount: entry.feeAmount,
+          busAssignmentRevision: (savedStudents[index].get("busAssignmentRevision") ?? 0) + (busChanged ? 1 : 0),
+          revision: (savedFees[index]?.get("revision") ?? 0) + 1, ...audit,
+        });
+      } else if (busChanged) tx.delete(schoolDoc("student_transport_fees", entry.studentId));
+    }
     for (const [index, id] of busIds.entries()) {
       if (!savedBuses[index].exists()) continue;
       tx.update(busRefs[index], {
         studentCount: Math.max(0, (counts.get(id) ?? 0) + (deltas.get(id) ?? 0)),
         assignmentRevision: (savedBuses[index].get("assignmentRevision") ?? 0) + 1, ...audit,
+        ...(changedStops.has(id) ? { stops: changedStops.get(id) } : {}),
       });
     }
   });

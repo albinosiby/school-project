@@ -157,6 +157,74 @@ void main() {
       expect(writesTo(gw, 'exm_marks', before), isEmpty);
       await bloc.close();
     });
+
+    test('mark sheet: component writes, submit blocked until the roster is complete, then the sheet transition only', () async {
+      final app = await setUpFirebaseApp(warm: ['att_exams', 'att_marks', 'att_records'], extra: {
+        'exm_sheets': [
+          {
+            'id': 'pap_open__cls_10B', 'paperId': 'pap_open', 'classId': 'cls_10B', 'cycleId': 'cyc_1', 'subject': 'Mathematics', 'ownerId': 'stf_025',
+            'components': {'mode': 'marks', 'theory': 80, 'practical': 20, 'internal': 0, 'passMarks': 33, 'gradeOptions': <String>[]},
+            'rosterIds': ['stu_101', 'stu_102'], 'status': 'NotStarted',
+          },
+        ],
+      });
+      store = app.store;
+      gw = app.gw;
+      final bloc = getIt<MarksBloc>()..add(const MarksLoadRequested(examId: 'pap_open@cls_10B'));
+      var s = await until<MarksState>(bloc.stream, bloc.state, (s) => s.status == LoadStatus.loaded && s.exams.length == 3);
+      final ex = s.exams.firstWhere((e) => e.id == 'pap_open@cls_10B');
+      expect((ex.hasSheet, ex.status, ex.maxTotal, ex.readOnly), (true, 'Draft', 100, false));
+      expect(ex.rosterIds, ['stu_101', 'stu_102']);
+      expect(s.exams.firstWhere((e) => e.id == 'pap_locked@cls_10B').hasSheet, isFalse, reason: 'papers without a sheet keep the legacy listing');
+      expect(s.roster.map((r) => r.id), ['stu_101', 'stu_102']);
+
+      bloc.add(const MarkSaved(StudentMark(examId: 'pap_open@cls_10B', studentId: 'stu_101', marks: 70, practical: 15, tag: 'Consistent')));
+      await settle();
+      final w = writesTo(gw, 'exm_marks').single;
+      expect(w.id, 'pap_open__cand_stu_101');
+      expect((w.data['theory'], w.data['practical'], w.data['internal'], w.data['gradeValue'], w.data['status'], w.data['teacherId'], w.data['classId']), (70, 15, null, '', 'Present', 'stf_025', 'cls_10B'));
+      expect(w.data.keys, containsAll(['paperId', 'candId', 'studentId', 'enteredAt', 'updatedAt', 'updatedBy']));
+      expect(w.data.keys, isNot(contains('verified')));
+
+      // one rostered student still pending: the bloc refuses and explains, nothing reaches the sheet
+      bloc.add(const MarksExamSubmitted('pap_open@cls_10B'));
+      s = await until<MarksState>(bloc.stream, bloc.state, (s) => s.notice != null);
+      expect(s.notice, startsWith('1 of 2 students still pending'));
+      expect(s.filter, 'Pending');
+      expect(writesTo(gw, 'exm_sheets'), isEmpty);
+      expect(writesTo(gw, 'att_exam_state'), isEmpty);
+      bloc.add(const MarksNoticeDismissed());
+      s = await until<MarksState>(bloc.stream, bloc.state, (s) => s.notice == null);
+
+      bloc.add(const MarkSaved(StudentMark(examId: 'pap_open@cls_10B', studentId: 'stu_102', status: 'Absent')));
+      await settle();
+      bloc.add(const MarksExamSubmitted('pap_open@cls_10B'));
+      s = await until<MarksState>(bloc.stream, bloc.state, (s) => s.exams.any((e) => e.id == 'pap_open@cls_10B' && e.status == 'Submitted'));
+      final sub = writesTo(gw, 'exm_sheets').single;
+      expect(sub.id, 'pap_open__cls_10B');
+      expect(sub.data.keys.toSet(), {'status', 'submittedAt', 'submittedBy', 'updatedAt', 'updatedBy'});
+      expect((sub.data['status'], sub.data['submittedBy'], sub.data['updatedBy']), ('Submitted', 'stf_025', 'uid_anita'));
+      expect(DateTime.tryParse('${sub.data['submittedAt']}'), isNotNull);
+      expect(writesTo(gw, 'att_exam_state'), isEmpty, reason: 'no legacy overlay write when a sheet exists');
+
+      // submitted: read-only until returned
+      expect(s.exams.firstWhere((e) => e.id == 'pap_open@cls_10B').readOnly, isTrue);
+      final before = gw.writes.length;
+      bloc.add(const MarkSaved(StudentMark(examId: 'pap_open@cls_10B', studentId: 'stu_101', marks: 10)));
+      bloc.add(const MarksExamSubmitted('pap_open@cls_10B'));
+      await settle();
+      expect(gw.writes.length, before);
+
+      // the reviewer returns it: editable again, note shown
+      gw.load({'exm_sheets': [{'id': 'pap_open__cls_10B', 'paperId': 'pap_open', 'classId': 'cls_10B', 'cycleId': 'cyc_1', 'ownerId': 'stf_025', 'status': 'Returned', 'returnNote': 'Check roll 2', 'rosterIds': ['stu_101', 'stu_102'], 'components': {'mode': 'marks', 'theory': 80, 'practical': 20}}]});
+      s = await until<MarksState>(bloc.stream, bloc.state, (s) => s.exams.any((e) => e.id == 'pap_open@cls_10B' && e.status == 'Returned'));
+      final ret = s.exams.firstWhere((e) => e.id == 'pap_open@cls_10B');
+      expect((ret.returned, ret.readOnly, ret.returnNote), (true, false, 'Check roll 2'));
+      bloc.add(const MarkSaved(StudentMark(examId: 'pap_open@cls_10B', studentId: 'stu_101', marks: 72, practical: 15)));
+      await settle();
+      expect(writesTo(gw, 'exm_marks', before).single.data['theory'], 72);
+      await bloc.close();
+    });
   });
 
   group('leave', () {

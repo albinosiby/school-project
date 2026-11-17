@@ -77,10 +77,10 @@ class _TrackBodyState extends State<_TrackBody> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _EtaCard(trip: trip),
-              if (trip.scheduleBased) ...[
+              if (trip.statusOnly) ...[
                 SizedBox(height: 6.h),
                 Row(
-                  key: const Key('track-schedule-caption'),
+                  key: const Key('track-status-caption'),
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
@@ -91,7 +91,7 @@ class _TrackBodyState extends State<_TrackBody> {
                     SizedBox(width: 6.w),
                     Expanded(
                       child: Text(
-                        scheduleCaption,
+                        tripStatusCaption,
                         style: T.small.copyWith(
                           color: C.onSurfaceVariant,
                           fontSize: 11.sp,
@@ -179,7 +179,7 @@ class _TrackBodyState extends State<_TrackBody> {
                     Divider(height: 24.h, color: C.cardBorder),
                     ContactTile(
                       contact: trip.attendant,
-                      detail: trip.scheduleBased
+                      detail: trip.statusOnly
                           ? trip.attendant.role
                           : '${trip.attendant.role} • On board',
                       onCall: () => confirmCall(context, trip.attendant),
@@ -288,16 +288,16 @@ class _EtaCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                        trip.scheduleBased
-                            ? Icons.schedule_rounded
+                        trip.statusOnly
+                            ? Icons.fact_check_outlined
                             : Icons.traffic_outlined,
                         size: 13.r,
                         color: C.emerald,
                       ),
                       SizedBox(width: 3.w),
                       Text(
-                        trip.scheduleBased
-                            ? 'Schedule-based'
+                        trip.statusOnly
+                            ? 'Crew updates'
                             : (inTransit ? trip.traffic : 'Trip on schedule'),
                         style: T.small.copyWith(color: C.emerald),
                       ),

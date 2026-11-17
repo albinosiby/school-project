@@ -1,4 +1,5 @@
 import { tsOf } from "@/features/dashboard/logic";
+import { minimumAttendance } from "@/lib/attendancePolicy";
 import type { Notice, Report } from "./types";
 
 // Standard reports are generated from the school's real records. Nothing is invented: a value the school does not
@@ -24,6 +25,7 @@ export type Ctx = {
   buses?: BusRec[]; trips?: TripRec[]; trAttendance?: TrAttRec[];
   /** YYYY-MM-DD; defaults to the local date */
   today?: string;
+  attendanceMinimum?: number;
 };
 
 const p2 = (n: number) => String(n).padStart(2, "0");
@@ -59,6 +61,7 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : t
 const recorded = (v: unknown) => (v === undefined || v === null || v === "" ? "Not recorded" : String(v));
 
 export function generate(r: Report, ctx: Ctx, p: Params): Table {
+  const attendanceMinimum = minimumAttendance(ctx.attendanceMinimum);
   const today = ctx.today ?? localToday();
   const stu = ctx.students.filter((s) => (!p.grade || s.grade === p.grade) && (!p.section || s.section === p.section));
   const att = () => {
@@ -66,7 +69,7 @@ export function generate(r: Report, ctx: Ctx, p: Params): Table {
     return (s: Stu) => {
       const a = studentAttendance(s, byClass);
       const pct = a ? a.pct : num(s.attendance);
-      return { days: a ? a.days : "—", present: a ? a.present : "—", pct: pct ?? "—", ok: pct === null ? "No records" : pct >= 75 };
+      return { days: a ? a.days : "—", present: a ? a.present : "—", pct: pct ?? "—", ok: pct === null ? "No records" : pct >= attendanceMinimum };
     };
   };
   switch (r.kind) {
@@ -74,7 +77,7 @@ export function generate(r: Report, ctx: Ctx, p: Params): Table {
       const papers = (ctx.papers ?? []).filter((x) => inRange(x.date, p));
       const marks = ctx.marks ?? [];
       const attOf = att();
-      return { columns: ["GRN", "Student", "Grade", "Section", "Papers", "Obtained", "Max", "Score %", "Attendance %", "75% Rule"], rows: stu.map((s) => {
+      return { columns: ["GRN", "Student", "Grade", "Section", "Papers", "Obtained", "Max", "Score %", "Attendance %", `${attendanceMinimum}% Rule`], rows: stu.map((s) => {
         let n = 0, got = 0, max = 0;
         for (const pp of papers) {
           if (String(pp.grade).replace(/^Grade\s+/i, "") !== String(s.grade)) continue;
@@ -90,7 +93,7 @@ export function generate(r: Report, ctx: Ctx, p: Params): Table {
     case "attendance": {
       const attOf = att();
       return { columns: ["GRN", "Student", "Grade", "Section", "Days", "Present", "Attendance %", "Status"], rows: stu.map((s) => {
-        const a = attOf(s); return [s.grn, s.name, s.grade, s.section, a.days, a.present, a.pct, a.ok === "No records" ? a.ok : a.ok ? "OK" : "Below 75%"]; }) };
+        const a = attOf(s); return [s.grn, s.name, s.grade, s.section, a.days, a.present, a.pct, a.ok === "No records" ? a.ok : a.ok ? "OK" : `Below ${attendanceMinimum}%`]; }) };
     }
     case "directory":
       return { columns: ["GRN", "Student", "Grade", "Section", "Guardian", "Phone", "Status"], rows: stu.map((s) => [s.grn, s.name, s.grade, s.section, s.guardian, s.phone, s.status]) };

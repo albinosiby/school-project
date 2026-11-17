@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useCollection } from "@/lib/useCollection";
-import { Button, Field, Input, Select, Textarea } from "@/components/ui";
+import { LoadingField, Button, Field, Input, Select, Textarea } from "@/components/ui";
 import { Grid } from "./FormBits";
 import type { SchoolAddress } from "./address";
 import { COUNTRIES, INDIA_STATES, loadCountryStates, NOT_APPLICABLE, OTHER_LOCATION, type AddressState } from "./locations";
@@ -77,21 +77,21 @@ export function SchoolAddressFields({ value: v, onChange, errors, states, loadin
           </Select>
         </Field>
         <Field label="State" required={required} error={errors.state}>
-          <Select value={v.state} onChange={(e) => onChange({ state: e.target.value, stateName: "", district: "", districtName: "", city: "", pin: "" })} autoComplete="address-level1" disabled={!v.country || loading || !!error} required={required} aria-invalid={!!errors.state}>
-            <option value="">{loading ? "Loading states…" : "Select state"}</option>
+          <LoadingField loading={loading} label="Loading states…"><Select value={v.state} onChange={(e) => onChange({ state: e.target.value, stateName: "", district: "", districtName: "", city: "", pin: "" })} autoComplete="address-level1" disabled={!v.country || loading || !!error} required={required} aria-invalid={!!errors.state}>
+            <option value="">Select state</option>
             {states.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
             {v.country && !loading && !error && !states.length && <option value={NOT_APPLICABLE}>Not applicable</option>}
             <option value={OTHER_LOCATION}>Other / not listed</option>
-          </Select>
+          </Select></LoadingField>
         </Field>
         {v.state === OTHER_LOCATION && <Field label="State name" required={required} error={errors.stateName}><Input value={v.stateName ?? ""} onChange={(e) => onChange({ stateName: e.target.value })} maxLength={100} required={required} aria-invalid={!!errors.stateName} /></Field>}
         <Field label="District" required={required} error={errors.district}>
-          <Select value={v.district} onChange={(e) => onChange({ district: e.target.value, districtName: "", city: "", pin: "" })} disabled={!v.state || loading || !!error} required={required} aria-invalid={!!errors.district}>
+          <LoadingField loading={loading && !!v.state} label="Loading districts…"><Select value={v.district} onChange={(e) => onChange({ district: e.target.value, districtName: "", city: "", pin: "" })} disabled={!v.state || loading || !!error} required={required} aria-invalid={!!errors.district}>
             <option value="">{v.state ? "Select district" : "Select state first"}</option>
             {districts.map((d) => <option key={d.code} value={d.code}>{d.name}</option>)}
             {v.state && !loading && !error && !districts.length && <option value={NOT_APPLICABLE}>Not applicable</option>}
             <option value={OTHER_LOCATION}>Other / not listed</option>
-          </Select>
+          </Select></LoadingField>
         </Field>
         {v.district === OTHER_LOCATION && <Field label="District name" required={required} error={errors.districtName}><Input value={v.districtName ?? ""} onChange={(e) => onChange({ districtName: e.target.value })} maxLength={100} required={required} aria-invalid={!!errors.districtName} /></Field>}
         {cityOptions && <Field label="City" required={required} error={cityIsManual ? undefined : errors.city}>

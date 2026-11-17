@@ -3,7 +3,7 @@
 // "late" check-in threshold come from this doc (built-in defaults while it is missing).
 import { useState } from "react";
 import { Plus, Save, Trash2 } from "lucide-react";
-import { Badge, Button, Field, Input, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Field, Input, useToast } from "@/components/ui";
 import { DEFAULT_CHECK_IN_BY, DEFAULT_LEAVE_TYPES, useLeavePolicy, validateLeavePolicy, type LeaveType } from "@/features/people/checkins";
 
 type Draft = { types: (LeaveType & { key: string })[]; checkInBy: string };
@@ -18,7 +18,7 @@ export function LeavePolicyEditor({ onSaved }: { onSaved?: (detail: string) => v
   const [saving, setSaving] = useState(false);
   // first load: start from the saved doc (or the defaults)
   if (!v && policy.ready) setV({ types: withKeys(policy.types), checkInBy: policy.checkInBy });
-  if (!v) return <p className="text-on-surface-variant">Loading leave policy…</p>;
+  if (!v) return <LoadingSkeleton variant="form" label="Loading leave policy…" className="text-on-surface-variant" />;
 
   const upd = (key: string, patch: Partial<LeaveType>) => setV({ ...v, types: v.types.map((t) => (t.key === key ? { ...t, ...patch } : t)) });
   const saved = JSON.stringify({ types: policy.types, checkInBy: policy.checkInBy });

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Modal, useToast } from "@/components/ui";
+import { LoadingSkeleton, Button, Modal, useToast } from "@/components/ui";
 import { GeneratedParentPassword } from "@/features/people/GeneratedParentPassword";
 import { StudentForm } from "@/features/people/StudentForm";
 import { streamIdOf } from "@/lib/academicStreams";
@@ -85,7 +85,7 @@ export function AdmissionForm({ mode, application, enquiry, offer, onClose }: {
       </div>}
     </Modal>;
   }
-  if (application && !ready) return <p role="status">Loading enrolment details…</p>;
+  if (application && !ready) return <LoadingSkeleton variant="form" label="Loading enrolment details…" />;
 
   return <StudentForm mode={mode} existing={students.rows} users={users} readyToSave={ready} onClose={onClose}
     initial={source && {

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { FileText, Plus, Printer, Upload } from "lucide-react";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, Select, Tabs, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, Select, Tabs, Textarea, useToast, type Column } from "@/components/ui";
 import { ReasonModal } from "@/features/dashboard/approvals-shared";
 import { storage } from "@/lib/firebase";
 import { fmtDate } from "@/lib/format";
@@ -65,7 +65,7 @@ export function CertificatesPanel({ students }: { students: Stu[] }) {
         <Button className="ml-auto" onClick={() => setIssuing("new")}><Plus size={16} />Issue certificate</Button>
       </div>
       <p className="t-caption mb-3 px-5 text-outline">Parents request certificates in the parent app and are notified when one is issued. Print the certificate, sign it, and upload the signed copy so parents can download it in the app.</p>
-      {!ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading certificates…</p>
+      {!ready ? <LoadingSkeleton variant="table" label="Loading certificates…" className="px-5 pb-5 text-on-surface-variant" />
         : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No certificates here" hint="Requests sent from the parent app show up under Requested." />} />}
       <IssueModal key={issuing === "new" ? "new" : issuing?.id ?? "none"} target={issuing} students={students} certs={rows} nextRef={nextRef} onClose={() => setIssuing(null)}
         onSave={async (id, data, file) => {

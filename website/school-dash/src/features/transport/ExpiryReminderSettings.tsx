@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { setDoc } from "firebase/firestore";
-import { Button, Field, Modal, Select, useToast } from "@/components/ui";
+import { LoadingField, Button, Field, Modal, Select, useToast } from "@/components/ui";
 import { useSchoolUsers } from "@/lib/parentAccount";
 import { useCollection } from "@/lib/useCollection";
 import { schoolDoc, stamp } from "./shared";
@@ -40,11 +40,11 @@ export function ExpiryReminderSettings({ onClose }: { onClose: () => void }) {
     footer={<><Button variant="outline" disabled={saving} onClick={onClose}>Cancel</Button>
       <Button disabled={!loaded || saving || unavailable || selected === saved} onClick={save}>{saving ? "Saving…" : "Save settings"}</Button></>}>
     <Field label="Transport administrator" error={error} hint="Each document sends one reminder when its expiry is 30 days away or less.">
-      <Select disabled={!loaded || saving} value={selected} onChange={(event) => setDraft(event.target.value)}>
-        <option value="">{loaded ? "No administrator selected" : "Loading…"}</option>
+      <LoadingField loading={!loaded} label="Loading administrators…"><Select disabled={!loaded || saving} value={selected} onChange={(event) => setDraft(event.target.value)}>
+        <option value="">No administrator selected</option>
         {unavailable && <option value={selected}>Previous administrator is unavailable</option>}
         {admins.map(({ id, name, email }) => <option key={id} value={id}>{[name, email].filter(Boolean).join(" · ") || id}</option>)}
-      </Select>
+      </Select></LoadingField>
     </Field>
   </Modal>;
 }

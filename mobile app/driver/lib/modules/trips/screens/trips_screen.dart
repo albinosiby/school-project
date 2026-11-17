@@ -56,7 +56,6 @@ class TripsScreen extends StatelessWidget {
                           leading: CircleAvatar(radius: 14.r, backgroundColor: C.primarySoft, child: Text('${i + 1}', style: T.smallStrong.copyWith(color: C.primary))),
                           title: Text(s.name, style: T.bodyStrong),
                           subtitle: s.landmark.isEmpty ? null : Text(s.landmark, style: T.small),
-                          trailing: Text('${clock24(s.pickupTime)}\n${clock24(s.dropTime)}', textAlign: TextAlign.right, style: T.small),
                         ),
                       if (bus.stops.isEmpty) Padding(padding: EdgeInsets.all(12.w), child: Text('No stops on this route yet.', style: T.body)),
                     ]),

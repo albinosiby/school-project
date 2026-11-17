@@ -1,9 +1,10 @@
 "use client";
 import { useMemo, useState } from "react";
 import { ClipboardList, Download, FileText, History, Mail, Package, Plus, Search, ShieldCheck, Clock } from "lucide-react";
-import { Badge, Button, Card, CardHeader, EmptyState, Field, Input, Modal, SearchBox, Select, Switch, Tabs, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, CardHeader, EmptyState, Field, Input, ListToolbar, Modal, SearchBox, Select, Switch, Tabs, useToast } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
+import { useAttendancePolicy } from "@/lib/useAttendancePolicy";
 import { CommHeader } from "./CommHeader";
 import { downloadCsv } from "./csv";
 import { generate, type AttRec, type BusRec, type Ctx, type InvoiceRec, type MarkRec, type PaperRec, type Params, type PeriodRec, type Stf, type Stu, type SubRec, type Table, type TrAttRec, type TripRec } from "./reportData";
@@ -23,7 +24,13 @@ const exportedAt = (e: Exported) => {
 
 export function ReportsView({ runId }: { runId?: string }) {
   const toast = useToast();
-  const reports = useCollection<Report>("com_reports").rows;
+  const attendancePolicy = useAttendancePolicy();
+  // Existing built-in templates mention the old minimum in their display text.
+  const reports = useCollection<Report>("com_reports").rows.map((report) =>
+    report.id === "rep_01" || report.id === "rep_07" ? { ...report,
+      title: report.title.replace(/\b75%/g, `${attendancePolicy.minimumPercent}%`),
+      desc: report.desc?.replace(/\b75%/g, `${attendancePolicy.minimumPercent}%`),
+    } : report);
   const students = useCollection<Stu>("students").rows;
   const staff = useCollection<Stf>("staff").rows;
   const notices = useCollection<Notice>("com_notices").rows;
@@ -50,32 +57,35 @@ export function ReportsView({ runId }: { runId?: string }) {
   const [prevRun, setPrevRun] = useState<string | null>(null);
   if (runId && reports.length && prevRun !== runId) { setPrevRun(runId); setRunning(reports.find((r) => r.id === runId) ?? null); }
 
-  const ctx: Ctx = { students, staff, notices, attendance, papers, marks, invoices, periods, subs, buses, trips, trAttendance };
+  const ctx: Ctx = { students, staff, notices, attendance, papers, marks, invoices, periods, subs, buses, trips, trAttendance,
+    attendanceMinimum: attendancePolicy.minimumPercent };
   const list = reports.filter((r) => (cat === "all" || r.category === cat) && (fmt === "all" || (r.formats ?? []).includes(fmt))
     && (!q || `${r.title} ${r.category} ${r.tag} ${r.desc}`.toLowerCase().includes(q.toLowerCase())));
   const empty: Params = { grade: "", section: "", from: "", to: "" };
 
   function download(r: Report, p: Params = empty) {
+    if (!attendancePolicy.ready) { toast("Attendance settings are unavailable. Try again after they load.", "error"); return; }
     const t = generate(r, ctx, p);
     downloadCsv(`${r.title.replace(/[^a-z0-9]+/gi, "_").slice(0, 50)}`, t.columns, t.rows);
     toast(r.format === "csv" ? "CSV downloaded" : `Downloaded as CSV (.${r.format} export is simulated)`);
   }
   const toggleSel = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
+  if (!attendancePolicy.ready) return <div><CommHeader active="reports" />{attendancePolicy.error ? <p role="alert">Could not load attendance settings for reports.</p> : <LoadingSkeleton variant="page" label="Loading report settings…" />}</div>;
+
   return (
     <div>
       <CommHeader active="reports" />
-      <div className="grid items-start gap-5 xl:grid-cols-[1fr_340px]">
-        <div className="space-y-4">
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="min-w-0 space-y-4">
           <Card className="space-y-3 p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <SearchBox value={q} onChange={setQ} placeholder={`Search ${reports.length} templates by statutory code, department, keyword...`} className="min-w-64 flex-1" />
-              <div className="flex items-center gap-2"><span className="t-label-caps !text-[11px] text-on-surface-variant">Format:</span>
+            <ListToolbar search={<SearchBox value={q} onChange={setQ} placeholder={`Search ${reports.length} templates by statutory code, department, keyword...`} />}>
+              <div className="flex min-w-0 flex-wrap items-center gap-2"><span className="t-label-caps !text-[11px] text-on-surface-variant">Format:</span>
                 <Tabs value={fmt} onChange={setFmt} items={[{ id: "all", label: "All" }, { id: "xlsx", label: "XLSX" }, { id: "pdf", label: "PDF" }, { id: "csv", label: "CSV" }]} /></div>
-            </div>
+            </ListToolbar>
             <Tabs value={cat} onChange={setCat} items={[{ id: "all", label: "All", count: reports.length }, ...CATS.map((c) => ({ id: c, label: c.replace(" Statutory", " Statutory"), count: reports.filter((r) => r.category === c).length }))]} />
           </Card>
-          {!reportsCol.ready && <Card><p className="p-8 text-center text-on-surface-variant">Loading reports…</p></Card>}
+          {!reportsCol.ready && <Card><LoadingSkeleton variant="table" label="Loading reports…" className="p-8 text-center text-on-surface-variant" /></Card>}
           {reportsCol.ready && list.length === 0 && <Card><EmptyState title="No reports match" hint="Clear the search or format filter." /></Card>}
           {list.map((r) => (
             <Card key={r.id} className={cn("p-5", sel.includes(r.id) && "border-secondary")}>

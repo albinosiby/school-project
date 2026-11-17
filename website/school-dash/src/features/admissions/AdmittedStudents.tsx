@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Badge, Card, CardHeader, DataTable, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Card, CardHeader, DataTable, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import { defaultMissingDocuments, useAdmissionDocuments } from "./admissionDocuments";
@@ -27,6 +27,6 @@ export function AdmittedStudents() {
     <CardHeader title="Admitted students" />
     {students.ready && documents.ready ? <DataTable rows={rows} columns={columns} pageSize={10}
       searchText={(row) => [row.name, row.admissionNumber, row.grn, row.guardian].filter(Boolean).join(" ")} />
-      : <p role="status" className="p-5 text-on-surface-variant">Loading admissions…</p>}
+      : <LoadingSkeleton variant="table" label="Loading admissions…" className="p-5 text-on-surface-variant" />}
   </Card>;
 }

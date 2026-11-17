@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState, type ReactNode } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, Select, Textarea, useToast, type Column } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, Card, DataTable, EmptyState, Field, Input, Modal, Select, Textarea, useToast, type Column } from "@/components/ui";
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
 import { clsLabel, dayOfIso, teacherOptionLabel, teachingStaff, todayIso, type StaffRef } from "./shared";
@@ -58,10 +58,10 @@ export function SubstitutionsPanel({ staff, periods, classId, date, today: schoo
     <Card className="pt-4">
       <div className="mb-3 flex flex-wrap items-center gap-3 px-5">
         <h3 className="font-semibold">Substitutions</h3>
-        {date ? <span className="text-sm text-on-surface-variant">{fmtDate(date)}</span> : <Select aria-label="Show" value={upcoming} onChange={(e) => setUpcoming(e.target.value)} className="w-40"><option value="upcoming">Upcoming</option><option value="all">All dates</option></Select>}
+        {date ? <span className="text-sm text-on-surface-variant">{fmtDate(date)}</span> : <Select aria-label="Show" value={upcoming} onChange={(e) => setUpcoming(e.target.value)} className="w-full sm:w-44"><option value="upcoming">Upcoming</option><option value="all">All dates</option></Select>}
         <Button className="ml-auto" disabled={!ready || past} onClick={() => setForm({})}><Plus size={16} />Assign substitute</Button>
       </div>
-      {!subs.ready ? <p className="px-5 pb-5 text-on-surface-variant">Loading substitutions…</p> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No substitutions" hint="Assign a colleague to cover the period of an absent teacher." />} />}
+      {!subs.ready ? <LoadingSkeleton variant="table" label="Loading substitutions…" className="px-5 pb-5 text-on-surface-variant" /> : <DataTable rows={view} columns={cols} pageSize={10} empty={<EmptyState title="No substitutions" hint="Assign a colleague to cover the period of an absent teacher." />} />}
       {form && <SubForm key={form.edit?.id ?? `new:${form.period ?? 0}`} edit={form.edit} initialPeriod={form.period} initialDate={date} fixedClassId={classId} today={today} staff={staff} periods={periods} all={subs.rows} leaves={leaves} onClose={() => setForm(null)}
         onSave={async (v) => {
           try {

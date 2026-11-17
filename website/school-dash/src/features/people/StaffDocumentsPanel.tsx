@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, Eye } from "lucide-react";
 import { DocumentFilePicker, DocumentList, DocumentRow } from "@/components/DocumentRows";
-import { Badge, Button, useToast } from "@/components/ui";
+import { LoadingSkeleton, Badge, Button, useToast } from "@/components/ui";
 import { FilePreview } from "@/features/admissions/AdmissionFilePreview";
 import { fmtDate } from "@/lib/format";
 import { documentTypes, downloadStaffDocument, listStaffDocuments, readStaffDocument, uploadStaffDocument,
@@ -165,7 +165,7 @@ export function StaffDocumentsPanel({ staffId, photo, editing, designation, dire
         setLoadError("");
         setRevision((current) => current + 1);
       }}>Try again</Button>
-    </div> : !documents && <p role="status" className="text-sm">Loading staff documents…</p>}
+    </div> : !documents && <LoadingSkeleton variant="table" label="Loading staff documents…" className="text-sm" />}
     {busy && <p role="status" className="text-sm">{busy}</p>}
     {preview === "photo" && photo && <FilePreview path="photo" name="Profile photo" title="Preview profile photo"
       readFile={readPreview} onClose={() => setPreview(undefined)} onDownload={downloadPhoto} downloading={false} />}
