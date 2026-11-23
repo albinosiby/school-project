@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
 
 /// A student on the crew's bus: the `students` doc slice the roster needs (contract 14.2).
@@ -23,7 +24,7 @@ class BusStudent extends Equatable {
   final int roll;
   final String? photoUrl;
 
-  String get classLabel => grade.isEmpty ? '' : 'Class $grade${section.isEmpty ? '' : '-$section'}';
+  String get classLabel => grade.isEmpty ? '' : 'Class ${schoolClassLabel(grade: grade, section: section, classId: classId)}';
   String get rollLabel => roll == 0 ? '' : 'Roll #${roll.toString().padLeft(2, '0')}';
   bool get hasPhone => phone.replaceAll(RegExp(r'\D'), '').length >= 6;
 
@@ -46,13 +47,41 @@ class BusStudent extends Equatable {
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'name': name, 'grade': grade, 'section': section, 'classId': classId, 'roll': roll, 'grn': grn,
-    'guardian': guardian, 'relation': relation, 'phone': phone, 'busId': busId, 'busStopId': busStopId, 'busStop': busStop,
-    if (photoUrl != null) 'photoUrl': photoUrl, if (medicalNote.isNotEmpty) 'medicalNote': medicalNote,
+    'id': id,
+    'name': name,
+    'grade': grade,
+    'section': section,
+    'classId': classId,
+    'roll': roll,
+    'grn': grn,
+    'guardian': guardian,
+    'relation': relation,
+    'phone': phone,
+    'busId': busId,
+    'busStopId': busStopId,
+    'busStop': busStop,
+    if (photoUrl != null) 'photoUrl': photoUrl,
+    if (medicalNote.isNotEmpty) 'medicalNote': medicalNote,
   };
 
   @override
-  List<Object?> get props => [id, name, grade, section, classId, roll, grn, guardian, relation, phone, busId, busStopId, busStop, photoUrl, medicalNote];
+  List<Object?> get props => [
+    id,
+    name,
+    grade,
+    section,
+    classId,
+    roll,
+    grn,
+    guardian,
+    relation,
+    phone,
+    busId,
+    busStopId,
+    busStop,
+    photoUrl,
+    medicalNote,
+  ];
 }
 
 /// The roster in route order: by the position of the child's stop in the bus's stop list (the admin web may reorder stops
@@ -62,10 +91,11 @@ List<BusStudent> inRouteOrder(List<BusStudent> roster, List<String> stopIds) {
     final i = stopIds.indexOf(s.busStopId);
     return i < 0 ? stopIds.length : i;
   }
+
   return [...roster]..sort((a, b) {
-      final p = pos(a).compareTo(pos(b));
-      if (p != 0) return p;
-      final r = a.roll.compareTo(b.roll);
-      return r != 0 ? r : a.name.compareTo(b.name);
-    });
+    final p = pos(a).compareTo(pos(b));
+    if (p != 0) return p;
+    final r = a.roll.compareTo(b.roll);
+    return r != 0 ? r : a.name.compareTo(b.name);
+  });
 }

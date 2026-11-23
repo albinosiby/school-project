@@ -1,13 +1,8 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
 
 class Guardian extends Equatable {
-  const Guardian({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.phone,
-    this.relation = 'Father',
-  });
+  const Guardian({required this.id, required this.name, required this.email, required this.phone, this.relation = 'Father'});
   final String id, name, email, phone, relation;
 
   @override
@@ -23,23 +18,16 @@ class Child extends Equatable {
     required this.rollNo,
     required this.admissionNo,
     required this.classTeacher,
+    this.classId = '',
   });
-  final String id, name, grade, section, admissionNo, classTeacher;
+  final String id, name, grade, section, admissionNo, classTeacher, classId;
   final int rollNo;
 
-  String get className => '$grade-$section';
+  String get className => schoolClassLabel(grade: grade, section: section, classId: classId);
   String get firstName => name.split(' ').first;
 
   @override
-  List<Object?> get props => [
-    id,
-    name,
-    grade,
-    section,
-    rollNo,
-    admissionNo,
-    classTeacher,
-  ];
+  List<Object?> get props => [id, name, grade, section, rollNo, admissionNo, classTeacher, classId];
 }
 
 class Family extends Equatable {

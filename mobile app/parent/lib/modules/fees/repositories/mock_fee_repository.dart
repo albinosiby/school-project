@@ -22,12 +22,8 @@ class MockFeeRepository implements IFeeRepository {
   FeesData _build(String childId) {
     final base = DemoData.fees(childId);
     final extra = _paid[childId] ?? const {};
-    final invoices = [
-      for (final i in base.invoices)
-        extra.containsKey(i.id) ? i.withPaid(i.paid + extra[i.id]!) : i,
-    ];
-    final receipts = [...?_receipts[childId], ...demoReceipts(base)]
-      ..sort((a, b) => b.date.compareTo(a.date));
+    final invoices = [for (final i in base.invoices) extra.containsKey(i.id) ? i.withPaid(i.paid + extra[i.id]!) : i];
+    final receipts = [...?_receipts[childId], ...demoReceipts(base)]..sort((a, b) => b.date.compareTo(a.date));
     return FeesData(invoices, receipts: receipts, claims: [...?_claims[childId]]);
   }
 
@@ -44,15 +40,9 @@ class MockFeeRepository implements IFeeRepository {
   );
 
   @override
-  Future<FeeReceipt> pay({
-    required String childId,
-    required List<String> invoiceIds,
-    required PaymentMethod method,
-  }) async {
+  Future<FeeReceipt> pay({required String childId, required List<String> invoiceIds, required PaymentMethod method}) async {
     await MockLatency.wait();
-    final payable = _build(childId).invoices
-        .where((i) => invoiceIds.contains(i.id) && i.balance > 0)
-        .toList();
+    final payable = _build(childId).invoices.where((i) => invoiceIds.contains(i.id) && i.balance > 0).toList();
     if (payable.isEmpty) {
       throw AppException(message: 'Select at least one instalment to pay.');
     }

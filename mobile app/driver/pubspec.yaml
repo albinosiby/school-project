@@ -1,10 +1,12 @@
 name: driver_app
 description: School transport driver and bus staff application (Edvio Driver).
 publish_to: none
-version: 1.0.0+1
+version: 1.0.1+2
 environment:
   sdk: ^3.12.1
 dependencies:
+  school_sync:
+    path: ../school_sync
   flutter:
     sdk: flutter
   flutter_web_plugins:

@@ -34,8 +34,7 @@ class CertificatesScreen extends StatelessWidget {
     child: BlocListener<CertificateActionBloc, CertificateActionState>(
       listenWhen: (a, b) =>
           a.status != b.status &&
-          (b.status == CertificateActionStatus.success ||
-              (b.status == CertificateActionStatus.failure && b.error != null)),
+          (b.status == CertificateActionStatus.success || (b.status == CertificateActionStatus.failure && b.error != null)),
       listener: (context, s) {
         if (s.status == CertificateActionStatus.failure) {
           AppDialogs.showSnackBar(context, message: s.error!, isError: true);
@@ -45,9 +44,7 @@ class CertificatesScreen extends StatelessWidget {
         AppDialogs.showSnackBar(
           context,
           message: s.action == CertificateAction.download
-              ? (AppConfig.isFirebase
-                    ? 'Opened ${c.title}'
-                    : '${c.fileName} saved to Downloads (simulated)')
+              ? (AppConfig.isFirebase ? 'Opened ${c.title}' : '${c.fileName} saved to Downloads (simulated)')
               : '${c.title} requested. The office will notify you when it is ready.',
         );
       },
@@ -65,8 +62,7 @@ class CertificatesScreen extends StatelessWidget {
                 child: ChildDataView<CertificatesBloc, List<Certificate>>(
                   create: () => getIt<CertificatesBloc>(),
                   refreshable: false,
-                  builder: (context, data, child) =>
-                      _CertificatesBody(certificates: data, child: child),
+                  builder: (context, data, child) => _CertificatesBody(certificates: data, child: child),
                 ),
               ),
             ],
@@ -113,9 +109,7 @@ class _CertificatesBodyState extends State<_CertificatesBody> {
     return list;
   }
 
-  int _count(String cat) => cat == _all
-      ? widget.certificates.length
-      : widget.certificates.where((c) => c.category.label == cat).length;
+  int _count(String cat) => cat == _all ? widget.certificates.length : widget.certificates.where((c) => c.category.label == cat).length;
 
   Future<void> _pickSort() async {
     final s = await showPickSheet<CertificateSort>(
@@ -156,11 +150,7 @@ class _CertificatesBodyState extends State<_CertificatesBody> {
                       child: SizedBox(
                         width: 48.r,
                         height: 48.r,
-                        child: Icon(
-                          Icons.tune_rounded,
-                          color: C.ink,
-                          size: 22.r,
-                        ),
+                        child: Icon(Icons.tune_rounded, color: C.ink, size: 22.r),
                       ),
                     ),
                   ),
@@ -180,8 +170,7 @@ class _CertificatesBodyState extends State<_CertificatesBody> {
                   child: widget.certificates.isEmpty
                       ? AppEmptyState(
                           'No certificates yet',
-                          hint:
-                              'Request one below; it appears here when the school office issues it.',
+                          hint: 'Request one below; it appears here when the school office issues it.',
                           icon: Icons.workspace_premium_outlined,
                         )
                       : AppEmptyState(
@@ -202,8 +191,7 @@ class _CertificatesBodyState extends State<_CertificatesBody> {
                         ),
                 )
               else
-                for (final c in visible)
-                  _CertificateCard(certificate: c, child: widget.child),
+                for (final c in visible) _CertificateCard(certificate: c, child: widget.child),
             ],
           ),
         ),
@@ -228,20 +216,13 @@ class _CertificatesBodyState extends State<_CertificatesBody> {
   }
 }
 
-void _download(BuildContext context, Certificate c) => context
-    .read<CertificateActionBloc>()
-    .add(DownloadCertificate(childId: c.childId, certificateId: c.id));
+void _download(BuildContext context, Certificate c) =>
+    context.read<CertificateActionBloc>().add(DownloadCertificate(childId: c.childId, certificateId: c.id));
 
-void _share(BuildContext context, Certificate c) => AppDialogs.showSnackBar(
-  context,
-  message: 'Share sheet opened for ${c.fileName} (simulated)',
-);
+void _share(BuildContext context, Certificate c) =>
+    AppDialogs.showSnackBar(context, message: 'Share sheet opened for ${c.fileName} (simulated)');
 
-Future<void> showCertificatePreview(
-  BuildContext context,
-  Certificate c,
-  Child child,
-) => showAppSheet<void>(
+Future<void> showCertificatePreview(BuildContext context, Certificate c, Child child) => showAppSheet<void>(
   context,
   title: c.title,
   subtitle: c.summary,
@@ -250,11 +231,7 @@ Future<void> showCertificatePreview(
     children: [
       ClipRRect(
         borderRadius: BorderRadius.circular(R.md),
-        child: CertificateArt(
-          certificate: c,
-          childName: child.name,
-          height: 220,
-        ),
+        child: CertificateArt(certificate: c, childName: child.name, height: 220),
       ),
       SizedBox(height: 12.h),
       Row(
@@ -263,18 +240,17 @@ Future<void> showCertificatePreview(
             child: AppInfoTile(
               compact: true,
               icon: Icons.event_rounded,
-              label: c.requested ? 'REQUESTED ON' : 'ISSUED ON',
+              label: c.rejected
+                  ? 'UPDATED ON'
+                  : c.requested
+                  ? 'REQUESTED ON'
+                  : 'ISSUED ON',
               value: fmtDate(c.issuedOn, year: true),
             ),
           ),
           SizedBox(width: 8.w),
           Expanded(
-            child: AppInfoTile(
-              compact: true,
-              icon: Icons.account_balance_outlined,
-              label: 'ISSUED BY',
-              value: c.issuer,
-            ),
+            child: AppInfoTile(compact: true, icon: Icons.account_balance_outlined, label: 'ISSUED BY', value: c.issuer),
           ),
         ],
       ),
@@ -284,12 +260,7 @@ Future<void> showCertificatePreview(
           children: [
             if (c.refNo != null)
               Expanded(
-                child: AppInfoTile(
-                  compact: true,
-                  icon: Icons.tag_rounded,
-                  label: 'REFERENCE',
-                  value: c.refNo!,
-                ),
+                child: AppInfoTile(compact: true, icon: Icons.tag_rounded, label: 'REFERENCE', value: c.refNo!),
               ),
             if (c.refNo != null && c.validTill != null) SizedBox(width: 8.w),
             if (c.validTill != null)
@@ -308,17 +279,11 @@ Future<void> showCertificatePreview(
       AppInfoTile(
         icon: Icons.lock_outline_rounded,
         label: 'VERIFICATION',
-        value: c.requested
-            ? c.signature
-            : '${c.size.isEmpty ? 'Paper copy at the school office' : 'PDF • ${c.size}'} • ${c.signature}',
+        value: !c.downloadable ? c.signature : '${c.size.isEmpty ? 'Paper copy at the school office' : 'PDF • ${c.size}'} • ${c.signature}',
       ),
       SizedBox(height: 16.h),
-      if (c.requested)
-        AppButton(
-          'Close',
-          kind: BtnKind.outline,
-          onPressed: () => Navigator.pop(ctx),
-        )
+      if (!c.downloadable)
+        AppButton('Close', kind: BtnKind.outline, onPressed: () => Navigator.pop(ctx))
       else
         Row(
           children: [
@@ -393,27 +358,19 @@ class _CertificateCard extends StatelessWidget {
                     for (var i = 0; i < c.tags.length; i++)
                       Pill(
                         c.tags[i],
-                        tone: c.requested
+                        tone: !c.downloadable
                             ? Tone.warning
                             : i == 0
                             ? Tone.neutral
                             : Tone.brand,
-                        icon: i == 0
-                            ? (c.requested
-                                  ? Icons.hourglass_top_rounded
-                                  : Icons.lock_outline_rounded)
-                            : null,
+                        icon: i == 0 ? (c.requested ? Icons.hourglass_top_rounded : Icons.lock_outline_rounded) : null,
                       ),
                   ],
                 ),
                 Divider(height: 24.h, color: C.border),
                 Row(
                   children: [
-                    Icon(
-                      Icons.picture_as_pdf_outlined,
-                      size: 16.r,
-                      color: C.slate,
-                    ),
+                    Icon(Icons.picture_as_pdf_outlined, size: 16.r, color: C.slate),
                     SizedBox(width: 6.w),
                     Expanded(
                       child: Text(
@@ -425,12 +382,7 @@ class _CertificateCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (c.downloadedAt != null)
-                      const Pill(
-                        'Downloaded',
-                        tone: Tone.success,
-                        icon: Icons.check_rounded,
-                      ),
+                    if (c.downloadedAt != null) const Pill('Downloaded', tone: Tone.success, icon: Icons.check_rounded),
                   ],
                 ),
                 SizedBox(height: 12.h),
@@ -442,21 +394,26 @@ class _CertificateCard extends StatelessWidget {
                         icon: Icons.visibility_outlined,
                         kind: BtnKind.outline,
                         small: true,
-                        onPressed: () =>
-                            showCertificatePreview(context, c, child),
+                        onPressed: () => showCertificatePreview(context, c, child),
                       ),
                     ),
                     SizedBox(width: 10.w),
                     Expanded(
                       child: AppButton(
-                        c.requested ? 'Processing' : 'Download',
-                        icon: c.requested
-                            ? Icons.hourglass_top_rounded
+                        c.rejected
+                            ? 'Rejected'
+                            : c.revoked
+                            ? 'Revoked'
+                            : c.requested
+                            ? 'Processing'
+                            : 'Download',
+                        icon: !c.downloadable
+                            ? c.revoked
+                                  ? Icons.block_rounded
+                                  : Icons.hourglass_top_rounded
                             : Icons.download_rounded,
                         small: true,
-                        onPressed: c.requested
-                            ? null
-                            : () => _download(context, c),
+                        onPressed: !c.downloadable ? null : () => _download(context, c),
                       ),
                     ),
                   ],
@@ -471,8 +428,7 @@ class _CertificateCard extends StatelessWidget {
 }
 
 Future<void> _showRequestSheet(BuildContext context, Child child) {
-  final bloc = context.read<CertificateActionBloc>()
-    ..add(const ResetCertificateAction());
+  final bloc = context.read<CertificateActionBloc>()..add(const ResetCertificateAction());
   return showAppSheet<void>(
     context,
     title: 'Request a Certificate',
@@ -509,57 +465,48 @@ class _RequestFormState extends State<_RequestForm> {
         );
 
   @override
-  Widget build(BuildContext context) =>
-      BlocConsumer<CertificateActionBloc, CertificateActionState>(
-        listenWhen: (a, b) =>
-            a.status != b.status &&
-            b.status == CertificateActionStatus.success &&
-            b.action == CertificateAction.request,
-        listener: (context, _) => Navigator.of(context).pop(),
-        builder: (context, s) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            AppPickTile(
-              key: const Key('cert-type'),
-              icon: Icons.workspace_premium_outlined,
-              caption: 'CERTIFICATE',
-              label: _type?.label ?? 'Choose a certificate',
-              onTap: () async {
-                final t = await showPickSheet<CertificateRequestType>(
-                  context,
-                  title: 'Certificate type',
-                  items: CertificateRequestType.values,
-                  label: (t) => t.label,
-                  selected: _type,
-                );
-                if (t != null) setState(() => _type = t);
-              },
-            ),
-            _error(s.errors['type']),
-            SizedBox(height: 12.h),
-            AppTextField(
-              key: const Key('cert-purpose'),
-              label: 'Purpose',
-              controller: _purpose,
-              hint: 'e.g. Passport application',
-              maxLines: 2,
-              maxLength: 120,
-            ),
-            _error(s.errors['purpose']),
-            if (s.error != null) _error(s.error),
-            AppButton(
-              'Submit Request',
-              icon: Icons.send_rounded,
-              busy: s.submitting,
-              onPressed: () => context.read<CertificateActionBloc>().add(
-                RequestCertificate(
-                  childId: widget.child.id,
-                  type: _type,
-                  purpose: _purpose.text,
-                ),
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) => BlocConsumer<CertificateActionBloc, CertificateActionState>(
+    listenWhen: (a, b) => a.status != b.status && b.status == CertificateActionStatus.success && b.action == CertificateAction.request,
+    listener: (context, _) => Navigator.of(context).pop(),
+    builder: (context, s) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AppPickTile(
+          key: const Key('cert-type'),
+          icon: Icons.workspace_premium_outlined,
+          caption: 'CERTIFICATE',
+          label: _type?.label ?? 'Choose a certificate',
+          onTap: () async {
+            final t = await showPickSheet<CertificateRequestType>(
+              context,
+              title: 'Certificate type',
+              items: CertificateRequestType.values,
+              label: (t) => t.label,
+              selected: _type,
+            );
+            if (t != null) setState(() => _type = t);
+          },
         ),
-      );
+        _error(s.errors['type']),
+        SizedBox(height: 12.h),
+        AppTextField(
+          key: const Key('cert-purpose'),
+          label: 'Purpose',
+          controller: _purpose,
+          hint: 'e.g. Passport application',
+          maxLines: 2,
+          maxLength: 120,
+        ),
+        _error(s.errors['purpose']),
+        if (s.error != null) _error(s.error),
+        AppButton(
+          'Submit Request',
+          icon: Icons.send_rounded,
+          busy: s.submitting,
+          onPressed: () =>
+              context.read<CertificateActionBloc>().add(RequestCertificate(childId: widget.child.id, type: _type, purpose: _purpose.text)),
+        ),
+      ],
+    ),
+  );
 }

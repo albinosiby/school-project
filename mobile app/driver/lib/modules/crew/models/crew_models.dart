@@ -57,40 +57,85 @@ class CrewMember extends Equatable {
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'name': name, 'role': role.code, 'empId': empId, 'phone': phone, 'email': email, 'status': status,
-    if (busId != null) 'busId': busId, if (bus != null) 'bus': bus,
-    if (licenseNo != null) 'licenseNo': licenseNo, if (licenseExpiry != null) 'licenseExpiry': licenseExpiry,
-    if (joined != null) 'joined': joined, 'address': address, 'emergencyName': emergencyName, 'emergencyPhone': emergencyPhone,
+    'id': id,
+    'name': name,
+    'role': role.code,
+    'empId': empId,
+    'phone': phone,
+    'email': email,
+    'status': status,
+    if (busId != null) 'busId': busId,
+    if (bus != null) 'bus': bus,
+    if (licenseNo != null) 'licenseNo': licenseNo,
+    if (licenseExpiry != null) 'licenseExpiry': licenseExpiry,
+    if (joined != null) 'joined': joined,
+    'address': address,
+    'emergencyName': emergencyName,
+    'emergencyPhone': emergencyPhone,
     if (photoUrl != null) 'photoUrl': photoUrl,
   };
 
-  CrewMember copyWith({String? phone, String? address, String? emergencyName, String? emergencyPhone, String? status, String? busId, String? bus}) =>
-      CrewMember(
-        id: id, name: name, role: role, empId: empId, phone: phone ?? this.phone, email: email, status: status ?? this.status,
-        busId: busId ?? this.busId, bus: bus ?? this.bus, licenseNo: licenseNo, licenseExpiry: licenseExpiry, joined: joined,
-        address: address ?? this.address, emergencyName: emergencyName ?? this.emergencyName,
-        emergencyPhone: emergencyPhone ?? this.emergencyPhone, photoUrl: photoUrl,
-      );
+  CrewMember copyWith({
+    String? phone,
+    String? address,
+    String? emergencyName,
+    String? emergencyPhone,
+    String? status,
+    String? busId,
+    String? bus,
+  }) => CrewMember(
+    id: id,
+    name: name,
+    role: role,
+    empId: empId,
+    phone: phone ?? this.phone,
+    email: email,
+    status: status ?? this.status,
+    busId: busId ?? this.busId,
+    bus: bus ?? this.bus,
+    licenseNo: licenseNo,
+    licenseExpiry: licenseExpiry,
+    joined: joined,
+    address: address ?? this.address,
+    emergencyName: emergencyName ?? this.emergencyName,
+    emergencyPhone: emergencyPhone ?? this.emergencyPhone,
+    photoUrl: photoUrl,
+  );
 
   @override
-  List<Object?> get props => [id, name, role, empId, phone, email, status, busId, bus, licenseNo, licenseExpiry, joined, address, emergencyName, emergencyPhone, photoUrl];
+  List<Object?> get props => [
+    id,
+    name,
+    role,
+    empId,
+    phone,
+    email,
+    status,
+    busId,
+    bus,
+    licenseNo,
+    licenseExpiry,
+    joined,
+    address,
+    emergencyName,
+    emergencyPhone,
+    photoUrl,
+  ];
 }
 
 String? _opt(Object? v) => v == null || '$v'.isEmpty ? null : '$v';
 
 /// One stop of a bus route (contract 14.2), in route order.
 class BusStop extends Equatable {
-  const BusStop({required this.id, required this.name, this.pickupTime = '', this.dropTime = '', this.landmark = ''});
-  final String id, name, pickupTime, dropTime, landmark;
+  const BusStop({required this.id, required this.name, this.landmark = ''});
+  final String id, name, landmark;
 
-  factory BusStop.fromJson(Map<String, dynamic> j) => BusStop(
-    id: '${j['id'] ?? ''}', name: '${j['name'] ?? ''}', pickupTime: '${j['pickupTime'] ?? ''}',
-    dropTime: '${j['dropTime'] ?? ''}', landmark: '${j['landmark'] ?? ''}',
-  );
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'pickupTime': pickupTime, 'dropTime': dropTime, 'landmark': landmark};
+  factory BusStop.fromJson(Map<String, dynamic> j) =>
+      BusStop(id: '${j['id'] ?? ''}', name: '${j['name'] ?? ''}', landmark: '${j['landmark'] ?? ''}');
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'landmark': landmark};
 
   @override
-  List<Object?> get props => [id, name, pickupTime, dropTime, landmark];
+  List<Object?> get props => [id, name, landmark];
 }
 
 /// `tr_buses/{id}`.
@@ -100,8 +145,10 @@ class Bus extends Equatable {
     required this.number,
     this.regNo = '',
     this.capacity = 0,
+    this.totalSeats = 0,
     this.model = '',
     this.routeName = '',
+    this.endPoint = '',
     this.driverId,
     this.driver,
     this.attendantId,
@@ -113,8 +160,9 @@ class Bus extends Equatable {
     this.studentCount = 0,
     this.note = '',
   });
-  final String id, number, regNo, model, routeName, pickupStart, dropStart, status, note;
-  final int capacity, studentCount;
+  final String id, number, regNo, model, routeName, endPoint, pickupStart, dropStart, status, note;
+  final int capacity, studentCount, totalSeats;
+  int get availableSeats => (capacity - studentCount).clamp(0, capacity);
   final String? driverId, driver, attendantId, attendant;
   final List<BusStop> stops;
 
@@ -126,13 +174,18 @@ class Bus extends Equatable {
     number: '${j['number'] ?? ''}',
     regNo: '${j['regNo'] ?? ''}',
     capacity: (j['capacity'] as num?)?.toInt() ?? 0,
+    totalSeats: (j['totalSeats'] as num?)?.toInt() ?? (j['capacity'] as num?)?.toInt() ?? 0,
     model: '${j['model'] ?? ''}',
     routeName: '${j['routeName'] ?? ''}',
+    endPoint: '${j['endPoint'] ?? j['routeName'] ?? ''}',
     driverId: _opt(j['driverId']),
     driver: _opt(j['driver']),
     attendantId: _opt(j['attendantId']),
     attendant: _opt(j['attendant']),
-    stops: [for (final s in (j['stops'] as List? ?? const [])) if (s is Map) BusStop.fromJson(Map<String, dynamic>.from(s))],
+    stops: [
+      for (final s in (j['stops'] as List? ?? const []))
+        if (s is Map) BusStop.fromJson(Map<String, dynamic>.from(s)),
+    ],
     pickupStart: '${j['pickupStart'] ?? ''}',
     dropStart: '${j['dropStart'] ?? ''}',
     status: '${j['status'] ?? 'Active'}',
@@ -141,15 +194,47 @@ class Bus extends Equatable {
   );
 
   Map<String, dynamic> toJson() => {
-    'id': id, 'number': number, 'regNo': regNo, 'capacity': capacity, 'model': model, 'routeName': routeName,
-    if (driverId != null) 'driverId': driverId, if (driver != null) 'driver': driver,
-    if (attendantId != null) 'attendantId': attendantId, if (attendant != null) 'attendant': attendant,
-    'stops': [for (final s in stops) s.toJson()], 'pickupStart': pickupStart, 'dropStart': dropStart,
-    'status': status, 'studentCount': studentCount, 'note': note,
+    'id': id,
+    'number': number,
+    'regNo': regNo,
+    'capacity': capacity,
+    'totalSeats': totalSeats,
+    'model': model,
+    'routeName': routeName,
+    'endPoint': endPoint,
+    if (driverId != null) 'driverId': driverId,
+    if (driver != null) 'driver': driver,
+    if (attendantId != null) 'attendantId': attendantId,
+    if (attendant != null) 'attendant': attendant,
+    'stops': [for (final s in stops) s.toJson()],
+    'pickupStart': pickupStart,
+    'dropStart': dropStart,
+    'status': status,
+    'studentCount': studentCount,
+    'note': note,
   };
 
   @override
-  List<Object?> get props => [id, number, regNo, capacity, model, routeName, driverId, driver, attendantId, attendant, stops, pickupStart, dropStart, status, studentCount, note];
+  List<Object?> get props => [
+    id,
+    number,
+    regNo,
+    capacity,
+    totalSeats,
+    model,
+    routeName,
+    driverId,
+    driver,
+    attendantId,
+    attendant,
+    stops,
+    endPoint,
+    pickupStart,
+    dropStart,
+    status,
+    studentCount,
+    note,
+  ];
 }
 
 /// What the signed-in crew member sees on Home: themselves, their bus and the other crew member of that bus.

@@ -25,13 +25,7 @@ class AttendanceRecord extends Equatable {
 }
 
 class AttendanceSummary extends Equatable {
-  const AttendanceSummary({
-    required this.present,
-    required this.absent,
-    required this.late,
-    required this.halfDay,
-    required this.leave,
-  });
+  const AttendanceSummary({required this.present, required this.absent, required this.late, required this.halfDay, required this.leave});
   final int present, absent, late, halfDay, leave;
 
   factory AttendanceSummary.of(Iterable<AttendanceRecord> records) {
@@ -49,9 +43,7 @@ class AttendanceSummary extends Equatable {
   int get workingDays => present + absent + late + halfDay + leave;
 
   /// Late counts as attended, half day as half. Leave counts as not attended. 0..100.
-  double get percentage => workingDays == 0
-      ? 0
-      : (present + late + halfDay * 0.5) / workingDays * 100;
+  double get percentage => workingDays == 0 ? 0 : (present + late + halfDay * 0.5) / workingDays * 100;
 
   @override
   List<Object?> get props => [present, absent, late, halfDay, leave];
@@ -59,16 +51,15 @@ class AttendanceSummary extends Equatable {
 
 /// A term of daily records for one child.
 class AttendanceData extends Equatable {
-  const AttendanceData(this.records);
+  const AttendanceData(this.records, {this.minimumAttendance = 75, this.academicYear = ''});
+  final double minimumAttendance;
+  final String academicYear;
   final List<AttendanceRecord> records;
 
   AttendanceSummary get overall => AttendanceSummary.of(records);
 
-  Iterable<AttendanceRecord> forMonth(DateTime month) => records.where(
-    (r) => r.date.year == month.year && r.date.month == month.month,
-  );
-  AttendanceSummary summaryFor(DateTime month) =>
-      AttendanceSummary.of(forMonth(month));
+  Iterable<AttendanceRecord> forMonth(DateTime month) => records.where((r) => r.date.year == month.year && r.date.month == month.month);
+  AttendanceSummary summaryFor(DateTime month) => AttendanceSummary.of(forMonth(month));
 
   AttendanceRecord? on(DateTime day) {
     for (final r in records) {
@@ -79,19 +70,11 @@ class AttendanceData extends Equatable {
 
   /// Absent / on-leave days, newest first.
   List<AttendanceRecord> get absences =>
-      records
-          .where(
-            (r) =>
-                r.status == AttendanceStatus.absent ||
-                r.status == AttendanceStatus.leave,
-          )
-          .toList()
+      records.where((r) => r.status == AttendanceStatus.absent || r.status == AttendanceStatus.leave).toList()
         ..sort((a, b) => b.date.compareTo(a.date));
 
-  DateTime get firstMonth => records.isEmpty
-      ? today()
-      : records.map((r) => r.date).reduce((a, b) => a.isBefore(b) ? a : b);
+  DateTime get firstMonth => records.isEmpty ? today() : records.map((r) => r.date).reduce((a, b) => a.isBefore(b) ? a : b);
 
   @override
-  List<Object?> get props => [records];
+  List<Object?> get props => [records, minimumAttendance, academicYear];
 }

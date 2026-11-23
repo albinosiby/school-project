@@ -1,3 +1,5 @@
+import 'package:school_sync/school_sync.dart';
+import '../../../config/app_config.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -13,11 +15,28 @@ typedef Json = Map<String, dynamic>;
 /// Firestore's offline cache makes every read cache-first: a snapshot listener gets the cached copy at once and the
 /// server copy when it arrives (stale-while-revalidate without a separate cache).
 class ParentSession {
-  ParentSession({FirebaseFirestore? db, FirebaseAuth? auth})
-      : db = db ?? FirebaseFirestore.instance,
-        auth = auth ?? FirebaseAuth.instance;
+  ParentSession({FirebaseFirestore? db, FirebaseAuth? auth, MobileSchoolClient? mobileClient, void Function()? onClear})
+    : db = db ?? FirebaseFirestore.instance,
+      auth = auth ?? FirebaseAuth.instance,
+      _mobileClient = mobileClient, // ignore: prefer_initializing_formals
+      _onClear = onClear; // ignore: prefer_initializing_formals
   final FirebaseFirestore db;
   final FirebaseAuth auth;
+
+  final MobileSchoolClient? _mobileClient;
+  final void Function()? _onClear;
+  String _boundUid = '';
+  int _generation = 0;
+  MobileSchoolClient get mobile =>
+      _mobileClient ??
+      MobileSchoolClient(
+        auth: auth,
+        db: db,
+        emulator: AppConfig.useEmulator,
+        emulatorHost: AppConfig.emulatorHost,
+        emulatorUsb: AppConfig.emulatorUsb,
+      );
+  Stream<SchoolPolicy> watchPolicy() => mobile.watchPolicy(schoolId);
 
   Json _user = const {};
   final Map<String, Json> _students = {};
@@ -52,7 +71,15 @@ class ParentSession {
         statusCode: 403,
       );
     }
+    if (_boundUid.isNotEmpty && (_boundUid != uid || schoolId != '${data['schoolId']}')) {
+      _generation++;
+      _students.clear();
+      _onClear?.call();
+    }
+    _boundUid = uid;
     _user = data;
+    if (AppConfig.isFirebase)
+      unawaited(mobile.call('getMobileSchoolContext', {'refreshAttendance': true}).then<void>((_) {}, onError: (Object _) {}));
     if (!_ready.isCompleted) _ready.complete();
     return data;
   }
@@ -64,7 +91,9 @@ class ParentSession {
   Future<Json> student(String studentId) async {
     final hit = _students[studentId];
     if (hit != null) return hit;
+    final generation = _generation;
     final s = await col('students').doc(studentId).get();
+    if (_generation != generation) throw AppException(message: 'Your session changed. Reopen the student details.');
     return _students[studentId] = {...?s.data(), 'id': studentId};
   }
 
@@ -77,6 +106,9 @@ class ParentSession {
   Future<String> grnOf(String studentId) async => '${(await student(studentId))['grn'] ?? ''}';
 
   void clear() {
+    _generation++;
+    _onClear?.call();
+    _boundUid = '';
     _user = const {};
     _students.clear();
     if (_ready.isCompleted) _ready = Completer<void>();
@@ -95,11 +127,13 @@ Stream<List<T>> combineLatest<T>(List<Stream<T>> streams) {
   out = StreamController<List<T>>(
     onListen: () {
       for (var i = 0; i < streams.length; i++) {
-        subs.add(streams[i].listen((v) {
-          values[i] = v;
-          seen[i] = true;
-          if (seen.every((s) => s)) out.add(List<T>.from(values));
-        }, onError: out.addError));
+        subs.add(
+          streams[i].listen((v) {
+            values[i] = v;
+            seen[i] = true;
+            if (seen.every((s) => s)) out.add(List<T>.from(values));
+          }, onError: out.addError),
+        );
       }
     },
     onCancel: () async {
@@ -112,24 +146,7 @@ Stream<List<T>> combineLatest<T>(List<Stream<T>> streams) {
 }
 
 /// For each value of [source], the values of [inner] for it; a new source value cancels the previous inner stream.
-Stream<R> switchLatest<S, R>(Stream<S> source, Stream<R> Function(S value) inner) {
-  late StreamController<R> out;
-  StreamSubscription<S>? outer;
-  StreamSubscription<R>? current;
-  out = StreamController<R>(
-    onListen: () {
-      outer = source.listen((v) {
-        current?.cancel(); // not awaited: Firestore listeners cancel asynchronously
-        current = inner(v).listen(out.add, onError: out.addError);
-      }, onError: out.addError);
-    },
-    onCancel: () async {
-      await outer?.cancel();
-      await current?.cancel();
-    },
-  );
-  return out.stream;
-}
+Stream<R> switchLatest<S, R>(Stream<S> source, Stream<R> Function(S value) inner) => switchSchoolStream(source, inner);
 
 /// `"2026-10-27"` (+ optional `"09:15"`) -> local DateTime; null when unparsable.
 DateTime? parseDay(Object? date, [Object? time]) {
@@ -143,11 +160,11 @@ DateTime? parseDay(Object? date, [Object? time]) {
 /// ISO string, Firestore Timestamp or millis -> DateTime.
 /// Times are stored as UTC ISO strings (`...Z`); the result is always local time for display.
 DateTime? parseTime(Object? v) => switch (v) {
-      Timestamp t => t.toDate(),
-      int ms => DateTime.fromMillisecondsSinceEpoch(ms),
-      String s => DateTime.tryParse(s)?.toLocal(),
-      _ => null,
-    };
+  Timestamp t => t.toDate(),
+  int ms => DateTime.fromMillisecondsSinceEpoch(ms),
+  String s => DateTime.tryParse(s)?.toLocal(),
+  _ => null,
+};
 
 /// Now as a UTC ISO string, the format every app writes (`2026-10-27T04:25:00.000Z`).
 String nowUtc() => DateTime.now().toUtc().toIso8601String();

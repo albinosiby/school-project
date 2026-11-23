@@ -4,6 +4,8 @@ import 'dart:async';
 /// JSON-on-disk implementation (SharedPreferences / sqflite) without touching repositories or BLoCs.
 class CacheService {
   final Map<String, Object> _entries = {};
+  int _generation = 0;
+  int get generation => _generation;
 
   T? read<T>(String key) {
     final v = _entries[key];
@@ -12,7 +14,11 @@ class CacheService {
 
   void write(String key, Object value) => _entries[key] = value;
   void remove(String key) => _entries.remove(key);
-  void clear() => _entries.clear();
+  void clear() {
+    _generation++;
+    _entries.clear();
+  }
+
   bool contains(String key) => _entries.containsKey(key);
 }
 

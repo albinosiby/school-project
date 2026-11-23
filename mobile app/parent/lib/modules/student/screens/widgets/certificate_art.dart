@@ -7,12 +7,7 @@ import '../../models/certificate_models.dart';
 /// Illustrated certificate (no image assets): parchment gradient, double border, school, title and the
 /// child's name, plus a seal. Bonafide certificates use the cool blue paper of the Figma sample.
 class CertificateArt extends StatelessWidget {
-  const CertificateArt({
-    super.key,
-    required this.certificate,
-    required this.childName,
-    this.height = 180,
-  });
+  const CertificateArt({super.key, required this.certificate, required this.childName, this.height = 180});
   final Certificate certificate;
   final String childName;
   final double height;
@@ -22,10 +17,8 @@ class CertificateArt extends StatelessWidget {
     final c = certificate;
     final blue = c.category == CertificateCategory.bonafide;
     final ink = blue ? C.primaryDark : C.warningDark;
-    final paper = blue
-        ? const [Color(0xFFF4F8FF), Color(0xFFE3ECFB)]
-        : const [Color(0xFFFFFBF0), Color(0xFFF6E9C8)];
-    if (c.requested) {
+    final paper = blue ? const [Color(0xFFF4F8FF), Color(0xFFE3ECFB)] : const [Color(0xFFFFFBF0), Color(0xFFF6E9C8)];
+    if (!c.downloadable) {
       return Container(
         height: height.h,
         alignment: Alignment.center,
@@ -33,9 +26,9 @@ class CertificateArt extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.hourglass_top_rounded, size: 32.r, color: C.slate),
+            Icon(c.revoked ? Icons.block_rounded : Icons.hourglass_top_rounded, size: 32.r, color: C.slate),
             SizedBox(height: 8.h),
-            Text('Being prepared by the school office', style: T.small),
+            Text(c.revoked ? 'Revoked - no longer valid' : 'Being prepared by the school office', style: T.small),
           ],
         ),
       );
@@ -44,21 +37,13 @@ class CertificateArt extends StatelessWidget {
       height: height.h,
       padding: EdgeInsets.all(12.r),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: paper,
-        ),
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: paper),
       ),
       child: Container(
-        decoration: BoxDecoration(
-          border: Border.all(color: ink.withValues(alpha: .55), width: 1.5),
-        ),
+        decoration: BoxDecoration(border: Border.all(color: ink.withValues(alpha: .55), width: 1.5)),
         padding: EdgeInsets.all(3.r),
         child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: ink.withValues(alpha: .3)),
-          ),
+          decoration: BoxDecoration(border: Border.all(color: ink.withValues(alpha: .3))),
           padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 8.h),
           child: Stack(
             children: [
@@ -66,7 +51,7 @@ class CertificateArt extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   Text(
-                    AppConstants.schoolName.toUpperCase(),
+                    (c.schoolName.isEmpty ? AppConstants.schoolName : c.schoolName).toUpperCase(),
                     textAlign: TextAlign.center,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -77,25 +62,14 @@ class CertificateArt extends StatelessWidget {
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: T.h3.copyWith(
-                      color: ink,
-                      fontSize: 13.sp,
-                      fontStyle: FontStyle.italic,
-                    ),
+                    style: T.h3.copyWith(color: ink, fontSize: 13.sp, fontStyle: FontStyle.italic),
                   ),
+                  Text('THIS IS TO CERTIFY THAT', style: T.small.copyWith(fontSize: 8.sp, letterSpacing: 1)),
                   Text(
-                    'THIS IS TO CERTIFY THAT',
-                    style: T.small.copyWith(fontSize: 8.sp, letterSpacing: 1),
-                  ),
-                  Text(
-                    childName.toUpperCase(),
+                    (c.recipientName.isEmpty ? childName : c.recipientName).toUpperCase(),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: T.h2.copyWith(
-                      color: C.ink,
-                      fontSize: 15.sp,
-                      letterSpacing: 1,
-                    ),
+                    style: T.h2.copyWith(color: C.ink, fontSize: 15.sp, letterSpacing: 1),
                   ),
                   Text(
                     [c.summary, fmtDate(c.issuedOn, year: true)].where((s) => s.isNotEmpty).join(' • '),
@@ -115,16 +89,10 @@ class CertificateArt extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: RadialGradient(
-                      colors: blue
-                          ? const [Color(0xFFB9C9EE), Color(0xFF6E86C9)]
-                          : const [Color(0xFFFDE68A), Color(0xFFD97706)],
+                      colors: blue ? const [Color(0xFFB9C9EE), Color(0xFF6E86C9)] : const [Color(0xFFFDE68A), Color(0xFFD97706)],
                     ),
                   ),
-                  child: Icon(
-                    blue ? Icons.verified_rounded : Icons.emoji_events_rounded,
-                    size: 16.r,
-                    color: Colors.white,
-                  ),
+                  child: Icon(blue ? Icons.verified_rounded : Icons.emoji_events_rounded, size: 16.r, color: Colors.white),
                 ),
               ),
             ],

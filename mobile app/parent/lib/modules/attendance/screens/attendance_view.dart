@@ -19,25 +19,22 @@ Tone attendanceTone(AttendanceStatus s) => switch (s) {
 };
 
 /// "On Track" / "Watch" / "At Risk" label for a term percentage.
-(String, Tone) attendanceStanding(double pct) => pct >= 90
-    ? ('On Track', Tone.success)
-    : (pct >= 75 ? ('Watch', Tone.warning) : ('At Risk', Tone.danger));
+(String, Tone) attendanceStanding(double pct, [double minimum = 75]) =>
+    pct >= 90 && pct >= minimum ? ('On Track', Tone.success) : (pct >= minimum ? ('Watch', Tone.warning) : ('At Risk', Tone.danger));
 
 /// Attendance section of the Academics tab: term summary, month calendar and the absence log.
 class AttendanceView extends StatelessWidget {
   const AttendanceView({super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      ChildDataView<AttendanceBloc, AttendanceData>(
-        create: () => getIt<AttendanceBloc>(),
-        isEmpty: (d) => d.records.isEmpty,
-        emptyTitle: 'No attendance yet',
-        emptyHint: 'Daily attendance will show here once classes start.',
-        emptyIcon: Icons.event_available_outlined,
-        builder: (context, data, child) =>
-            _AttendanceBody(key: ValueKey(child.id), data: data),
-      );
+  Widget build(BuildContext context) => ChildDataView<AttendanceBloc, AttendanceData>(
+    create: () => getIt<AttendanceBloc>(),
+    isEmpty: (_) => false,
+    emptyTitle: 'No attendance yet',
+    emptyHint: 'Daily attendance will show here once classes start.',
+    emptyIcon: Icons.event_available_outlined,
+    builder: (context, data, child) => _AttendanceBody(key: ValueKey(child.id), data: data),
+  );
 }
 
 class _AttendanceBody extends StatefulWidget {
@@ -52,8 +49,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
   late DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
   DateTime? _picked;
 
-  DateTime get _first =>
-      DateTime(widget.data.firstMonth.year, widget.data.firstMonth.month);
+  DateTime get _first => DateTime(widget.data.firstMonth.year, widget.data.firstMonth.month);
   DateTime get _last => DateTime(DateTime.now().year, DateTime.now().month);
   bool get _canPrev => _month.isAfter(_first);
   bool get _canNext => _month.isBefore(_last);
@@ -68,7 +64,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
     final overall = widget.data.overall;
     final month = widget.data.summaryFor(_month);
     final absences = widget.data.absences;
-    final (standing, standingTone) = attendanceStanding(overall.percentage);
+    final (standing, standingTone) = attendanceStanding(overall.percentage, widget.data.minimumAttendance);
     final attended = overall.present + overall.late + overall.halfDay;
     return ListView(
       key: const Key('section-list'),
@@ -86,11 +82,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const AppEyebrow(
-                          'Attendance status',
-                          color: C.success,
-                          leadingDot: true,
-                        ),
+                        const AppEyebrow('Attendance status', color: C.success, leadingDot: true),
                         SizedBox(height: 8.h),
                         Wrap(
                           crossAxisAlignment: WrapCrossAlignment.center,
@@ -99,10 +91,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
                             Text(
                               '${overall.percentage.toStringAsFixed(1)}%',
                               key: const Key('overall-percent'),
-                              style: T.title.copyWith(
-                                fontSize: 28.sp,
-                                color: C.onSurface,
-                              ),
+                              style: T.title.copyWith(fontSize: 28.sp, color: C.onSurface),
                             ),
                             Pill(standing, tone: standingTone),
                           ],
@@ -119,10 +108,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
                 ],
               ),
               SizedBox(height: 14.h),
-              AppProgress(
-                overall.percentage / 100,
-                tone: standingTone == Tone.success ? Tone.brand : standingTone,
-              ),
+              AppProgress(overall.percentage / 100, tone: standingTone == Tone.success ? Tone.brand : standingTone),
               SizedBox(height: 14.h),
               const Divider(height: 1, color: C.outline),
               SizedBox(height: 12.h),
@@ -131,16 +117,9 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
                   children: [
                     _Column(label: 'Present', value: '${overall.present}'),
                     const VerticalDivider(color: C.outline, width: 1),
-                    _Column(
-                      label: 'Absent',
-                      value: '${overall.absent + overall.leave}',
-                      color: C.danger,
-                    ),
+                    _Column(label: 'Absent', value: '${overall.absent + overall.leave}', color: C.danger),
                     const VerticalDivider(color: C.outline, width: 1),
-                    _Column(
-                      label: 'School days',
-                      value: '${overall.workingDays}',
-                    ),
+                    _Column(label: 'School days', value: '${overall.workingDays}'),
                   ],
                 ),
               ),
@@ -151,36 +130,19 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
         Row(
           children: [
             Expanded(
-              child: AppMetricBox(
-                icon: Icons.schedule_rounded,
-                value: '${overall.late}',
-                label: 'Late arrivals',
-                tone: Tone.warning,
-              ),
+              child: AppMetricBox(icon: Icons.schedule_rounded, value: '${overall.late}', label: 'Late arrivals', tone: Tone.warning),
             ),
             SizedBox(width: 8.w),
             Expanded(
-              child: AppMetricBox(
-                icon: Icons.timelapse_rounded,
-                value: '${overall.halfDay}',
-                label: 'Half days',
-                tone: Tone.purple,
-              ),
+              child: AppMetricBox(icon: Icons.timelapse_rounded, value: '${overall.halfDay}', label: 'Half days', tone: Tone.purple),
             ),
             SizedBox(width: 8.w),
             Expanded(
-              child: AppMetricBox(
-                icon: Icons.beach_access_outlined,
-                value: '${overall.leave}',
-                label: 'On leave',
-              ),
+              child: AppMetricBox(icon: Icons.beach_access_outlined, value: '${overall.leave}', label: 'On leave'),
             ),
           ],
         ),
-        const AcademicSectionTitle(
-          'Monthly calendar',
-          icon: Icons.calendar_month_rounded,
-        ),
+        const AcademicSectionTitle('Monthly calendar', icon: Icons.calendar_month_rounded),
         AppSurfaceCard(
           padding: EdgeInsets.fromLTRB(8.w, 8.h, 8.w, 14.h),
           child: Column(
@@ -209,12 +171,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
               ),
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: 6.w),
-                child: _CalendarGrid(
-                  month: _month,
-                  data: widget.data,
-                  picked: _picked,
-                  onPick: (d) => setState(() => _picked = d),
-                ),
+                child: _CalendarGrid(month: _month, data: widget.data, picked: _picked, onPick: (d) => setState(() => _picked = d)),
               ),
               SizedBox(height: 10.h),
               Padding(
@@ -227,10 +184,7 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
                 child: Wrap(
                   spacing: 10.w,
                   runSpacing: 6.h,
-                  children: [
-                    for (final s in AttendanceStatus.values)
-                      _LegendDot(status: s),
-                  ],
+                  children: [for (final s in AttendanceStatus.values) _LegendDot(status: s)],
                 ),
               ),
               SizedBox(height: 10.h),
@@ -259,24 +213,16 @@ class _AttendanceBodyState extends State<_AttendanceBody> {
         if (absences.isEmpty)
           AppSurfaceCard(
             child: Center(
-              child: AppEmptyState(
-                'No absences',
-                hint: 'Full attendance so far this term.',
-                icon: Icons.verified_outlined,
-              ),
+              child: AppEmptyState('No absences', hint: 'No absences recorded this academic year.', icon: Icons.verified_outlined),
             ),
           )
         else
           for (final r in absences)
             AppEntryCard(
-              icon: r.status == AttendanceStatus.leave
-                  ? Icons.beach_access_outlined
-                  : Icons.event_busy_outlined,
+              icon: r.status == AttendanceStatus.leave ? Icons.beach_access_outlined : Icons.event_busy_outlined,
               tone: attendanceTone(r.status),
               title: fmtDate(r.date, year: true),
-              meta: r.status == AttendanceStatus.leave
-                  ? 'Approved leave'
-                  : 'Marked by class teacher',
+              meta: r.status == AttendanceStatus.leave ? 'Approved leave' : 'Marked by class teacher',
               trailing: Pill(r.status.label, tone: attendanceTone(r.status)),
               body: r.note,
             ),
@@ -326,26 +272,16 @@ class _DayDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = day;
     if (d == null) {
-      return Text(
-        'Tap a date to see its status.',
-        style: T.small.copyWith(color: C.muted),
-      );
+      return Text('Tap a date to see its status.', style: T.small.copyWith(color: C.muted));
     }
     final r = data.on(d);
     final weekend = d.weekday > DateTime.friday;
-    final label =
-        r?.status.label ??
-        (weekend
-            ? 'Weekend'
-            : (d.isAfter(DateTime.now()) ? 'Upcoming' : 'No record'));
+    final label = r?.status.label ?? (weekend ? 'Weekend' : (d.isAfter(DateTime.now()) ? 'Upcoming' : 'No record'));
     return Container(
       key: const Key('day-detail'),
       width: double.infinity,
       padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-      decoration: BoxDecoration(
-        color: C.surfaceLow,
-        borderRadius: BorderRadius.circular(R.sm),
-      ),
+      decoration: BoxDecoration(color: C.surfaceLow, borderRadius: BorderRadius.circular(R.sm)),
       child: Row(
         children: [
           Expanded(
@@ -353,18 +289,11 @@ class _DayDetail extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(fmtDate(d, year: true), style: T.smallStrong),
-                if (r?.note != null)
-                  Text(
-                    r!.note!,
-                    style: T.small.copyWith(color: C.onSurfaceVariant),
-                  ),
+                if (r?.note != null) Text(r!.note!, style: T.small.copyWith(color: C.onSurfaceVariant)),
               ],
             ),
           ),
-          Pill(
-            label,
-            tone: r == null ? Tone.neutral : attendanceTone(r.status),
-          ),
+          Pill(label, tone: r == null ? Tone.neutral : attendanceTone(r.status)),
         ],
       ),
     );
@@ -397,12 +326,7 @@ class _LegendDot extends StatelessWidget {
 }
 
 class _CalendarGrid extends StatelessWidget {
-  const _CalendarGrid({
-    required this.month,
-    required this.data,
-    required this.picked,
-    required this.onPick,
-  });
+  const _CalendarGrid({required this.month, required this.data, required this.picked, required this.onPick});
   final DateTime month;
   final AttendanceData data;
   final DateTime? picked;
@@ -411,19 +335,15 @@ class _CalendarGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
-    final lead =
-        DateTime(month.year, month.month, 1).weekday - 1; // Monday first
+    final lead = DateTime(month.year, month.month, 1).weekday - 1; // Monday first
     final cells = <Widget>[
-      for (final d in const ['M', 'T', 'W', 'T', 'F', 'S', 'S'])
-        Center(child: Text(d, style: T.capsMuted)),
+      for (final d in const ['M', 'T', 'W', 'T', 'F', 'S', 'S']) Center(child: Text(d, style: T.capsMuted)),
       for (var i = 0; i < lead; i++) const SizedBox.shrink(),
       for (var day = 1; day <= daysInMonth; day++)
         _DayCell(
           date: DateTime(month.year, month.month, day),
           record: data.on(DateTime(month.year, month.month, day)),
-          selected:
-              picked != null &&
-              sameDay(picked!, DateTime(month.year, month.month, day)),
+          selected: picked != null && sameDay(picked!, DateTime(month.year, month.month, day)),
           onTap: () => onPick(DateTime(month.year, month.month, day)),
         ),
     ];
@@ -439,12 +359,7 @@ class _CalendarGrid extends StatelessWidget {
 }
 
 class _DayCell extends StatelessWidget {
-  const _DayCell({
-    required this.date,
-    required this.record,
-    required this.selected,
-    required this.onTap,
-  });
+  const _DayCell({required this.date, required this.record, required this.selected, required this.onTap});
   final DateTime date;
   final AttendanceRecord? record;
   final bool selected;
@@ -454,13 +369,10 @@ class _DayCell extends StatelessWidget {
   Widget build(BuildContext context) {
     final isToday = sameDay(date, DateTime.now());
     final weekend = date.weekday > DateTime.friday;
-    final colors = record == null
-        ? null
-        : toneColors(attendanceTone(record!.status));
+    final colors = record == null ? null : toneColors(attendanceTone(record!.status));
     return Semantics(
       button: true,
-      label:
-          '${fmtDate(date)}: ${record?.status.label ?? (weekend ? 'weekend' : 'no record')}',
+      label: '${fmtDate(date)}: ${record?.status.label ?? (weekend ? 'weekend' : 'no record')}',
       child: InkWell(
         key: Key('day-${date.day}'),
         borderRadius: BorderRadius.circular(R.sm),
@@ -470,16 +382,12 @@ class _DayCell extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? C.primary : (colors?.bg ?? Colors.transparent),
             borderRadius: BorderRadius.circular(R.sm),
-            border: isToday && !selected
-                ? Border.all(color: C.primary, width: 1.5)
-                : null,
+            border: isToday && !selected ? Border.all(color: C.primary, width: 1.5) : null,
           ),
           child: Text(
             '${date.day}',
             style: T.smallStrong.copyWith(
-              color: selected
-                  ? Colors.white
-                  : colors?.fg ?? (weekend ? C.muted : C.slate),
+              color: selected ? Colors.white : colors?.fg ?? (weekend ? C.muted : C.slate),
               fontWeight: record == null ? FontWeight.w500 : FontWeight.w700,
             ),
           ),

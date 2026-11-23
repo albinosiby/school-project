@@ -1,3 +1,6 @@
+import 'package:school_sync/school_sync.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:get_it/get_it.dart';
 import '../config/app_config.dart';
 import '../modules/attendance/bloc/attendance_bloc.dart';
@@ -38,6 +41,22 @@ Future<void> configureDependencies({LinkLauncher? linkLauncher, DemoStore? store
   getIt.registerSingleton<LocalStorageService>(storage);
   getIt.registerSingleton<CacheService>(CacheService());
   getIt.registerSingleton<LinkLauncher>(linkLauncher ?? UrlLauncherLinkLauncher());
+
+  if (AppConfig.isFirebase) {
+    getIt.registerLazySingleton<IStaffCertificatesRepository>(
+      () => FirebaseStaffCertificatesRepository(
+        MobileSchoolClient(
+          auth: FirebaseAuth.instance,
+          db: FirebaseFirestore.instance,
+          emulator: AppConfig.useEmulator,
+          emulatorHost: AppConfig.emulatorHost,
+          emulatorUsb: AppConfig.emulatorUsb,
+        ),
+      ),
+    );
+  } else {
+    getIt.registerLazySingleton<IStaffCertificatesRepository>(() => EmptyStaffCertificatesRepository());
+  }
 
   if (AppConfig.isFirebase) {
     registerFirebaseRepositories(getIt);

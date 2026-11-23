@@ -1,3 +1,4 @@
+import '../utils/services/cache_service.dart';
 import 'package:get_it/get_it.dart';
 import '../modules/auth/repositories/firebase_registration_repository.dart';
 import '../modules/consent/repositories/consent_repository_interface.dart';
@@ -52,7 +53,7 @@ void registerFirebaseRepositories(GetIt getIt) {
     getIt.registerSingleton<T>(impl);
   }
 
-  final session = ParentSession();
+  final session = ParentSession(onClear: () => getIt<CacheService>().clear());
   replace<ParentSession>(session);
   replace<ParentPushService>(ParentPushService());
   replace<IAuthRepository>(FirebaseAuthRepository(session, getIt()));
@@ -64,17 +65,11 @@ void registerFirebaseRepositories(GetIt getIt) {
   replace<INoticeRepository>(FirebaseNoticeRepository(session));
   replace<ILiveClassRepository>(FirebaseLiveClassRepository(session));
   replace<ILeaveRepository>(FirebaseLeaveRepository(session));
-  replace<IMessageRepository>(
-    FirebaseMessageRepository(session, getIt<LocalStorageService>()),
-  );
+  replace<IMessageRepository>(FirebaseMessageRepository(session, getIt<LocalStorageService>()));
   replace<IFeeRepository>(FirebaseFeeRepository(session));
   final storage = getIt<LocalStorageService>();
-  replace<INotificationRepository>(
-    FirebaseNotificationRepository(session, getIt(), storage),
-  );
-  replace<IProfileRepository>(
-    FirebaseProfileRepository(session, getIt(), storage),
-  );
+  replace<INotificationRepository>(FirebaseNotificationRepository(session, getIt(), storage));
+  replace<IProfileRepository>(FirebaseProfileRepository(session, getIt(), storage));
   replace<IStudentRepository>(FirebaseStudentRepository(session, getIt()));
   replace<ITeachersRepository>(FirebaseTeachersRepository(session));
   replace<IPtmRepository>(FirebasePtmRepository(session, getIt()));

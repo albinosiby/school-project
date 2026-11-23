@@ -1,3 +1,5 @@
+import 'package:school_sync/school_sync.dart';
+import '../../di/injection.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -58,28 +60,51 @@ GoRouter createRouter(AuthBloc auth, {String initialLocation = RoutePaths.home})
   redirect: (context, state) => authRedirect(auth.state, state.matchedLocation),
   routes: [
     GoRoute(path: RoutePaths.welcome, builder: (_, _) => const WelcomeScreen()),
-    GoRoute(path: RoutePaths.login, builder: (_, _) => const LoginScreen(), routes: [
-      GoRoute(path: 'forgot', builder: (_, _) => const ForgotPasswordScreen()),
-    ]),
+    GoRoute(
+      path: RoutePaths.login,
+      builder: (_, _) => const LoginScreen(),
+      routes: [GoRoute(path: 'forgot', builder: (_, _) => const ForgotPasswordScreen())],
+    ),
     StatefulShellRoute.indexedStack(
       builder: (context, state, shell) => AdaptiveScaffold(navigationShell: shell, destinations: _tabs, title: 'Edvio Driver'),
       branches: [
-        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.home, builder: (_, _) => const HomeScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.trips, builder: (_, _) => const TripsScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.students, builder: (_, _) => const StudentsScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.profile, builder: (_, _) => const ProfileScreen())]),
+        StatefulShellBranch(
+          routes: [GoRoute(path: RoutePaths.home, builder: (_, _) => const HomeScreen())],
+        ),
+        StatefulShellBranch(
+          routes: [GoRoute(path: RoutePaths.trips, builder: (_, _) => const TripsScreen())],
+        ),
+        StatefulShellBranch(
+          routes: [GoRoute(path: RoutePaths.students, builder: (_, _) => const StudentsScreen())],
+        ),
+        StatefulShellBranch(
+          routes: [GoRoute(path: RoutePaths.profile, builder: (_, _) => const ProfileScreen())],
+        ),
       ],
     ),
     // pushed screens (fixed paths before their ":id" siblings)
+    GoRoute(
+      path: RoutePaths.myCertificates,
+      builder: (_, _) => StaffCertificatesScreen(repository: getIt<IStaffCertificatesRepository>()),
+    ),
     GoRoute(path: RoutePaths.tripHistory, builder: (_, _) => const TripHistoryScreen()),
-    GoRoute(path: '/trips/:id', builder: (_, s) => TripDetailScreen(tripId: s.pathParameters['id']!)),
-    GoRoute(path: '/trips/:id/checklist', builder: (_, s) => ChecklistScreen(tripId: s.pathParameters['id']!)),
+    GoRoute(
+      path: '/trips/:id',
+      builder: (_, s) => TripDetailScreen(tripId: s.pathParameters['id']!),
+    ),
+    GoRoute(
+      path: '/trips/:id/checklist',
+      builder: (_, s) => ChecklistScreen(tripId: s.pathParameters['id']!),
+    ),
     GoRoute(path: RoutePaths.stops, builder: (_, _) => const StopsScreen()),
     GoRoute(path: RoutePaths.attendance, builder: (_, _) => const CrewAttendanceScreen()),
     GoRoute(path: RoutePaths.leave, builder: (_, _) => const LeaveScreen()),
     GoRoute(path: RoutePaths.applyLeave, builder: (_, _) => const ApplyLeaveScreen()),
     GoRoute(path: RoutePaths.notices, builder: (_, _) => const NoticesScreen()),
-    GoRoute(path: '/notices/:id', builder: (_, s) => NoticeDetailScreen(id: s.pathParameters['id']!)),
+    GoRoute(
+      path: '/notices/:id',
+      builder: (_, s) => NoticeDetailScreen(id: s.pathParameters['id']!),
+    ),
     GoRoute(path: RoutePaths.editProfile, builder: (_, _) => const EditProfileScreen()),
   ],
   errorBuilder: (context, state) => DetailScaffold(

@@ -15,25 +15,27 @@ class FeePaymentBloc extends Bloc<FeePaymentEvent, FeePaymentState> {
     on<FeePaymentSubmitted>(_pay, transformer: droppable());
     on<PaymentReported>(_report, transformer: droppable());
     on<ReceiptDownloadRequested>(_download);
+    on<InvoiceDownloadRequested>((e, emit) async {
+      try {
+        final repo = _repo;
+        if (repo is! IFeeDocumentRepository) throw StateError('Invoice PDFs are available in school server mode.');
+        final file = await (repo as IFeeDocumentRepository).downloadInvoice(e.invoice);
+        emit(state.copyWith(downloaded: file, downloadCount: state.downloadCount + 1));
+      } catch (err) {
+        if (state.status == PaymentStatus.failure) emit(state.copyWith(status: PaymentStatus.idle));
+        emit(state.copyWith(status: PaymentStatus.failure, error: errorMessage(err)));
+      }
+    }, transformer: droppable());
   }
   final IFeeRepository _repo;
 
-  Future<void> _pay(
-    FeePaymentSubmitted e,
-    Emitter<FeePaymentState> emit,
-  ) async {
+  Future<void> _pay(FeePaymentSubmitted e, Emitter<FeePaymentState> emit) async {
     emit(state.copyWith(status: PaymentStatus.processing));
     try {
-      final r = await _repo.pay(
-        childId: e.childId,
-        invoiceIds: e.invoiceIds,
-        method: e.method,
-      );
+      final r = await _repo.pay(childId: e.childId, invoiceIds: e.invoiceIds, method: e.method);
       emit(state.copyWith(status: PaymentStatus.success, receipt: r));
     } catch (err) {
-      emit(
-        state.copyWith(status: PaymentStatus.failure, error: errorMessage(err)),
-      );
+      emit(state.copyWith(status: PaymentStatus.failure, error: errorMessage(err)));
     }
   }
 
@@ -55,23 +57,16 @@ class FeePaymentBloc extends Bloc<FeePaymentEvent, FeePaymentState> {
     }
   }
 
-  Future<void> _download(
-    ReceiptDownloadRequested e,
-    Emitter<FeePaymentState> emit,
-  ) async {
+  Future<void> _download(ReceiptDownloadRequested e, Emitter<FeePaymentState> emit) async {
     try {
       final file = await _repo.downloadReceipt(e.receipt);
-      emit(
-        state.copyWith(downloaded: file, downloadCount: state.downloadCount + 1),
-      );
+      emit(state.copyWith(downloaded: file, downloadCount: state.downloadCount + 1));
     } catch (err) {
       // through idle so a second failure in a row is shown again (the screen listens for status changes)
       if (state.status == PaymentStatus.failure) {
         emit(state.copyWith(status: PaymentStatus.idle));
       }
-      emit(
-        state.copyWith(status: PaymentStatus.failure, error: errorMessage(err)),
-      );
+      emit(state.copyWith(status: PaymentStatus.failure, error: errorMessage(err)));
     }
   }
 }

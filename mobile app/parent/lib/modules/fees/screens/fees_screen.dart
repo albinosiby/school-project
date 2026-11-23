@@ -34,11 +34,7 @@ class FeesScreen extends StatelessWidget {
       listener: (context, s) {
         final bloc = context.read<FeePaymentBloc>();
         if (s.status == PaymentStatus.failure) {
-          AppDialogs.showSnackBar(
-            context,
-            message: s.error ?? 'Payment failed. Please try again.',
-            isError: true,
-          );
+          AppDialogs.showSnackBar(context, message: s.error ?? 'Payment failed. Please try again.', isError: true);
         }
         if (s.status == PaymentStatus.reported && s.claim != null) {
           AppDialogs.showSnackBar(
@@ -47,24 +43,14 @@ class FeesScreen extends StatelessWidget {
           );
         }
         if (s.status == PaymentStatus.success && s.receipt != null) {
-          AppDialogs.showSnackBar(
-            context,
-            message: '${inr(s.receipt!.amount)} paid successfully',
-          );
-          showReceiptSheet(
-            context,
-            receipt: s.receipt!,
-            bloc: bloc,
-            success: true,
-          );
+          AppDialogs.showSnackBar(context, message: '${inr(s.receipt!.amount)} paid successfully');
+          showReceiptSheet(context, receipt: s.receipt!, bloc: bloc, success: true);
         }
       },
       child: BlocListener<FeePaymentBloc, FeePaymentState>(
         listenWhen: (a, b) => a.downloadCount != b.downloadCount,
-        listener: (context, s) => AppDialogs.showSnackBar(
-          context,
-          message: '${s.downloaded} saved to Downloads',
-        ),
+        listener: (context, s) =>
+            AppDialogs.showSnackBar(context, message: 'Opened ${s.downloaded}. Use the PDF viewer to save, print or share.'),
         child: ColoredBox(
           color: C.surface,
           child: Column(
@@ -73,12 +59,11 @@ class FeesScreen extends StatelessWidget {
               Expanded(
                 child: ChildDataView<FeesBloc, FeesData>(
                   create: () => getIt<FeesBloc>(),
-                  isEmpty: (d) => d.invoices.isEmpty,
+                  isEmpty: (_) => false,
                   emptyTitle: 'No invoices',
                   emptyHint: 'Fee invoices will appear here when issued.',
                   emptyIcon: Icons.receipt_long_outlined,
-                  builder: (context, data, child) =>
-                      _FeesBody(data: data, child: child),
+                  builder: (context, data, child) => _FeesBody(data: data, child: child),
                 ),
               ),
             ],
@@ -108,33 +93,69 @@ class _FeesBody extends StatelessWidget {
     }
     // no payment gateway is connected to the school system and no account was published
     if (AppConfig.isFirebase) {
-      AppDialogs.showSnackBar(
-        context,
-        message: 'Please pay at the school office; the receipt will appear here.',
-      );
+      AppDialogs.showSnackBar(context, message: 'Please pay at the school office; the receipt will appear here.');
       return;
     }
-    startPayFlow(
-      context,
-      bloc: context.read<FeePaymentBloc>(),
-      childId: child.id,
-      unpaid: data.unpaid,
-      preselect: preselect,
-    );
+    startPayFlow(context, bloc: context.read<FeePaymentBloc>(), childId: child.id, unpaid: data.unpaid, preselect: preselect);
   }
 
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final unpaid = data.unpaid;
-    final overdue = unpaid
-        .where((i) => i.statusAt(now) == InvoiceStatus.overdue)
-        .toList();
+    final overdue = unpaid.where((i) => i.statusAt(now) == InvoiceStatus.overdue).toList();
     final next = data.nextDue;
     return ListView(
       key: const Key('section-list'),
       padding: academicListPadding(),
       children: [
+        if (data.annual != null)
+          AppSurfaceCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Academic year ${data.annual!.academicYear}', style: T.h2),
+                if (!data.annual!.complete) ...[
+                  const Pill('Fee setup pending', tone: Tone.warning),
+                  for (final issue in data.annual!.issues) Text(issue, style: T.small),
+                ] else ...[
+                  for (final charge in data.annual!.charges)
+                    Padding(
+                      padding: EdgeInsets.symmetric(vertical: 5.h),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text('${charge.name} · ${charge.frequency} × ${charge.quantity}', style: T.small)),
+                          Text(inr(charge.amount * charge.quantity), style: T.bodyStrong),
+                        ],
+                      ),
+                    ),
+                  Text('Approved concessions: ${inr(data.annual!.concessions)}', style: T.small),
+                  Text('Full-year fees: ${inr(data.annual!.net)}', style: T.bodyStrong),
+                  Text('Paid: ${inr(data.annual!.paid)}', style: T.small),
+                ],
+                if (data.invoices.isEmpty) Text('Invoices will appear here when issued by the school office.', style: T.small),
+              ],
+            ),
+          ),
+        if (AppConfig.isFirebase && data.invoices.isNotEmpty)
+          AppSurfaceCard(
+            child: Column(
+              children: [
+                for (final invoice in data.invoices)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(invoice.title),
+                    subtitle: Text('${invoice.statusAt(now).label} · ${inr(invoice.balance)} remaining'),
+                    trailing: IconButton(
+                      tooltip: 'Open invoice PDF',
+                      icon: const Icon(Icons.picture_as_pdf_outlined),
+                      onPressed: () => context.read<FeePaymentBloc>().add(InvoiceDownloadRequested(invoice)),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        SizedBox(height: 12.h),
         AppSurfaceCard(
           hero: true,
           child: Column(
@@ -147,7 +168,13 @@ class _FeesBody extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const AppEyebrow('Total outstanding'),
+                        AppEyebrow(
+                          data.annual == null
+                              ? 'Total outstanding'
+                              : data.annual!.complete
+                              ? 'Remaining for academic year'
+                              : 'Outstanding on issued invoices',
+                        ),
                         SizedBox(height: 8.h),
                         FittedBox(
                           fit: BoxFit.scaleDown,
@@ -155,17 +182,12 @@ class _FeesBody extends StatelessWidget {
                           child: Text(
                             inr(data.balance),
                             key: const Key('fee-balance'),
-                            style: T.title.copyWith(
-                              fontSize: 28.sp,
-                              color: C.onSurface,
-                            ),
+                            style: T.title.copyWith(fontSize: 28.sp, color: C.onSurface),
                           ),
                         ),
                         SizedBox(height: 2.h),
                         Text(
-                          next == null
-                              ? 'All instalments are paid'
-                              : 'Next due ${fmtDate(next, year: true)}',
+                          next == null ? 'All instalments are paid' : 'Next due ${fmtDate(next, year: true)}',
                           style: T.small.copyWith(color: C.onSurfaceVariant),
                         ),
                       ],
@@ -174,10 +196,7 @@ class _FeesBody extends StatelessWidget {
                   if (overdue.isNotEmpty)
                     Pill('${overdue.length} overdue', tone: Tone.danger)
                   else
-                    Pill(
-                      unpaid.isEmpty ? 'All clear' : 'On time',
-                      tone: Tone.success,
-                    ),
+                    Pill(unpaid.isEmpty ? 'All clear' : 'On time', tone: Tone.success),
                 ],
               ),
               SizedBox(height: 14.h),
@@ -185,10 +204,7 @@ class _FeesBody extends StatelessWidget {
               SizedBox(height: 6.h),
               Text(
                 '${data.total == 0 ? 0 : (data.paid / data.total * 100).round()}% of annual fees paid',
-                style: T.small.copyWith(
-                  fontSize: 11.sp,
-                  color: C.onSurfaceVariant,
-                ),
+                style: T.small.copyWith(fontSize: 11.sp, color: C.onSurfaceVariant),
               ),
               SizedBox(height: 12.h),
               Row(
@@ -203,11 +219,7 @@ class _FeesBody extends StatelessWidget {
                   ),
                   SizedBox(width: 8.w),
                   Expanded(
-                    child: AppMetricBox(
-                      icon: Icons.account_balance_wallet_outlined,
-                      value: inr(data.total),
-                      label: 'Total fees',
-                    ),
+                    child: AppMetricBox(icon: Icons.account_balance_wallet_outlined, value: inr(data.total), label: 'Total fees'),
                   ),
                   SizedBox(width: 8.w),
                   Expanded(
@@ -234,41 +246,22 @@ class _FeesBody extends StatelessWidget {
             ],
           ),
         ),
-        AcademicSectionTitle(
-          'Upcoming instalments',
-          icon: Icons.event_note_outlined,
-          caption: '${unpaid.length} pending',
-        ),
+        AcademicSectionTitle('Upcoming instalments', icon: Icons.event_note_outlined, caption: '${unpaid.length} pending'),
         if (unpaid.isEmpty)
           AppSurfaceCard(
-            child: AppEmptyState(
-              'Nothing due',
-              hint: 'All fee instalments are paid. Thank you!',
-              icon: Icons.verified_outlined,
-            ),
+            child: AppEmptyState('Nothing due', hint: 'All fee instalments are paid. Thank you!', icon: Icons.verified_outlined),
           )
         else
           for (final i in unpaid)
             AppEntryCard(
               key: Key('invoice-${i.id}'),
-              icon: i.statusAt(now) == InvoiceStatus.overdue
-                  ? Icons.warning_amber_rounded
-                  : Icons.receipt_outlined,
+              icon: i.statusAt(now) == InvoiceStatus.overdue ? Icons.warning_amber_rounded : Icons.receipt_outlined,
               tone: invoiceTone(i.statusAt(now)),
               title: i.title,
-              badge: Pill(
-                i.statusAt(now).label,
-                tone: invoiceTone(i.statusAt(now)),
-              ),
+              badge: Pill(i.statusAt(now).label, tone: invoiceTone(i.statusAt(now))),
               meta: 'Due ${fmtDate(i.due, year: true)}',
-              trailing: Text(
-                inr(i.balance),
-                style: T.h3.copyWith(color: C.onSurface),
-              ),
-              footer: [
-                for (final it in i.items)
-                  AppMetaChip(it.label, icon: Icons.label_outline_rounded),
-              ],
+              trailing: Text(inr(i.balance), style: T.h3.copyWith(color: C.onSurface)),
+              footer: [for (final it in i.items) AppMetaChip(it.label, icon: Icons.label_outline_rounded)],
               onTap: () => _showInvoice(context, i),
             ),
         if (data.claims.any((c) => c.status != ClaimStatus.verified)) ...[
@@ -292,18 +285,10 @@ class _FeesBody extends StatelessWidget {
               ],
             ),
         ],
-        AcademicSectionTitle(
-          'Receipts history',
-          icon: Icons.history_rounded,
-          caption: '${data.receipts.length} receipts',
-        ),
+        AcademicSectionTitle('Receipts history', icon: Icons.history_rounded, caption: '${data.receipts.length} receipts'),
         if (data.receipts.isEmpty)
           AppSurfaceCard(
-            child: AppEmptyState(
-              'No payments yet',
-              hint: 'Receipts appear here after you pay.',
-              icon: Icons.receipt_long_outlined,
-            ),
+            child: AppEmptyState('No payments yet', hint: 'Receipts appear here after you pay.', icon: Icons.receipt_long_outlined),
           )
         else
           for (final r in data.receipts)
@@ -315,29 +300,14 @@ class _FeesBody extends StatelessWidget {
               meta: '${r.number} • ${fmtDate(r.date, year: true)}',
               trailing: IconButton(
                 tooltip: 'Download receipt',
-                onPressed: () => context.read<FeePaymentBloc>().add(
-                  ReceiptDownloadRequested(r),
-                ),
-                icon: Icon(
-                  Icons.download_rounded,
-                  color: C.primary,
-                  size: 22.r,
-                ),
+                onPressed: () => context.read<FeePaymentBloc>().add(ReceiptDownloadRequested(r)),
+                icon: Icon(Icons.download_rounded, color: C.primary, size: 22.r),
               ),
               footer: [
                 AppMetaChip(r.method.label, icon: Icons.payments_outlined),
-                for (final l in r.lines)
-                  AppMetaChip(
-                    l.label,
-                    icon: Icons.check_rounded,
-                    color: C.successDark,
-                  ),
+                for (final l in r.lines) AppMetaChip(l.label, icon: Icons.check_rounded, color: C.successDark),
               ],
-              onTap: () => showReceiptSheet(
-                context,
-                receipt: r,
-                bloc: context.read<FeePaymentBloc>(),
-              ),
+              onTap: () => showReceiptSheet(context, receipt: r, bloc: context.read<FeePaymentBloc>()),
             ),
         academicListEnd(),
       ],
@@ -349,8 +319,7 @@ class _FeesBody extends StatelessWidget {
     showAppSheet<void>(
       feeSheetContext(context),
       title: i.title,
-      subtitle:
-          'Issued ${fmtDate(i.issued, year: true)} • due ${fmtDate(i.due, year: true)}',
+      subtitle: 'Issued ${fmtDate(i.issued, year: true)} • due ${fmtDate(i.due, year: true)}',
       builder: (ctx) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -362,14 +331,7 @@ class _FeesBody extends StatelessWidget {
                 const Divider(color: C.outline),
                 _Row('Total', inr(i.amount), strong: true),
                 _Row('Paid', inr(i.paid)),
-                _Row(
-                  'Balance',
-                  inr(i.balance),
-                  strong: true,
-                  color: i.statusAt(now) == InvoiceStatus.overdue
-                      ? C.danger
-                      : C.onSurface,
-                ),
+                _Row('Balance', inr(i.balance), strong: true, color: i.statusAt(now) == InvoiceStatus.overdue ? C.danger : C.onSurface),
               ],
             ),
           ),
@@ -401,12 +363,7 @@ class _Row extends StatelessWidget {
     child: Row(
       children: [
         Expanded(
-          child: Text(
-            label,
-            style: (strong ? T.bodyStrong : T.body).copyWith(
-              color: strong ? C.onSurface : C.onSurfaceVariant,
-            ),
-          ),
+          child: Text(label, style: (strong ? T.bodyStrong : T.body).copyWith(color: strong ? C.onSurface : C.onSurfaceVariant)),
         ),
         Text(value, style: T.bodyStrong.copyWith(color: color ?? C.onSurface)),
       ],

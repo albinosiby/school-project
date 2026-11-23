@@ -1,3 +1,5 @@
+import 'package:school_sync/school_sync.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../utils/exceptions/app_exception.dart';
 import '../../../utils/services/firebase/parent_session.dart';
@@ -7,33 +9,43 @@ import 'fee_repository_interface.dart';
 /// The child's `fee_invoices` and `fee_payments` (matched on `grn`, §13.2). `paid` is kept current by the admin's fee counter.
 /// Parents pay into the school account (`school/school.bank`) and report it as a `fee_claims` doc (§13.8); the office
 /// verifies it against the bank statement, which records the payment and issues the receipt.
-class FirebaseFeeRepository implements IFeeRepository {
+class FirebaseFeeRepository implements IFeeRepository, IFeeDocumentRepository {
   FirebaseFeeRepository(this._session);
   final ParentSession _session;
 
   @override
-  Stream<FeesData> watchFees(String childId) async* {
-    final grn = await _session.grnOf(childId);
-    if (grn.isEmpty) {
-      yield const FeesData([]);
-      return;
-    }
-    final invoices = _session.col('fee_invoices').where('grn', isEqualTo: grn).snapshots();
-    final payments = _session.col('fee_payments').where('grn', isEqualTo: grn).snapshots();
-    final claims = _session.col('fee_claims').where('studentId', isEqualTo: childId).snapshots();
-    final school = _session.col('school').doc('school').snapshots();
-    yield* combineLatest<Object>([invoices, payments, claims, school]).map((all) {
-      final inv = (all[0] as QuerySnapshot<Json>).docs;
-      final list = [for (final d in inv) fromDoc(d.id, d.data())]..sort((a, b) => b.due.compareTo(a.due));
-      final titles = {for (final i in list) i.id: i.title};
-      final receipts = [for (final d in (all[1] as QuerySnapshot<Json>).docs) receiptOf(d.id, d.data())]
-        ..sort((a, b) => b.date.compareTo(a.date) != 0 ? b.date.compareTo(a.date) : b.number.compareTo(a.number));
-      final reported = [for (final d in (all[2] as QuerySnapshot<Json>).docs) claimOf(d.id, d.data(), titles)]
-        ..sort((a, b) => b.submittedAt.compareTo(a.submittedAt));
-      final bank = bankOf((all[3] as DocumentSnapshot<Json>).data()?['bank']);
-      return FeesData(list, receipts: receipts, claims: reported, bank: bank.isEmpty ? null : bank);
-    });
-  }
+  Stream<FeesData> watchFees(String childId) => switchSchoolStream(
+    combineLatest<Object>([_session.col('students').doc(childId).snapshots(), _session.watchUser()]),
+    (values) {
+      final child = values[0] as DocumentSnapshot<Json>;
+      final student = child.data();
+      if (student == null) throw AppException(message: 'The student record is unavailable.');
+      _session.remember(childId, student);
+      final grn = '${student['grn'] ?? ''}';
+      if (grn.isEmpty) return Stream.value(const FeesData([]));
+      final invoices = _session.col('fee_invoices').where('grn', isEqualTo: grn).snapshots();
+      final payments = _session.col('fee_payments').where('grn', isEqualTo: grn).snapshots();
+      final claims = _session.col('fee_claims').where('studentId', isEqualTo: childId).snapshots();
+      final school = _session.col('school').doc('school').snapshots();
+      return combineLatest<Object>([invoices, payments, claims, school, _session.watchPolicy()]).asyncMap((all) async {
+        final summary = await _session.mobile.call('getMobileStudentFees', {'studentId': childId});
+        final ids = Set<String>.from(summary['invoiceIds'] as List? ?? const []);
+        final list = [
+          for (final d in (all[0] as QuerySnapshot<Json>).docs)
+            if (ids.contains(d.id)) fromDoc(d.id, {...d.data(), 'studentId': childId}),
+        ]..sort((a, b) => b.due.compareTo(a.due));
+        final titles = {for (final i in list) i.id: i.title};
+        final receipts = [
+          for (final d in (all[1] as QuerySnapshot<Json>).docs)
+            if (ids.contains(d.data()['invoiceId'])) receiptOf(d.id, {...d.data(), 'studentId': childId}),
+        ]..sort((a, b) => b.date.compareTo(a.date));
+        final reported = [for (final d in (all[2] as QuerySnapshot<Json>).docs) claimOf(d.id, d.data(), titles)]
+          ..sort((a, b) => b.submittedAt.compareTo(a.submittedAt));
+        final bank = bankOf((all[3] as DocumentSnapshot<Json>).data()?['bank']);
+        return FeesData(list, receipts: receipts, claims: reported, bank: bank.isEmpty ? null : bank, annual: AnnualFees.fromJson(summary));
+      });
+    },
+  );
 
   /// There is no payment gateway: parents pay into the school account and report it ([reportPayment]).
   @override
@@ -85,13 +97,18 @@ class FirebaseFeeRepository implements IFeeRepository {
     return claimOf(doc.id, data, {invoiceId: fromDoc(invoiceId, inv).title});
   }
 
-  /// The school system issues no receipt PDFs (`fee_payments` has no file), so nothing can be saved: say so instead of
-  /// pretending a file was downloaded.
   @override
-  Future<String> downloadReceipt(FeeReceipt receipt) async => throw AppException(
-        message: 'Receipt ${receipt.number} is recorded by the school. A PDF copy is not available in the app yet; '
-            'ask the school office for a printed receipt.',
-      );
+  Future<String> downloadReceipt(FeeReceipt receipt) => _openDocument(receipt.studentId, 'receipt', receipt.id, receipt.fileName);
+
+  @override
+  Future<String> downloadInvoice(Invoice invoice) => _openDocument(invoice.studentId, 'invoice', invoice.id, 'Invoice_${invoice.id}.pdf');
+
+  Future<String> _openDocument(String studentId, String kind, String id, String name) async {
+    final url = await _session.mobile.documentLink(studentId: studentId, kind: kind, documentId: id);
+    if (!await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication))
+      throw AppException(message: 'Could not open the PDF. Please try again.');
+    return name;
+  }
 
   static BankDetails bankOf(Object? v) {
     final b = v is Map ? v : const {};
@@ -136,9 +153,15 @@ class FirebaseFeeRepository implements IFeeRepository {
     return FeeReceipt(
       id: id,
       number: '${d['receiptNo'] ?? id}',
+      studentId: '${d['studentId'] ?? ''}',
       date: parseDay(d['date']) ?? DateTime.now(),
       method: PaymentMethod.fromMode(mode),
-      lines: [FeeItem('${d['invoiceNo'] ?? 'Fees'}${'${d['mode'] ?? ''}'.isEmpty ? '' : ' · ${d['mode']}'}', (d['amount'] as num?)?.toDouble() ?? 0)],
+      lines: [
+        FeeItem(
+          '${d['invoiceNo'] ?? 'Fees'}${'${d['mode'] ?? ''}'.isEmpty ? '' : ' · ${d['mode']}'}',
+          (d['amount'] as num?)?.toDouble() ?? 0,
+        ),
+      ],
       reference: '${d['invoiceNo'] ?? ''}'.isEmpty ? null : '${d['invoiceNo']}',
     );
   }
@@ -149,6 +172,16 @@ class FirebaseFeeRepository implements IFeeRepository {
         if (l is Map) FeeItem('${l['label'] ?? ''}', (l['amount'] as num?)?.toDouble() ?? 0),
     ];
     final amount = (d['amount'] as num?)?.toDouble() ?? 0;
+    final paid = (d['paid'] as num?)?.toDouble() ?? 0;
+    final override = d['statusOverride'];
+    InvoiceStatus? manualStatus;
+    if (override is Map && override['amount'] == amount && override['paid'] == paid && override['due'] == (d['due'] ?? '')) {
+      manualStatus = switch (override['status']) {
+        'Pending' => InvoiceStatus.due,
+        'Overdue' => InvoiceStatus.overdue,
+        _ => null,
+      };
+    }
     final issued = parseDay(d['issued']) ?? DateTime.now();
     return Invoice(
       id: id,
@@ -156,7 +189,10 @@ class FirebaseFeeRepository implements IFeeRepository {
       issued: issued,
       due: parseDay(d['due']) ?? issued,
       items: lines.isEmpty ? [FeeItem('School fees', amount)] : lines,
-      paid: (d['paid'] as num?)?.toDouble() ?? 0,
+      paid: paid,
+      manualStatus: manualStatus,
+      billedAmount: amount,
+      studentId: '${d['studentId'] ?? ''}',
     );
   }
 }

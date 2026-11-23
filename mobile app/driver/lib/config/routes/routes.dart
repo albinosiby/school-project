@@ -1,5 +1,6 @@
 /// Every route path of the app. Tabs are shell branches; the rest are pushed on top.
 class RoutePaths {
+  static const myCertificates = '/my-school-certificates';
   RoutePaths._();
 
   static const welcome = '/welcome';

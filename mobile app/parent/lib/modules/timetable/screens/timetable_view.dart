@@ -7,25 +7,9 @@ import '../../academics/screens/widgets/academic_section_title.dart';
 import '../bloc/timetable_bloc.dart';
 import '../models/timetable_models.dart';
 
-const _dayNames = {
-  1: 'Mon',
-  2: 'Tue',
-  3: 'Wed',
-  4: 'Thu',
-  5: 'Fri',
-  6: 'Sat',
-  7: 'Sun',
-};
+const _dayNames = {1: 'Mon', 2: 'Tue', 3: 'Wed', 4: 'Thu', 5: 'Fri', 6: 'Sat', 7: 'Sun'};
 
-const _dayLong = {
-  1: 'Monday',
-  2: 'Tuesday',
-  3: 'Wednesday',
-  4: 'Thursday',
-  5: 'Friday',
-  6: 'Saturday',
-  7: 'Sunday',
-};
+const _dayLong = {1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday', 7: 'Sunday'};
 
 /// Timetable section of the Academics tab: this week's day strip, the chosen day's periods and the
 /// weekly subject load.
@@ -33,16 +17,14 @@ class TimetableView extends StatelessWidget {
   const TimetableView({super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      ChildDataView<TimetableBloc, TimetableWeek>(
-        create: () => getIt<TimetableBloc>(),
-        isEmpty: (d) => d.periods.isEmpty,
-        emptyTitle: 'No timetable yet',
-        emptyHint: 'The class timetable will appear here once it is published.',
-        emptyIcon: Icons.calendar_today_outlined,
-        builder: (context, week, child) =>
-            _TimetableBody(key: ValueKey(child.id), week: week),
-      );
+  Widget build(BuildContext context) => ChildDataView<TimetableBloc, TimetableWeek>(
+    create: () => getIt<TimetableBloc>(),
+    isEmpty: (d) => d.periods.isEmpty,
+    emptyTitle: 'No timetable yet',
+    emptyHint: 'The class timetable will appear here once it is published.',
+    emptyIcon: Icons.calendar_today_outlined,
+    builder: (context, week, child) => _TimetableBody(key: ValueKey(child.id), week: week),
+  );
 }
 
 class _TimetableBody extends StatefulWidget {
@@ -54,21 +36,18 @@ class _TimetableBody extends StatefulWidget {
 }
 
 class _TimetableBodyState extends State<_TimetableBody> {
-  late int _day = widget.week.days.contains(DateTime.now().weekday)
-      ? DateTime.now().weekday
-      : widget.week.days.first;
+  late int _day = widget.week.days.contains(widget.week.now.weekday) ? widget.week.now.weekday : widget.week.days.first;
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = widget.week.now;
     final monday = dateOnly(now).subtract(Duration(days: now.weekday - 1));
     final periods = widget.week.forDay(_day);
     final load = <String, int>{};
-    for (final p in widget.week.periods) {
+    for (final p in widget.week.periods.where((p) => !p.isBreak)) {
       load[p.subject] = (load[p.subject] ?? 0) + 1;
     }
-    final subjects = load.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final subjects = load.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
     final isToday = _day == now.weekday;
     return ListView(
       key: const Key('section-list'),
@@ -82,7 +61,7 @@ class _TimetableBodyState extends State<_TimetableBody> {
                 child: _DayTile(
                   day: d,
                   date: monday.add(Duration(days: d - 1)),
-                  count: widget.week.forDay(d).length,
+                  count: widget.week.forDay(d).where((p) => !p.isBreak).length,
                   selected: d == _day,
                   today: d == now.weekday,
                   onTap: () => setState(() => _day = d),
@@ -110,7 +89,7 @@ class _TimetableBodyState extends State<_TimetableBody> {
                     Text(
                       periods.isEmpty
                           ? 'No classes'
-                          : '${periods.length} periods • ${fmtMinute(periods.first.startMinute)} – ${fmtMinute(periods.last.endMinute)}',
+                          : '${periods.where((p) => !p.isBreak).length} periods • ${fmtMinute(periods.first.startMinute)} – ${fmtMinute(periods.last.endMinute)}',
                       style: T.small.copyWith(color: C.onSurfaceVariant),
                     ),
                   ],
@@ -127,36 +106,21 @@ class _TimetableBodyState extends State<_TimetableBody> {
         ),
         if (periods.isEmpty)
           AppSurfaceCard(
-            child: AppEmptyState(
-              'No periods',
-              hint: 'Nothing is scheduled for this day.',
-              icon: Icons.event_busy_outlined,
-            ),
+            child: AppEmptyState('No periods', hint: 'Nothing is scheduled for this day.', icon: Icons.event_busy_outlined),
           )
         else
           for (var i = 0; i < periods.length; i++)
-            _PeriodCard(
-              index: i + 1,
-              period: periods[i],
-              now: now,
-              isToday: isToday,
-            ),
+            _PeriodCard(index: periods[i].number ?? i + 1, period: periods[i], now: now, isToday: isToday),
         AcademicSectionTitle(
           'Weekly load',
           icon: Icons.donut_small_outlined,
-          caption: '${widget.week.periods.length} periods / week',
+          caption: '${widget.week.periods.where((p) => !p.isBreak).length} periods / week',
         ),
         AppSurfaceCard(
           child: Wrap(
             spacing: 8.w,
             runSpacing: 8.h,
-            children: [
-              for (final e in subjects)
-                AppMetaChip(
-                  '${e.key} · ${e.value}',
-                  icon: Icons.auto_stories_outlined,
-                ),
-            ],
+            children: [for (final e in subjects) AppMetaChip('${e.key} · ${e.value}', icon: Icons.auto_stories_outlined)],
           ),
         ),
         academicListEnd(),
@@ -196,20 +160,13 @@ class _DayTile extends StatelessWidget {
           decoration: BoxDecoration(
             color: selected ? C.primary : C.bg,
             borderRadius: BorderRadius.circular(R.md),
-            border: Border.all(
-              color: selected
-                  ? C.primary
-                  : (today ? C.primary.withValues(alpha: .5) : C.outline),
-            ),
+            border: Border.all(color: selected ? C.primary : (today ? C.primary.withValues(alpha: .5) : C.outline)),
           ),
           child: Column(
             children: [
               Text(
                 _dayNames[day]!,
-                style: T.small.copyWith(
-                  fontSize: 11.sp,
-                  color: selected ? Colors.white70 : C.onSurfaceVariant,
-                ),
+                style: T.small.copyWith(fontSize: 11.sp, color: selected ? Colors.white70 : C.onSurfaceVariant),
               ),
               SizedBox(height: 2.h),
               Text('${date.day}', style: T.h2.copyWith(color: fg)),
@@ -218,9 +175,7 @@ class _DayTile extends StatelessWidget {
                 width: 5.r,
                 height: 5.r,
                 decoration: BoxDecoration(
-                  color: today
-                      ? (selected ? Colors.white : C.primary)
-                      : Colors.transparent,
+                  color: today ? (selected ? Colors.white : C.primary) : Colors.transparent,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -233,12 +188,7 @@ class _DayTile extends StatelessWidget {
 }
 
 class _PeriodCard extends StatelessWidget {
-  const _PeriodCard({
-    required this.index,
-    required this.period,
-    required this.now,
-    required this.isToday,
-  });
+  const _PeriodCard({required this.index, required this.period, required this.now, required this.isToday});
   final int index;
   final Period period;
   final DateTime now;
@@ -246,6 +196,20 @@ class _PeriodCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (period.isBreak)
+      return Padding(
+        padding: EdgeInsets.only(bottom: 10.h),
+        child: AppSurfaceCard(
+          child: Row(
+            children: [
+              Icon(Icons.free_breakfast_outlined, color: C.onSurfaceVariant),
+              SizedBox(width: 12.w),
+              Expanded(child: Text(period.subject, style: T.bodyStrong)),
+              Text('${fmtMinute(period.startMinute)} – ${fmtMinute(period.endMinute)}', style: T.small),
+            ],
+          ),
+        ),
+      );
     final current = isToday && period.isNow(now);
     final over = isToday && period.isOver(now);
     return Padding(
@@ -260,12 +224,7 @@ class _PeriodCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    fmtMinute(period.startMinute),
-                    style: T.smallStrong.copyWith(
-                      color: over ? C.muted : C.onSurface,
-                    ),
-                  ),
+                  Text(fmtMinute(period.startMinute), style: T.smallStrong.copyWith(color: over ? C.muted : C.onSurface)),
                   Text(
                     fmtMinute(period.endMinute),
                     style: T.small.copyWith(fontSize: 11.sp, color: C.muted),
@@ -287,10 +246,7 @@ class _PeriodCard extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'PERIOD $index',
-                            style: T.capsMuted.copyWith(fontSize: 10.sp),
-                          ),
+                          Text('PERIOD $index', style: T.capsMuted.copyWith(fontSize: 10.sp)),
                           SizedBox(height: 2.h),
                           Text(
                             period.subject,
@@ -311,15 +267,8 @@ class _PeriodCard extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        if (current) ...[
-                          const Pill('Now', tone: Tone.brand, dot: true),
-                          SizedBox(height: 6.h),
-                        ],
-                        AppTagChip(
-                          period.room,
-                          icon: Icons.meeting_room_outlined,
-                          neutral: true,
-                        ),
+                        if (current) ...[const Pill('Now', tone: Tone.brand, dot: true), SizedBox(height: 6.h)],
+                        AppTagChip(period.room, icon: Icons.meeting_room_outlined, neutral: true),
                       ],
                     ),
                   ],

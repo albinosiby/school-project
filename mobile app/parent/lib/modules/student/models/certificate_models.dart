@@ -14,6 +14,9 @@ enum CertificateRequestType {
   bonafide('Bonafide Certificate', CertificateCategory.bonafide),
   character('Character Certificate', CertificateCategory.bonafide),
   transfer('Transfer Certificate', CertificateCategory.bonafide),
+  study('Study Certificate', CertificateCategory.bonafide),
+  dob('Date of Birth Certificate', CertificateCategory.bonafide),
+  conduct('Conduct Certificate', CertificateCategory.bonafide),
   feeReceipt('Annual Fee Certificate', CertificateCategory.bonafide);
 
   const CertificateRequestType(this.label, this.category);
@@ -38,6 +41,10 @@ class Certificate extends Equatable {
     this.validTill,
     this.downloadedAt,
     this.requested = false,
+    this.revoked = false,
+    this.status = 'Issued',
+    this.schoolName = '',
+    this.recipientName = '',
     this.purpose,
   });
 
@@ -52,9 +59,13 @@ class Certificate extends Equatable {
 
   /// Requested from the app and still being prepared by the school office.
   final bool requested;
+  final bool revoked;
+  final String status;
+  bool get rejected => status == 'Rejected';
+  final String schoolName, recipientName;
+  bool get downloadable => !requested && !revoked && !rejected;
 
-  String get fileName =>
-      '${title.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')}.pdf';
+  String get fileName => '${title.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')}.pdf';
 
   bool matches(String query) {
     final q = query.trim().toLowerCase();
@@ -82,6 +93,10 @@ class Certificate extends Equatable {
     validTill: validTill,
     downloadedAt: downloadedAt ?? this.downloadedAt,
     requested: requested,
+    revoked: revoked,
+    status: status,
+    schoolName: schoolName,
+    recipientName: recipientName,
     purpose: purpose,
   );
 
@@ -101,6 +116,10 @@ class Certificate extends Equatable {
     validTill,
     downloadedAt,
     requested,
+    revoked,
+    status,
+    schoolName,
+    recipientName,
     purpose,
   ];
 }

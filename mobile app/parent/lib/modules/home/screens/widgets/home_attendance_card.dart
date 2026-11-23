@@ -28,9 +28,9 @@ class HomeAttendanceCard extends StatelessWidget {
           };
     final gate = summary.gateEntry;
     final avg = summary.termAttendance;
-    final standing = avg >= 85
-        ? 'Good Standing'
-        : (avg >= 75 ? 'Satisfactory' : 'Below 75% minimum');
+    final standing = avg >= summary.minimumAttendance
+        ? 'Meets school minimum'
+        : 'Below ${summary.minimumAttendance.toStringAsFixed(summary.minimumAttendance == summary.minimumAttendance.roundToDouble() ? 0 : 1)}% minimum';
     return AppElevatedCard(
       onTap: () => context.go(RoutePaths.academicsSection('attendance')),
       child: Column(
@@ -39,18 +39,9 @@ class HomeAttendanceCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  "TODAY'S ATTENDANCE",
-                  style: T.capsMuted.copyWith(fontSize: 12.sp),
-                ),
+                child: Text("TODAY'S ATTENDANCE", style: T.capsMuted.copyWith(fontSize: 12.sp)),
               ),
-              Pill(
-                label,
-                tone: tone,
-                icon: tone == Tone.success
-                    ? Icons.check_circle_outline_rounded
-                    : null,
-              ),
+              Pill(label, tone: tone, icon: tone == Tone.success ? Icons.check_circle_outline_rounded : null),
             ],
           ),
           SizedBox(height: 12.h),
@@ -66,15 +57,8 @@ class HomeAttendanceCard extends StatelessWidget {
                 Container(
                   width: 34.r,
                   height: 34.r,
-                  decoration: BoxDecoration(
-                    color: gate == null ? C.outline : C.emeraldSoft,
-                    borderRadius: BorderRadius.circular(R.sm),
-                  ),
-                  child: Icon(
-                    Icons.badge_outlined,
-                    size: 18.r,
-                    color: gate == null ? C.slate : C.emerald,
-                  ),
+                  decoration: BoxDecoration(color: gate == null ? C.outline : C.emeraldSoft, borderRadius: BorderRadius.circular(R.sm)),
+                  child: Icon(Icons.badge_outlined, size: 18.r, color: gate == null ? C.slate : C.emerald),
                 ),
                 SizedBox(width: 12.w),
                 Expanded(
@@ -83,21 +67,14 @@ class HomeAttendanceCard extends StatelessWidget {
                     children: [
                       Text(
                         gate == null
-                            ? (summary.isSchoolDay
-                                  ? 'No RFID gate entry yet'
-                                  : 'No gate entry on holidays')
+                            ? (summary.isSchoolDay ? 'No RFID gate entry yet' : 'No gate entry on holidays')
                             : 'Gate entry verified via RFID Badge',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: T.bodyStrong.copyWith(
-                          color: C.ink,
-                          fontSize: 13.sp,
-                        ),
+                        style: T.bodyStrong.copyWith(color: C.ink, fontSize: 13.sp),
                       ),
                       Text(
-                        gate == null
-                            ? 'You will be notified on entry'
-                            : '${fmtMinute(gate.at.hour * 60 + gate.at.minute)} • ${gate.gate}',
+                        gate == null ? 'You will be notified on entry' : '${fmtMinute(gate.at.hour * 60 + gate.at.minute)} • ${gate.gate}',
                         style: T.small.copyWith(color: C.muted),
                       ),
                     ],
@@ -120,7 +97,7 @@ class HomeAttendanceCard extends StatelessWidget {
               Flexible(
                 flex: 4,
                 child: Text(
-                  'Term Average ($standing)',
+                  'Academic Year ($standing)',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.end,

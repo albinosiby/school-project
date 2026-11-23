@@ -1,6 +1,10 @@
+import 'package:school_sync/school_sync.dart';
+import '../../attendance/models/attendance_models.dart';
+import '../../timetable/models/timetable_models.dart';
+import '../../homework/models/homework_models.dart';
+import '../../notices/models/notice_models.dart';
 import '../../../utils/helpers/date_helper.dart';
 import '../../../utils/services/cache_service.dart';
-import '../../attendance/models/attendance_models.dart';
 import '../../attendance/repositories/attendance_repository_interface.dart';
 import '../../homework/repositories/homework_repository_interface.dart';
 import '../../live_classes/models/live_class_models.dart';
@@ -43,55 +47,74 @@ class HomeRepository implements IHomeRepository {
   final DateTime Function() _clock;
 
   @override
-  Stream<HomeSummary> watchToday(String childId) => cacheFirst(
-    cache: _cache,
-    key: 'home:$childId',
-    fetch: () => _build(childId),
-  );
+  Stream<HomeSummary> watchToday(String childId) async* {
+    final key = 'home:$childId';
+    final generation = _cache.generation;
+    final cached = _cache.read<HomeSummary>(key);
+    if (cached != null) yield cached;
+    yield* combineSchoolStreams<Object?>([
+      _timetable.watchWeek(childId),
+      _attendance.watchAttendance(childId),
+      _homework.watchHomework(childId),
+      _notices.watchNotices(childId),
+      _live.watchLiveClasses(childId),
+      _optionalBus(childId),
+    ]).asyncMap((all) async {
+      final summary = await _build(
+        childId,
+        all[0] as TimetableWeek,
+        all[1] as AttendanceData,
+        all[2] as List<Homework>,
+        all[3] as List<Notice>,
+        all[4] as List<LiveClass>,
+        all[5] as BusTrip?,
+      );
+      if (_cache.generation == generation) _cache.write(key, summary);
+      return summary;
+    });
+  }
 
-  Future<HomeSummary> _build(String childId) async {
-    final now = _clock();
-    final week = await _timetable.watchWeek(childId).first;
-    final attendance = await _attendance.watchAttendance(childId).first;
-    final homework = await _homework.watchHomework(childId).first;
-    final notices = await _notices.watchNotices(childId).first;
-    final live = await _live.watchLiveClasses(childId).first;
-    // no bus feed (e.g. tracking not set up): Home simply shows no bus card
-    final bus = await _transport.watchTrip(childId).first.then<BusTrip?>((b) => b).catchError((Object _) => null);
+  Stream<BusTrip?> _optionalBus(String childId) async* {
+    var emitted = false;
+    try {
+      await for (final trip in _transport.watchTrip(childId)) {
+        emitted = true;
+        yield trip;
+      }
+    } catch (_) {
+      /* Optional bus feed must not block academic data. */
+    }
+    if (!emitted) yield null;
+  }
+
+  Future<HomeSummary> _build(
+    String childId,
+    TimetableWeek week,
+    AttendanceData attendance,
+    List<Homework> homework,
+    List<Notice> notices,
+    List<LiveClass> live,
+    BusTrip? bus,
+  ) async {
+    final clock = _clock();
+    final now = week.utcOffsetMinutes == null ? clock : clock.toUtc().add(Duration(minutes: week.utcOffsetMinutes!));
 
     final todayRecord = attendance.on(now);
-    final isSchoolDay =
-        now.weekday <= DateTime.friday &&
-        todayRecord?.status != AttendanceStatus.holiday;
+    final isSchoolDay = week.days.contains(now.weekday) && todayRecord?.status != AttendanceStatus.holiday;
     // Not yet handed in and due by tomorrow (overdue items included).
-    final due =
-        homework
-            .where(
-              (h) =>
-                  !h.submitted &&
-                  !h.reviewed &&
-                  !dateOnly(h.due).isAfter(plusDays(1, from: now)),
-            )
-            .toList()
-          ..sort((a, b) => a.due.compareTo(b.due));
+    final due = homework.where((h) => !h.submitted && !h.reviewed && !dateOnly(h.due).isAfter(plusDays(1, from: now))).toList()
+      ..sort((a, b) => a.due.compareTo(b.due));
     final sortedNotices = [...notices]
       ..sort((a, b) {
         if (a.needsAction != b.needsAction) return a.needsAction ? -1 : 1;
         return b.date.compareTo(a.date);
       });
-    final inReview = homework.where((h) => h.submitted && !h.reviewed).toList()
-      ..sort((a, b) => b.due.compareTo(a.due));
+    final inReview = homework.where((h) => h.submitted && !h.reviewed).toList()..sort((a, b) => b.due.compareTo(a.due));
     final attended =
         todayRecord != null &&
-        const {
-          AttendanceStatus.present,
-          AttendanceStatus.late,
-          AttendanceStatus.halfDay,
-        }.contains(todayRecord.status);
+        const {AttendanceStatus.present, AttendanceStatus.late, AttendanceStatus.halfDay}.contains(todayRecord.status);
     final gate = attended ? await _transport.gateEntryOn(childId, now).catchError((Object _) => null) : null;
-    final upcoming =
-        live.where((c) => c.statusAt(now) != LiveStatus.ended).toList()
-          ..sort((a, b) => a.start.compareTo(b.start));
+    final upcoming = live.where((c) => c.statusAt(now) != LiveStatus.ended).toList()..sort((a, b) => a.start.compareTo(b.start));
 
     return HomeSummary(
       periods: isSchoolDay ? week.forDay(now.weekday) : const [],
@@ -100,6 +123,7 @@ class HomeRepository implements IHomeRepository {
       homeworkDue: due,
       homeworkInReview: inReview,
       termAttendance: attendance.overall.percentage,
+      minimumAttendance: attendance.minimumAttendance,
       gateEntry: gate,
       // no card for a child who is not on a school bus
       bus: isSchoolDay && (bus?.onBus ?? false) ? bus : null,

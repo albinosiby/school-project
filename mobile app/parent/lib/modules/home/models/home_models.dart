@@ -17,6 +17,7 @@ class HomeSummary extends Equatable {
     required this.nextLiveClass,
     this.homeworkInReview = const [],
     this.termAttendance = 0,
+    this.minimumAttendance = 75,
     this.gateEntry,
     this.bus,
   });
@@ -33,7 +34,7 @@ class HomeSummary extends Equatable {
   final LiveClass? nextLiveClass;
 
   /// Term attendance percentage (0..100).
-  final double termAttendance;
+  final double termAttendance, minimumAttendance;
   final GateEntry? gateEntry;
   final BusTrip? bus;
 
@@ -47,6 +48,7 @@ class HomeSummary extends Equatable {
     notices,
     nextLiveClass,
     termAttendance,
+    minimumAttendance,
     gateEntry,
     bus,
   ];

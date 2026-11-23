@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -54,9 +55,7 @@ class _ProfileBodyState extends State<_ProfileBody> {
 
   void _loadAttendance(List<Child> children) {
     if (children.isEmpty) return;
-    context.read<ProfileBloc>().add(
-      LoadChildAttendance([for (final c in children) c.id]),
-    );
+    context.read<ProfileBloc>().add(LoadChildAttendance([for (final c in children) c.id]));
   }
 
   @override
@@ -89,12 +88,7 @@ class _ProfileBodyState extends State<_ProfileBody> {
             SizedBox(height: 10.h),
             const _AccountMenu(),
             SizedBox(height: 16.h),
-            Center(
-              child: Text(
-                'ISO 27001 Certified - Version 4.8.2',
-                style: T.small.copyWith(color: C.muted),
-              ),
-            ),
+            const AppVersionRow(),
           ],
         );
       },
@@ -145,12 +139,7 @@ class _GuardianCard extends StatelessWidget {
               Icon(Icons.apartment_rounded, size: 16.r, color: C.slate),
               SizedBox(width: 4.w),
               Flexible(
-                child: Text(
-                  AppConstants.schoolName,
-                  style: T.small,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: Text(AppConstants.schoolName, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
             ],
           ),
@@ -186,10 +175,7 @@ class _GuardianCard extends StatelessWidget {
                       constraints: BoxConstraints(minHeight: 44.h),
                       alignment: Alignment.center,
                       padding: EdgeInsets.symmetric(horizontal: 6.w),
-                      decoration: BoxDecoration(
-                        color: C.primarySoft,
-                        borderRadius: BorderRadius.circular(R.md),
-                      ),
+                      decoration: BoxDecoration(color: C.primarySoft, borderRadius: BorderRadius.circular(R.md)),
                       child: Text(
                         'ID: ${profile.parentId}',
                         style: T.smallStrong.copyWith(color: C.primary),
@@ -220,28 +206,16 @@ class _LinkedStudents extends StatelessWidget {
         Row(
           children: [
             Expanded(child: Text('Linked students', style: T.h2)),
-            Text(
-              '${fam.children.length} ${fam.children.length == 1 ? 'kid' : 'kids'}',
-              style: T.small,
-            ),
+            Text('${fam.children.length} ${fam.children.length == 1 ? 'kid' : 'kids'}', style: T.small),
           ],
         ),
         SizedBox(height: 10.h),
         if (fam.children.isEmpty)
           const AppCard(
-            child: AppEmptyState(
-              'No children linked',
-              hint: 'Please contact the school office.',
-              icon: Icons.family_restroom_rounded,
-            ),
+            child: AppEmptyState('No children linked', hint: 'Please contact the school office.', icon: Icons.family_restroom_rounded),
           )
         else
-          for (final c in fam.children)
-            _ChildCard(
-              child: c,
-              selected: c.id == fam.selected?.id,
-              attendance: attendance[c.id],
-            ),
+          for (final c in fam.children) _ChildCard(child: c, selected: c.id == fam.selected?.id, attendance: attendance[c.id]),
       ],
     ),
   );
@@ -278,30 +252,14 @@ class _ChildCard extends StatelessWidget {
                 Row(
                   children: [
                     Flexible(
-                      child: Text(
-                        child.name,
-                        style: T.h3,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: Text(child.name, style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
-                    if (selected) ...[
-                      SizedBox(width: 6.w),
-                      const Pill('Active', tone: Tone.brand, dot: true),
-                    ],
+                    if (selected) ...[SizedBox(width: 6.w), const Pill('Active', tone: Tone.brand, dot: true)],
                   ],
                 ),
-                Text(
-                  'Class ${child.className} - Roll #${child.rollNo}',
-                  style: T.small,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                Text('Class ${child.className} - Roll #${child.rollNo}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
                 if (attendance != null)
-                  Text(
-                    '${attendance!.toStringAsFixed(1)}% Attendance',
-                    style: T.small.copyWith(color: selected ? C.primary : C.slate),
-                  ),
+                  Text('${attendance!.toStringAsFixed(1)}% Attendance', style: T.small.copyWith(color: selected ? C.primary : C.slate)),
               ],
             ),
           ),
@@ -352,14 +310,7 @@ class _ContactCard extends StatelessWidget {
 }
 
 class _ContactRow extends StatelessWidget {
-  const _ContactRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.caption,
-    this.trailing,
-    this.danger = false,
-  });
+  const _ContactRow({required this.icon, required this.label, required this.value, this.caption, this.trailing, this.danger = false});
   final IconData icon;
   final String label, value;
   final String? caption;
@@ -378,10 +329,7 @@ class _ContactRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                label,
-                style: danger ? T.caps.copyWith(color: C.danger) : T.small,
-              ),
+              Text(label, style: danger ? T.caps.copyWith(color: C.danger) : T.small),
               Text(value, style: T.bodyStrong, maxLines: 3, overflow: TextOverflow.ellipsis),
               if (caption != null) Text(caption!, style: T.small),
             ],
@@ -407,10 +355,7 @@ class _AccountMenu extends StatelessWidget {
         switchValue: s.settings.biometric,
         onSwitch: (v) {
           context.read<SettingsBloc>().add(UpdateSettings(s.settings.copyWith(biometric: v)));
-          AppDialogs.showSnackBar(
-            context,
-            message: v ? 'Biometric login turned on' : 'Biometric login turned off',
-          );
+          AppDialogs.showSnackBar(context, message: v ? 'Biometric login turned on' : 'Biometric login turned off');
         },
       ),
     ),
@@ -437,12 +382,7 @@ class _AccountMenu extends StatelessWidget {
       trailing: _chevron,
       onTap: () => _showHelp(context),
     ),
-    AppSettingsRow(
-      icon: Icons.logout_rounded,
-      title: 'Log out',
-      trailing: _chevron,
-      onTap: () => confirmSignOut(context),
-    ),
+    AppSettingsRow(icon: Icons.logout_rounded, title: 'Log out', trailing: _chevron, onTap: () => confirmSignOut(context)),
   ]);
 
   static final Widget _chevron = Builder(

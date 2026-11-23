@@ -9,11 +9,7 @@ sealed class FeePaymentEvent extends Equatable {
 
 /// Pay the full balance of [invoiceIds] for [childId] with [method].
 class FeePaymentSubmitted extends FeePaymentEvent {
-  const FeePaymentSubmitted({
-    required this.childId,
-    required this.invoiceIds,
-    required this.method,
-  });
+  const FeePaymentSubmitted({required this.childId, required this.invoiceIds, required this.method});
   final String childId;
   final List<String> invoiceIds;
   final PaymentMethod method;
@@ -46,4 +42,11 @@ class PaymentReported extends FeePaymentEvent {
   final DateTime paidOn;
   @override
   List<Object?> get props => [childId, invoiceId, amount, mode, reference, paidOn, note];
+}
+
+class InvoiceDownloadRequested extends FeePaymentEvent {
+  const InvoiceDownloadRequested(this.invoice);
+  final Invoice invoice;
+  @override
+  List<Object?> get props => [invoice];
 }

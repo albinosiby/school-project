@@ -1,49 +1,69 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:school_sync/school_sync.dart';
 import '../../../utils/services/firebase/parent_session.dart';
 import '../models/timetable_models.dart';
 import 'timetable_repository_interface.dart';
 
-/// The child's class week from `ops_periods` (`classId`, `day: "Mon"`, `period: 1..8`).
 class FirebaseTimetableRepository implements ITimetableRepository {
   FirebaseTimetableRepository(this._session);
   final ParentSession _session;
-
-  /// School bell times, same as the teacher app (P1 08:30 … P6 13:15, 45 minutes; recess 10:00, lunch 11:45).
-  static const bells = <int, (int, int)>{
-    1: (8 * 60 + 30, 9 * 60 + 15),
-    2: (9 * 60 + 15, 10 * 60),
-    3: (10 * 60 + 15, 11 * 60),
-    4: (11 * 60, 11 * 60 + 45),
-    5: (12 * 60 + 30, 13 * 60 + 15),
-    6: (13 * 60 + 15, 14 * 60),
-    7: (14 * 60, 14 * 60 + 45),
-    8: (14 * 60 + 45, 15 * 60 + 30),
-  };
-  static const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  static const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   @override
-  Stream<TimetableWeek> watchWeek(String childId) async* {
-    final classId = await _session.classIdOf(childId);
-    if (classId.isEmpty) {
-      yield const TimetableWeek([]);
-      return;
-    }
-    yield* _session.col('ops_periods').where('classId', isEqualTo: classId).snapshots().map((q) {
+  Stream<TimetableWeek> watchWeek(
+    String childId,
+  ) => switchSchoolStream(combineLatest<Object>([_session.col('students').doc(childId).snapshots(), _session.watchUser()]), (values) {
+    final child = values[0] as DocumentSnapshot<Json>;
+    final classId = '${child.data()?['classId'] ?? ''}';
+    if (classId.isEmpty) return Stream.value(const TimetableWeek([]));
+    return combineLatest<Object>([
+      _session.col('ops_periods').where('classId', isEqualTo: classId).snapshots(),
+      _session.col('classes').doc(classId).snapshots(),
+      _session.watchPolicy(),
+    ]).asyncMap((all) async {
+      final policy = all[2] as SchoolPolicy;
+      final now = policy.schoolTime();
+      final monday = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+      final updates = await _session.mobile.call('getMobileStudentTimetable', {'studentId': childId, 'weekStart': isoDay(monday)});
+      final substitutions = [
+        for (final row in updates['substitutions'] as List? ?? const [])
+          if (row is Map) row,
+      ];
+      final room = '${(all[1] as DocumentSnapshot<Json>).data()?['room'] ?? ''}';
+      final saved = (all[0] as QuerySnapshot<Json>).docs;
       final periods = <Period>[];
-      for (final doc in q.docs) {
-        final d = doc.data();
-        final day = days.indexOf('${d['day']}') + 1;
-        final bell = bells[(d['period'] as num?)?.toInt() ?? int.tryParse('${d['period']}') ?? 0];
-        if (day == 0 || bell == null) continue;
-        periods.add(Period(
-          weekday: day,
-          startMinute: bell.$1,
-          endMinute: bell.$2,
-          subject: '${d['subject'] ?? ''}',
-          teacher: '${d['teacher'] ?? ''}',
-          room: '${d['room'] ?? ''}',
-        ));
+      for (final day in policy.workingDays) {
+        for (final slot in policy.slots) {
+          final number = int.tryParse(slot.id.replaceFirst('P', ''));
+          final matches = saved.where(
+            (doc) => '${doc.data()['day']}' == days[day - 1] && int.tryParse('${doc.data()['period']}') == number,
+          );
+          final data = matches.firstOrNull?.data();
+          final substitution = slot.isBreak || slot.isGap
+              ? null
+              : substitutions
+                    .where(
+                      (row) =>
+                          '${row['date']}' == isoDay(monday.add(Duration(days: day - 1))) && int.tryParse('${row['period']}') == number,
+                    )
+                    .firstOrNull;
+          periods.add(
+            Period(
+              weekday: day,
+              startMinute: slot.startMinute,
+              endMinute: slot.endMinute,
+              subject: slot.isBreak || slot.isGap
+                  ? slot.label
+                  : '${substitution?['subject'] != null && substitution!['subject'] != '' ? substitution['subject'] : data?['subject'] ?? 'Unassigned'}',
+              teacher: substitution == null ? '${data?['teacher'] ?? ''}' : '${substitution['teacher']} · Substitute',
+              room: '${substitution?['room'] ?? data?['room'] ?? ''}'.isEmpty ? room : '${substitution?['room'] ?? data?['room']}',
+              isBreak: slot.isBreak || slot.isGap,
+              number: number,
+            ),
+          );
+        }
       }
-      return TimetableWeek(periods);
+      return TimetableWeek(periods, utcOffsetMinutes: policy.utcOffsetMinutes);
     });
-  }
+  });
 }
