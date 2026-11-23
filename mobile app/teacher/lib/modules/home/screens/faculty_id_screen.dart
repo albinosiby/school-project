@@ -14,7 +14,6 @@ import '../../../utils/services/cached_image_service.dart';
 import '../../school/bloc/school_bloc.dart';
 import '../bloc/profile_bloc.dart';
 import '../bloc/profile_events.dart';
-import 'widgets/teacher_tab_header.dart';
 
 /// Digital faculty ID card (Figma 1153:2465 "7.2 Digital Faculty ID"), route RoutePaths.facultyId.
 class FacultyIdScreen extends StatelessWidget {
@@ -73,7 +72,6 @@ class _FacultyIdViewState extends State<_FacultyIdView> {
     return DetailScaffold(
       title: 'Digital Faculty ID',
       fallbackRoute: RoutePaths.profile,
-      actions: const [TeacherHeaderActions(bell: false)],
       bottom: Row(children: [
         Expanded(
           child: AppButton(_exporting ? 'Preparing…' : 'Download PDF', icon: Icons.download_rounded, kind: BtnKind.outline,

@@ -130,5 +130,5 @@ List<Map<String, dynamic>> profilePaymentsOf(Map<String, dynamic> self) => [
 /// Uploaded documents (metadata only; the files stay with the office).
 List<Map<String, String>> profileDocumentsOf(Map<String, dynamic> self) => [
   for (final d in self['documents'] as List? ?? const [])
-    if (d is Map) {'category': _s(d['category']), 'label': _s(d['label']), 'name': _s(d['name']), 'uploadedAt': _s(d['uploadedAt'])},
+    if (d is Map) {'id': _s(d['id']), 'category': _s(d['category']), 'label': _s(d['label']), 'name': _s(d['name']), 'uploadedAt': _s(d['uploadedAt'])},
 ];

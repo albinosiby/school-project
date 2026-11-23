@@ -25,7 +25,7 @@ class CertificatesScope extends StatelessWidget {
       );
 }
 
-/// Figma 1153:3119 "5.9 Certificates" (Student Awards).
+/// Figma 1153:3119 "5.9 Certificates": the awards the teacher issues to students.
 class CertificatesScreen extends StatelessWidget {
   const CertificatesScreen({super.key});
   @override
@@ -53,14 +53,13 @@ class _CertificatesViewState extends State<_CertificatesView> {
         .toList();
     final counts = {'All': all.length, 'Pending': pending, 'Issued': all.length - pending};
     return DetailScaffold(
-      title: 'Certificates & Awards',
+      title: 'Student Certificates',
+      subtitle: 'Awards you issue to students',
       fallbackRoute: RoutePaths.more,
       bottom: AppButton('Issue Certificate', icon: Icons.add_circle_outline_rounded, onPressed: () => context.push(RoutePaths.certificateIssue)),
       body: !st.loaded
           ? const LessonsLoading()
           : ListView(padding: EdgeInsets.fromLTRB(S.page, 14.h, S.page, 24.h), children: [
-              const CertTabs(value: 'Student Awards'),
-              SizedBox(height: 12.h),
               AppSearchField(hint: 'Search student name, award, or ID...', onChanged: (v) => setState(() => _q = v)),
               SizedBox(height: 12.h),
               FilterChips(items: [for (final f in counts.keys) '$f (${counts[f]})'], value: '$_f (${counts[_f]})', onChanged: (v) => setState(() => _f = v.split(' (').first)),

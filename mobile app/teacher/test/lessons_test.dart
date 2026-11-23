@@ -99,11 +99,10 @@ void main() {
     });
   });
 
-  testWidgets('more hub shows pulse and routes', (t) async {
+  testWidgets('more hub searches and routes', (t) async {
     await open(t, RoutePaths.more);
-    expect(find.text("Today's Teaching Pulse"), findsOneWidget);
-    expect(find.textContaining(RegExp(r'^\d+ Classes$')), findsOneWidget);
-    expect(find.text('3 Active • 1 Draft Pending'), findsOneWidget);
+    expect(find.text('Teaching'), findsOneWidget);
+    expect(find.text('3 active'), findsOneWidget); // lesson plans count
     await t.enterText(find.byType(TextField).first, 'zzz');
     await t.pumpAndSettle();
     expect(find.text('No matching tools'), findsOneWidget);
@@ -209,20 +208,15 @@ void main() {
     expect(db.byId('ts_tests', 'ts_1')!['status'], 'upcoming');
   });
 
-  testWidgets('certificates list signs pending and switches to mine', (t) async {
+  testWidgets('student certificates list signs pending', (t) async {
     await open(t, RoutePaths.certificates);
+    expect(find.text('Student Certificates'), findsOneWidget);
     expect(find.text('Dev Malhotra'), findsOneWidget);
     await t.tap(find.text('Sign Pending (4)'));
     await t.pumpAndSettle();
     await t.tap(find.text('Sign & Issue'));
     await t.pumpAndSettle();
     expect(db.list('cr_certs').where((c) => c['status'] == 'pending'), isEmpty);
-    await t.tap(find.text('My Certifications'));
-    await t.pumpAndSettle();
-    expect(find.text('Institutional Portfolio · 6 items'), findsOneWidget);
-    await t.tap(find.text('Active / Verified (5)'));
-    await t.pumpAndSettle();
-    expect(find.text('Institutional Portfolio · 5 items'), findsOneWidget);
   });
 
   testWidgets('certificate detail signs a pending certificate', (t) async {

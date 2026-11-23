@@ -63,7 +63,6 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
       fallbackRoute: RoutePaths.notifications,
       actions: [
         IconButton(tooltip: 'Delete notification', icon: Icon(Icons.delete_outline_rounded, color: C.danger, size: 24.r), onPressed: _delete),
-        const TeacherHeaderActions(bell: false),
       ],
       bottom: route == null || route.isEmpty ? null : AppButton(actionLabel, onPressed: () => openRoute(context, route)),
       body: ListView(padding: EdgeInsets.fromLTRB(S.page, 18.h, S.page, 32.h), children: [

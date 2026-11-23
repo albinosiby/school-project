@@ -1,28 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import '../../../../config/routes/routes.dart';
 import '../../../../design_system/design_system.dart';
 import '../../models/certificate_models.dart';
 
 Color templateColor(CertTemplate? tpl) => Color(tpl?.color ?? 0xFF2F4FD8);
 
 Widget certStatusPill(bool issued) => issued ? const Pill('Signed & Issued', tone: Tone.success, dot: true) : const Pill('Sign Pending', tone: Tone.warning, dot: true);
-
-/// "Student Awards | My Certifications" switch at the top of both certificate lists.
-class CertTabs extends StatelessWidget {
-  const CertTabs({super.key, required this.value});
-  final String value;
-  @override
-  Widget build(BuildContext context) => AppSegmented(
-        track: true,
-        items: const ['Student Awards', 'My Certifications'],
-        value: value,
-        onChanged: (v) {
-          if (v == value) return;
-          context.pushReplacement(v == 'Student Awards' ? RoutePaths.certificates : RoutePaths.certificatesMine);
-        },
-      );
-}
 
 /// Rendered certificate built from the chosen data.
 class CertificateView extends StatelessWidget {

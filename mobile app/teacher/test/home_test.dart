@@ -50,7 +50,6 @@ final _routes = <RouteBase>[
   ...homeRoutes,
   GoRoute(path: RoutePaths.attendanceMark, builder: (_, _) => _stub('ATT')),
   GoRoute(path: RoutePaths.lessonPlans, builder: (_, _) => _stub('LP')),
-  GoRoute(path: RoutePaths.showcase, builder: (_, _) => _stub('SHOWCASE')),
   GoRoute(path: RoutePaths.marksEnter, builder: (_, _) => _stub('MARKS')),
   GoRoute(path: RoutePaths.leaveManagement, builder: (_, _) => _stub('LEAVES')),
 ];
@@ -142,11 +141,11 @@ void main() {
       final bloc = getIt<SettingsBloc>()..add(const SettingsLoadRequested());
       await expectLater(bloc.stream, emitsThrough(predicate<SettingsState>((s) => s.status == SettingsStatus.loaded)));
       expect(bloc.state.settings.sound, isTrue);
-      bloc.add(SettingsChanged(bloc.state.settings.copyWith(sound: false, sync: 'Hourly')));
+      bloc.add(SettingsChanged(bloc.state.settings.copyWith(sound: false, parentMessages: false)));
       await expectLater(bloc.stream, emitsThrough(predicate<SettingsState>((s) => !s.settings.sound)));
       final saved = await getIt<ISettingsRepository>().get();
       expect(saved.sound, isFalse);
-      expect(saved.sync, 'Hourly');
+      expect(saved.parentMessages, isFalse);
       await bloc.close();
     });
 
@@ -286,19 +285,16 @@ void main() {
       expect(getIt<LocalDatabaseService>().doc('me')['name'], 'Mrs. Anita S. Sharma');
       expect(find.text('Mrs. Anita S. Sharma'), findsOneWidget);
 
-      await t.scrollUntilVisible(find.text('Notification & Account Settings'), 300);
+      // the staff record's tab strip is a second Scrollable, so name the page list
+      await t.scrollUntilVisible(find.text('Notification & Account Settings'), 300, scrollable: find.byType(Scrollable).first);
       await t.ensureVisible(find.text('Notification & Account Settings'));
       await t.pump(const Duration(milliseconds: 400)); // the version row's shimmer never settles in tests
       await t.tap(find.text('Notification & Account Settings'));
       await t.pumpAndSettle();
-      expect(find.text('Biometric Login'), findsOneWidget);
+      expect(find.text('Class & Student Updates'), findsOneWidget);
       await t.tap(find.text('Sound & Vibration'));
       await t.pumpAndSettle();
       expect(getIt<LocalDatabaseService>().doc('settings')['sound'], false);
-      await t.scrollUntilVisible(find.text('Design System'), 300);
-      await t.tap(find.text('Design System'));
-      await t.pumpAndSettle();
-      expect(find.text('SHOWCASE'), findsOneWidget);
     });
 
     testWidgets('settings log out resets the walkthrough flag', (t) async {

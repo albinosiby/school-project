@@ -9,7 +9,6 @@ import '../../modules/classes/screens/classes_screen.dart';
 import '../../modules/home/screens/home_screen.dart';
 import '../../modules/home/screens/timetable_screen.dart';
 import '../../modules/more/screens/more_screen.dart';
-import '../../modules/showcase/screens/showcase_screen.dart';
 import '../../modules/tasks/screens/tasks_screen.dart';
 import '../../utils/helpers/stream_listenable.dart';
 import '../../utils/services/local_storage_service.dart';
@@ -65,7 +64,6 @@ final GoRouter router = GoRouter(
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.more, builder: (_, _) => const MoreScreen())]),
       ],
     ),
-    GoRoute(path: RoutePaths.showcase, builder: (_, _) => const ShowcaseScreen()),
     // Module routes. Order matters where paths overlap: /homework/new (classes) before /homework/:id (tasks).
     ...authRoutes,
     ...homeRoutes,

@@ -3,74 +3,77 @@ import '../../../../design_system/design_system.dart';
 
 /// One tool entry on the More hub.
 class MoreModule {
-  const MoreModule(this.title, this.sub, this.icon, this.onOpen, {this.badge, this.note, this.cta, this.onCta});
+  const MoreModule(this.title, this.sub, this.icon, this.onOpen, {this.badge, this.badgeTone = Tone.neutral});
   final String title, sub;
   final IconData icon;
   final VoidCallback onOpen;
-  final String? badge, note, cta;
-  final VoidCallback? onCta;
+  /// Short live count shown as a pill, e.g. "3 unread"; null hides it.
+  final String? badge;
+  final Tone badgeTone;
 }
 
-/// Card for a [MoreModule]: icon tile, title, subtitle, grey badge / blue note, chevron or CTA button.
-class MoreModuleCard extends StatelessWidget {
-  const MoreModuleCard(this.m, {super.key});
+/// Compact tile for a [MoreModule]: tinted icon, title, one-line subtitle and the optional count pill.
+/// Two tiles share a row on phones (see MoreTileGrid).
+class MoreTile extends StatelessWidget {
+  const MoreTile(this.m, {super.key, this.tone = Tone.brand});
   final MoreModule m;
+  final Tone tone;
   @override
-  Widget build(BuildContext context) => AppCard(
-        onTap: m.onOpen,
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          IconTile(m.icon, size: 44),
-          SizedBox(width: 14.w),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(m.title, style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis),
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: [m.title, m.sub, ?m.badge].join(', '),
+        excludeSemantics: true,
+        child: AppCard(
+          radius: R.xl,
+          padding: EdgeInsets.all(14.r),
+          onTap: m.onOpen,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  IconTile(m.icon, tone: tone, size: 42),
+                  const Spacer(),
+                  Icon(Icons.arrow_outward_rounded, size: 18.r, color: C.muted),
+                ],
+              ),
+              SizedBox(height: 12.h),
+              Text(m.title, style: T.bodyStrong.copyWith(fontSize: 14.5.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
               SizedBox(height: 2.h),
-              Text(m.sub, style: T.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(m.sub, style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
               if (m.badge != null) ...[
-                SizedBox(height: 8.h),
-                Container(
-                  padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
-                  decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(R.sm)),
-                  child: Text(m.badge!, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.small.copyWith(color: C.slate, fontWeight: FontWeight.w600)),
-                ),
+                const Spacer(),
+                SizedBox(height: 10.h),
+                Pill(m.badge!, tone: m.badgeTone),
               ],
-              if (m.note != null) ...[
-                SizedBox(height: 8.h),
-                Text(m.note!, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.small.copyWith(color: C.primary, fontWeight: FontWeight.w600)),
-              ],
-            ]),
+            ],
           ),
-          SizedBox(width: 8.w),
-          if (m.cta != null)
-            AppButton(m.cta!, expand: false, small: true, onPressed: m.onCta ?? m.onOpen)
-          else
-            Padding(padding: EdgeInsets.only(top: 2.h), child: Icon(Icons.chevron_right_rounded, color: C.slate, size: 24.r)),
-        ]),
+        ),
       );
 }
 
-/// Small tappable metric of the "Today's Teaching Pulse" panel.
-class PulseTile extends StatelessWidget {
-  const PulseTile({super.key, required this.icon, required this.label, required this.value, required this.sub, required this.onTap});
-  final IconData icon;
-  final String label, value, sub;
-  final VoidCallback onTap;
+/// Two tiles per row with equal heights; an odd last tile keeps half the width.
+class MoreTileGrid extends StatelessWidget {
+  const MoreTileGrid(this.modules, {super.key, this.tone = Tone.brand});
+  final List<MoreModule> modules;
+  final Tone tone;
   @override
-  Widget build(BuildContext context) => Semantics(
-        button: true, label: '$label: $value, $sub',
-        excludeSemantics: true,
-        child: AppCard(
-          radius: R.lg, padding: EdgeInsets.all(10.r), onTap: onTap,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              IconTile(icon, size: 26),
-              SizedBox(width: 6.w),
-              Expanded(child: Text(label, style: T.capsMuted.copyWith(fontSize: 9.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
-            ]),
-            SizedBox(height: 8.h),
-            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(value, style: T.h3)),
-            Text(sub, style: T.small.copyWith(fontSize: 10.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
-          ]),
-        ),
+  Widget build(BuildContext context) => Column(
+        children: [
+          for (var i = 0; i < modules.length; i += 2)
+            Padding(
+              padding: EdgeInsets.only(bottom: 10.h),
+              child: IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: MoreTile(modules[i], tone: tone)),
+                    SizedBox(width: 10.w),
+                    Expanded(child: i + 1 < modules.length ? MoreTile(modules[i + 1], tone: tone) : const SizedBox.shrink()),
+                  ],
+                ),
+              ),
+            ),
+        ],
       );
 }

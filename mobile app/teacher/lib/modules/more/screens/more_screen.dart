@@ -11,7 +11,7 @@ import '../bloc/more_bloc.dart';
 import '../bloc/more_events.dart';
 import 'widgets/more_module_card.dart';
 
-/// Figma 1153:1319 "5. More" — hub of every secondary tool with today's teaching pulse.
+/// Figma 1153:1319 "5. More": every secondary tool as a grid of tiles grouped by area, with live counts.
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
   @override
@@ -19,6 +19,14 @@ class MoreScreen extends StatelessWidget {
         create: (_) => getIt<MoreBloc>()..add(const MoreLoadRequested()),
         child: const _MoreView(),
       );
+}
+
+class _Section {
+  const _Section(this.title, this.icon, this.tone, this.modules);
+  final String title;
+  final IconData icon;
+  final Tone tone;
+  final List<MoreModule> modules;
 }
 
 class _MoreView extends StatefulWidget {
@@ -36,98 +44,68 @@ class _MoreViewState extends State<_MoreView> {
     final me = school.teacher;
     final s = context.watch<MoreBloc>().state.summary;
     void push(String r) => context.push(r);
-    final sections = <(String, List<MoreModule>)>[
-      ('Academic & Teaching Management', [
-        MoreModule('Lesson Plans', 'Class 10-B Math & Class 8-C Physics', Icons.menu_book_rounded, () => push(RoutePaths.lessonPlans),
-            badge: '${s.activePlans} Active • ${s.draftPlans} Draft Pending'),
-        MoreModule('Online Tests', 'Term Mid-Exams & Chapter Quizzes', Icons.quiz_outlined, () => push(RoutePaths.tests), badge: '${s.upcomingTests} Upcoming'),
-        MoreModule('Live Classes', 'Virtual classrooms & doubt sessions', Icons.videocam_outlined, () => push(RoutePaths.liveClasses),
-            note: s.nextLive.isEmpty ? 'No sessions scheduled' : s.nextLive, cta: 'Join Class'),
-        MoreModule('Enter Marks', 'Term Mid-Exams & Chapter Quizzes', Icons.edit_note_rounded, () => push(RoutePaths.marksEnter), badge: 'Marks entry'),
-        MoreModule('Assignments', 'Homework, grading & progress', Icons.assignment_outlined, () => context.go(RoutePaths.tasks), badge: 'Tasks tab'),
+    String? count(int n, String word, {String? zero}) => n > 0 ? '$n $word' : zero;
+
+    final sections = <_Section>[
+      _Section('Teaching', Icons.menu_book_rounded, Tone.brand, [
+        MoreModule('Lesson Plans', 'Plan and track lessons', Icons.menu_book_rounded, () => push(RoutePaths.lessonPlans),
+            badge: count(s.activePlans, 'active'), badgeTone: Tone.brand),
+        MoreModule('Online Tests', 'Quizzes and term exams', Icons.quiz_outlined, () => push(RoutePaths.tests),
+            badge: count(s.upcomingTests, 'upcoming'), badgeTone: Tone.brand),
+        MoreModule('Live Classes', 'Virtual classrooms', Icons.videocam_outlined, () => push(RoutePaths.liveClasses),
+            badge: s.nextLive.isEmpty ? null : s.nextLive, badgeTone: Tone.success),
+        MoreModule('Enter Marks', 'Record exam and test marks', Icons.edit_note_rounded, () => push(RoutePaths.marksEnter)),
+        MoreModule('Assignments', 'Homework and grading', Icons.assignment_outlined, () => context.go(RoutePaths.tasks),
+            badge: count(s.openTasks, 'open'), badgeTone: Tone.warning),
       ]),
-      ('Communication & Messages', [
-        MoreModule('Messages', 'Parents, staff & class groups', Icons.chat_bubble_outline_rounded, () => push(RoutePaths.messages),
-            badge: s.unreadMessages > 0 ? '${s.unreadMessages} Unread' : 'Inbox'),
-        MoreModule('Circulars', 'School notices & announcements', Icons.campaign_outlined, () => push(RoutePaths.circulars), badge: 'Notices'),
+      _Section('Communication', Icons.forum_outlined, Tone.purple, [
+        MoreModule('Messages', 'Parents, staff and groups', Icons.chat_bubble_outline_rounded, () => push(RoutePaths.messages),
+            badge: count(s.unreadMessages, 'unread'), badgeTone: Tone.danger),
+        MoreModule('Circulars', 'School notices', Icons.campaign_outlined, () => push(RoutePaths.circulars)),
       ]),
-      ('Staff Services & Administration', [
-        MoreModule('Leave Management', 'Balance overview, history & requests', Icons.event_available_outlined, () => push(RoutePaths.leaveManagement),
-            badge: s.leaveBadge),
-        MoreModule('Certificates', 'Student character, transfer & bona fide', Icons.workspace_premium_outlined, () => push(RoutePaths.certificates),
-            badge: '${s.pendingCertificates} Pending verification'),
+      _Section('Staff services', Icons.badge_outlined, Tone.success, [
+        MoreModule('Leave Management', 'Balance, history and requests', Icons.event_available_outlined, () => push(RoutePaths.leaveManagement),
+            badge: s.leaveBadge.isEmpty ? null : s.leaveBadge, badgeTone: Tone.success),
+        MoreModule('Student Certificates', 'Awards you issue to students', Icons.workspace_premium_outlined, () => push(RoutePaths.certificates),
+            badge: count(s.pendingCertificates, 'to sign'), badgeTone: Tone.warning),
       ]),
-      ('Coordination & Meetings', [
-        MoreModule('Parent–Teacher Meetings', 'Slot schedules, appointments & notes', Icons.groups_2_outlined, () => push(RoutePaths.meetings),
-            badge: s.meetingBadge),
-        MoreModule('Exam Duties', 'Invigilation schedules & hall allocations', Icons.fact_check_outlined, () => push(RoutePaths.examDuties),
-            badge: s.dutyBadge),
+      _Section('Coordination', Icons.groups_2_outlined, Tone.warning, [
+        MoreModule('Parent–Teacher Meetings', 'Slots and appointments', Icons.groups_2_outlined, () => push(RoutePaths.meetings),
+            badge: s.meetingBadge.isEmpty ? null : s.meetingBadge, badgeTone: Tone.brand),
+        MoreModule('Exam Duties', 'Invigilation and halls', Icons.fact_check_outlined, () => push(RoutePaths.examDuties),
+            badge: s.dutyBadge.isEmpty ? null : s.dutyBadge, badgeTone: Tone.brand),
       ]),
     ];
     final q = _q.trim().toLowerCase();
     bool hit(MoreModule m) => q.isEmpty || '${m.title} ${m.sub}'.toLowerCase().contains(q);
-    final visible = [for (final (t, l) in sections) (t, l.where(hit).toList())].where((e) => e.$2.isNotEmpty).toList();
+    final visible = [
+      for (final sec in sections)
+        if (sec.modules.any(hit)) _Section(sec.title, sec.icon, sec.tone, sec.modules.where(hit).toList()),
+    ];
 
     return Column(children: [
-      TeacherTabHeader(title: 'More', subtitle: '${me?.name ?? 'Teacher'} • ${me?.designation ?? ''}', icon: Icons.grid_view_rounded),
+      TeacherTabHeader(title: 'More', subtitle: '${me?.name ?? 'Teacher'} • ${me?.designation ?? ''}', icon: Icons.grid_view_rounded, avatar: true),
       Expanded(
-        child: Builder(builder: (context) {
-          final head = <Widget>[
-          AppSearchField(hint: 'Search services, requests, or tools...', onChanged: (v) => setState(() => _q = v)),
-          SizedBox(height: 16.h),
-          PanelCard(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('TEACHER DASHBOARD', style: T.caps.copyWith(fontSize: 10.5.sp)),
-                    SizedBox(height: 4.h),
-                    FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text("Today's Teaching Pulse", style: T.h2, maxLines: 1)),
-                  ]),
-                ),
-                SizedBox(width: 8.w),
-                Flexible(child: Pill('${me?.term.isNotEmpty == true ? me!.term : 'Term 2'} Active', dot: true, tone: Tone.success)),
-              ]),
-              SizedBox(height: 14.h),
-              Row(children: [
-                Expanded(child: PulseTile(icon: Icons.access_time_rounded, label: 'TODAY', value: '${s.todayClasses} Classes', sub: s.nextClass, onTap: () => context.go(RoutePaths.timetable))),
-                SizedBox(width: 8.w),
-                Expanded(child: PulseTile(icon: Icons.task_alt_rounded, label: 'TASKS', value: '${s.openTasks} Pending', sub: 'Submissions', onTap: () => context.go(RoutePaths.tasks))),
-                SizedBox(width: 8.w),
-                Expanded(child: PulseTile(icon: Icons.forum_outlined, label: 'INBOX', value: '${s.unreadMessages} Unread', sub: 'Parent notes', onTap: () => push(RoutePaths.messages))),
-              ]),
-            ]),
-          ),
-          ];
-          List<Widget> section(String title, List<MoreModule> mods) => [
+        child: AppTabBody(
+          children: [
+            AppSearchField(hint: 'Search tools…', onChanged: (v) => setState(() => _q = v)),
+            if (visible.isEmpty)
+              AppEmptyState('No matching tools', hint: 'Try a different search term.', icon: Icons.search_off_rounded)
+            else
+              for (final sec in visible) ...[
                 Padding(
-                  padding: EdgeInsets.fromLTRB(4.w, 22.h, 4.w, 12.h),
+                  padding: EdgeInsets.fromLTRB(2.w, 20.h, 2.w, 10.h),
                   child: Row(children: [
-                    Expanded(child: Text(title.toUpperCase(), style: T.capsMuted, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                    Text('${mods.length} Module${mods.length == 1 ? '' : 's'}', style: T.small),
+                    Icon(sec.icon, size: 16.r, color: toneColors(sec.tone).fg),
+                    SizedBox(width: 6.w),
+                    Expanded(child: Text(sec.title, style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ]),
                 ),
-                for (final m in mods) Padding(padding: EdgeInsets.only(bottom: 12.h), child: MoreModuleCard(m)),
-              ];
-          final empty = <Widget>[if (visible.isEmpty) AppEmptyState('No matching tools', hint: 'Try a different search term.', icon: Icons.search_off_rounded)];
-          // wide screens: each module section goes to the shorter column (the search + pulse panel count as 3 modules)
-          final left = <Widget>[...head, ...empty], right = <Widget>[];
-          var leftLoad = 3, rightLoad = 0;
-          for (final (t, m) in visible) {
-            if (rightLoad < leftLoad) {
-              right.addAll(section(t, m));
-              rightLoad += m.length + 1;
-            } else {
-              left.addAll(section(t, m));
-              leftLoad += m.length + 1;
-            }
-          }
-          return AppTabBody(
-            narrow: [...head, ...empty, for (final (t, m) in visible) ...section(t, m), const SignOutTile()],
-            side: [...right, const SignOutTile()],
-            children: left,
-          );
-        }),
+                MoreTileGrid(sec.modules, tone: sec.tone),
+              ],
+            const SignOutTile(),
+          ],
+        ),
       ),
     ]);
   }

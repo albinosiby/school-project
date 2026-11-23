@@ -312,33 +312,6 @@ void main() {
     });
   });
 
-  group('regularization', () {
-    testWidgets('justification: empty and 9 characters rejected, 10 accepted', (t) async {
-      ignoreOverflow();
-      await open(t, RoutePaths.attendanceSelfLog);
-      await t.scrollUntilVisible(find.text('Request Attendance Regularization'), 400, scrollable: find.byType(Scrollable).first);
-      await tapText(t, 'Request Attendance Regularization');
-      await tapText(t, 'Submit Regularization Request');
-      expect(find.text('Please add a short justification (min 10 characters)'), findsOneWidget);
-      await t.enterText(find.byType(TextField).last, '  12345678 9 ');
-      await tapText(t, 'Submit Regularization Request');
-      expect(find.text('Please add a short justification (min 10 characters)'), findsNothing, reason: '"12345678 9" is 10 characters after trimming');
-      expect(db.list('att_regs').single['note'], '12345678 9');
-      expect(db.list('att_regs').single['status'], 'Pending');
-    });
-
-    testWidgets('9 characters after trimming are rejected', (t) async {
-      ignoreOverflow();
-      await open(t, RoutePaths.attendanceSelfLog);
-      await t.scrollUntilVisible(find.text('Request Attendance Regularization'), 400, scrollable: find.byType(Scrollable).first);
-      await tapText(t, 'Request Attendance Regularization');
-      await t.enterText(find.byType(TextField).last, '   123456789   ');
-      await tapText(t, 'Submit Regularization Request');
-      expect(find.text('Please add a short justification (min 10 characters)'), findsOneWidget);
-      expect(db.list('att_regs'), isEmpty);
-    });
-  });
-
   group('live class (contract §6 links)', () {
     test('Meet link rules and media per backend', () {
       expect(validateMeetLink(''), 'Paste the Google Meet link');

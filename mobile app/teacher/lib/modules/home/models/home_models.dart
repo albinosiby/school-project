@@ -35,39 +35,32 @@ class Reminder extends Equatable {
 /// App preferences (single document `settings`).
 class AppSettings extends Equatable {
   const AppSettings({
-    this.biometric = true, this.classUpdates = true, this.parentMessages = true, this.urgent = true, this.sound = true, this.defaultClass,
-    this.quickMark = true, this.dnd = false, this.dndFrom = '18:00', this.dndTo = '07:30', this.parentMute = false, this.sync = 'Real-time', this.lastSync,
+    this.classUpdates = true, this.parentMessages = true, this.urgent = true, this.sound = true,
+    this.lastSync,
   });
-  final bool biometric, classUpdates, parentMessages, urgent, sound, quickMark, dnd, parentMute;
-  final String dndFrom, dndTo, sync;
-  final String? defaultClass, lastSync;
-
-  static const syncOptions = ['Real-time', 'Every 15 minutes', 'Hourly', 'Manual only'];
+  final bool classUpdates, parentMessages, urgent, sound;
+  final String? lastSync;
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
-        biometric: j['biometric'] != false, classUpdates: j['classUpdates'] != false, parentMessages: j['parentMessages'] != false,
-        urgent: j['urgent'] != false, sound: j['sound'] != false, defaultClass: j['defaultClass'] as String?, quickMark: j['quickMark'] != false,
-        dnd: j['dnd'] == true, dndFrom: j['dndFrom'] as String? ?? '18:00', dndTo: j['dndTo'] as String? ?? '07:30', parentMute: j['parentMute'] == true,
-        sync: j['sync'] as String? ?? 'Real-time', lastSync: j['lastSync'] as String?,
+        classUpdates: j['classUpdates'] != false, parentMessages: j['parentMessages'] != false,
+        urgent: j['urgent'] != false, sound: j['sound'] != false,
+        lastSync: j['lastSync'] as String?,
       );
   Map<String, dynamic> toJson() => {
-        'biometric': biometric, 'classUpdates': classUpdates, 'parentMessages': parentMessages, 'urgent': urgent, 'sound': sound,
-        'defaultClass': ?defaultClass, 'quickMark': quickMark, 'dnd': dnd, 'dndFrom': dndFrom, 'dndTo': dndTo, 'parentMute': parentMute,
-        'sync': sync, 'lastSync': ?lastSync,
+        'classUpdates': classUpdates, 'parentMessages': parentMessages, 'urgent': urgent, 'sound': sound,
+        'lastSync': ?lastSync,
       };
   AppSettings copyWith({
-    bool? biometric, bool? classUpdates, bool? parentMessages, bool? sound, String? defaultClass, bool? quickMark, bool? dnd,
-    String? dndFrom, String? dndTo, bool? parentMute, String? sync, String? lastSync,
+    bool? classUpdates, bool? parentMessages, bool? sound, String? lastSync,
   }) =>
       AppSettings(
-        biometric: biometric ?? this.biometric, classUpdates: classUpdates ?? this.classUpdates, parentMessages: parentMessages ?? this.parentMessages,
-        urgent: urgent, sound: sound ?? this.sound, defaultClass: defaultClass ?? this.defaultClass, quickMark: quickMark ?? this.quickMark,
-        dnd: dnd ?? this.dnd, dndFrom: dndFrom ?? this.dndFrom, dndTo: dndTo ?? this.dndTo, parentMute: parentMute ?? this.parentMute,
-        sync: sync ?? this.sync, lastSync: lastSync ?? this.lastSync,
+        classUpdates: classUpdates ?? this.classUpdates, parentMessages: parentMessages ?? this.parentMessages,
+        urgent: urgent, sound: sound ?? this.sound,
+        lastSync: lastSync ?? this.lastSync,
       );
 
   @override
-  List<Object?> get props => [biometric, classUpdates, parentMessages, urgent, sound, defaultClass, quickMark, dnd, dndFrom, dndTo, parentMute, sync, lastSync];
+  List<Object?> get props => [classUpdates, parentMessages, urgent, sound, lastSync];
 }
 
 class Qualification extends Equatable {
@@ -109,13 +102,13 @@ class ProfileSection extends Equatable {
 
 /// A document the office uploaded for the staff member (name and category only; files stay with the office).
 class StaffDocumentRow extends Equatable {
-  const StaffDocumentRow({required this.category, required this.label, required this.name, required this.uploadedAt});
-  final String category, label, name, uploadedAt;
+  const StaffDocumentRow({this.id = '', required this.category, required this.label, required this.name, required this.uploadedAt});
+  final String id, category, label, name, uploadedAt;
   factory StaffDocumentRow.fromJson(Map<String, dynamic> j) => StaffDocumentRow(
-        category: j['category'] as String? ?? '', label: j['label'] as String? ?? '', name: j['name'] as String? ?? '', uploadedAt: j['uploadedAt'] as String? ?? '');
-  Map<String, dynamic> toJson() => {'category': category, 'label': label, 'name': name, 'uploadedAt': uploadedAt};
+        id: j['id'] as String? ?? '', category: j['category'] as String? ?? '', label: j['label'] as String? ?? '', name: j['name'] as String? ?? '', uploadedAt: j['uploadedAt'] as String? ?? '');
+  Map<String, dynamic> toJson() => {'id': id, 'category': category, 'label': label, 'name': name, 'uploadedAt': uploadedAt};
   @override
-  List<Object?> get props => [category, label, name, uploadedAt];
+  List<Object?> get props => [id, category, label, name, uploadedAt];
 }
 
 /// One payroll payment (amounts in rupees), newest first on the page.

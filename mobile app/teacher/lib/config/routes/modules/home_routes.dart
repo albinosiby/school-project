@@ -1,5 +1,3 @@
-import 'package:school_sync/school_sync.dart';
-import '../../../di/injection.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/settings/application_setting.dart';
 import '../../../core/walk_through/walkthrough_1.dart';
@@ -14,10 +12,6 @@ import '../routes.dart';
 /// Full-screen (pushed) routes of the home module. Paths come from RoutePaths.
 /// (Home and Timetable tabs are shell branches in routes_config.dart.)
 final List<RouteBase> homeRoutes = [
-  GoRoute(
-    path: RoutePaths.myCertificates,
-    builder: (_, _) => StaffCertificatesScreen(repository: getIt<IStaffCertificatesRepository>()),
-  ),
   GoRoute(path: RoutePaths.onboarding, builder: (_, _) => const OnboardingScreen()),
   GoRoute(path: RoutePaths.notifications, builder: (_, _) => const NotificationsScreen()),
   GoRoute(

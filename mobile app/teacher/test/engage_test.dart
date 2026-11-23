@@ -232,30 +232,15 @@ void main() {
     await unmount(t);
   });
 
-  testWidgets('leave management: my leaves + approve/deny student leave', (t) async {
+  testWidgets('leave management: my leaves', (t) async {
     await pump(t, RoutePaths.leaveManagement);
-    expect(find.text('Upcoming Scheduled Leave'), findsOneWidget);
-    expect(find.textContaining('Duty Handover'), findsOneWidget);
+    expect(find.text('Upcoming leave'), findsOneWidget);
+    expect(find.text('DUTY HANDOVER'), findsOneWidget);
     await tapV(t, find.text('Cancel Leave'));
     await tapV(t, find.text('Cancel leave'));
     expect(row('lm_my', 'lm_m1')['status'], 'Cancelled');
     await tapV(t, find.text('Apply Leave'));
     expect(find.text('Apply stub'), findsOneWidget);
-
-    await pump(t, RoutePaths.studentLeaves);
-    expect(find.text('Pending Review (3)'), findsOneWidget);
-    expect(find.textContaining('Dev Malhotra', findRichText: true, skipOffstage: false), findsOneWidget);
-    await tapV(t, find.text('Approve'), which: 0);
-    await tapV(t, find.text('Approve').last);
-    expect(row('lm_student', 'ls_1')['status'], 'approved');
-    await t.fling(find.byType(Scrollable).first, const Offset(0, 3000), 5000);
-    await t.pumpAndSettle();
-    expect(find.text('Pending Review (2)'), findsOneWidget);
-    await tapV(t, find.text('Deny'), which: 0);
-    await tapV(t, find.text('Deny').last);
-    expect(db.list('lm_student').where((e) => e['status'] == 'rejected'), hasLength(2));
-    await tapChip(t, 'Rejected (2)');
-    expect(find.textContaining('Simran Kaur', findRichText: true, skipOffstage: false), findsWidgets);
   });
 
   testWidgets('meetings: list, schedule validation, add topic, create', (t) async {

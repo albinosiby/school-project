@@ -15,7 +15,6 @@ import '../../../modules/engage/screens/message_detail_screen.dart';
 import '../../../modules/engage/screens/message_drafts_screen.dart';
 import '../../../modules/engage/screens/message_new_screen.dart';
 import '../../../modules/engage/screens/messages_screen.dart';
-import '../../../modules/engage/screens/student_leaves_screen.dart';
 import '../routes.dart';
 
 /// Full-screen (pushed) routes of the engage module. Paths come from RoutePaths.
@@ -28,7 +27,6 @@ final List<RouteBase> engageRoutes = [
 
   // Leave management
   GoRoute(path: RoutePaths.leaveManagement, builder: (_, _) => const LeaveManagementScreen()),
-  GoRoute(path: RoutePaths.studentLeaves, builder: (_, _) => const StudentLeavesScreen()),
 
   // Parent-teacher meetings
   GoRoute(path: RoutePaths.meetings, builder: (_, _) => const MeetingsScreen()),

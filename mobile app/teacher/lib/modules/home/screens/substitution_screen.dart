@@ -7,7 +7,6 @@ import '../bloc/substitution_bloc.dart';
 import '../bloc/substitution_events.dart';
 import '../bloc/substitution_states.dart';
 import '../models/timetable_models.dart';
-import 'widgets/teacher_tab_header.dart';
 
 /// Substitution brief & lesson notes (Figma 1153:10356), route RoutePaths.substitutionDetail.
 class SubstitutionScreen extends StatelessWidget {
@@ -49,7 +48,6 @@ class _SubstitutionView extends StatelessWidget {
     return DetailScaffold(
       title: 'Lesson Notes',
       fallbackRoute: RoutePaths.timetable,
-      actions: const [TeacherHeaderActions()],
       bottom: switch (sub.status) {
         SubStatus.pending => Row(
           children: [

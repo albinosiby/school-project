@@ -8,12 +8,14 @@ import '../layouts/adaptive_scaffold.dart' show AppNavScope, kTwoPaneMinWidth, k
 /// Top header of the five tab screens: logo tile (the app logo, or [icon] when given), title, bell (with unread dot) and avatar.
 /// Presentational: the data comes from the caller (see modules/home/screens/widgets/teacher_tab_header.dart).
 class AppTabHeader extends StatelessWidget {
-  const AppTabHeader({super.key, required this.title, this.subtitle, this.eyebrow, this.icon, required this.userName, this.userPhoto, this.hasUnread = false, this.onBell, this.onAvatar});
+  const AppTabHeader({super.key, required this.title, this.subtitle, this.eyebrow, this.icon, required this.userName, this.userPhoto, this.hasUnread = false, this.onBell, this.onAvatar, this.showBell = true, this.showAvatar = true});
   final String title, userName;
   final String? userPhoto;
   final String? subtitle, eyebrow;
   final IconData? icon;
   final bool hasUnread;
+  /// Which of the two trailing actions to show (Home shows the bell, More the avatar, the rest neither).
+  final bool showBell, showAvatar;
   final VoidCallback? onBell, onAvatar;
   @override
   Widget build(BuildContext context) => Container(
@@ -41,6 +43,7 @@ class AppTabHeader extends StatelessWidget {
               if (subtitle != null) Text(subtitle!, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
             ]),
           ),
+          if (showBell)
           Semantics(
             button: true, label: hasUnread ? 'Notifications, unread' : 'Notifications',
             child: InkResponse(
@@ -56,8 +59,8 @@ class AppTabHeader extends StatelessWidget {
               ),
             ),
           ),
-          SizedBox(width: 10.w),
-          Semantics(button: true, label: 'Profile', child: InkResponse(onTap: onAvatar, child: Avatar(userName, size: 44, online: true, image: userPhoto))),
+          if (showBell && showAvatar) SizedBox(width: 10.w),
+          if (showAvatar) Semantics(button: true, label: 'Profile', child: InkResponse(onTap: onAvatar, child: Avatar(userName, size: 44, online: true, image: userPhoto))),
         ]),
       );
 }

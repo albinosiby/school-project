@@ -111,7 +111,7 @@ class _HomeViewState extends State<_HomeView> {
       ],
     ];
     return Column(children: [
-        const TeacherTabHeader(title: 'Edvio Teacher', eyebrow: 'EDUADMIN'),
+        const TeacherTabHeader(title: 'Edvio Teacher', eyebrow: 'EDUADMIN', bell: true),
         Expanded(
           child: AppTabBody(
             onRefresh: _refresh,

@@ -141,8 +141,7 @@ List<Rec> _notifications() {
 final Seed homeSeed = {
   'settings': [
     {
-      'id': 'settings', 'biometric': true, 'classUpdates': true, 'parentMessages': true, 'urgent': true, 'sound': true,
-      'defaultClass': 'cls_10B', 'quickMark': true, 'dnd': false, 'dndFrom': '18:00', 'dndTo': '07:30', 'parentMute': false, 'sync': 'Real-time',
+      'id': 'settings', 'classUpdates': true, 'parentMessages': true, 'urgent': true, 'sound': true,
       'lastSync': DateTime.now().subtract(const Duration(minutes: 2)).toIso8601String(),
     }
   ],

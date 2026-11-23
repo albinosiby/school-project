@@ -1,7 +1,6 @@
 /// Every route path in the app. Use these constants (and the helpers for
 /// parameterised paths) instead of string literals.
 class RoutePaths {
-  static const myCertificates = '/my-school-certificates';
   RoutePaths._();
 
   // Tabs (shell branches)
@@ -18,7 +17,6 @@ class RoutePaths {
   // Core
   static const String onboarding = '/onboarding';
   static const String settings = '/profile/settings';
-  static const String showcase = '/showcase';
 
   // Home module
   static const String notifications = '/notifications';
@@ -90,7 +88,6 @@ class RoutePaths {
   static const String testEditPath = '/tests/:id/edit';
   static String testEdit(String id) => '/tests/$id/edit';
   static const String certificates = '/certificates';
-  static const String certificatesMine = '/certificates/mine';
   static const String certificateIssue = '/certificates/issue';
   static const String certificatePreview = '/certificates/preview';
   static const String certificateTemplates = '/certificates/templates';
@@ -103,7 +100,6 @@ class RoutePaths {
   static String liveClassJoin(String id) => '/live-classes/join/$id';
   static const String liveClassSchedule = '/live-classes/schedule';
   static const String leaveManagement = '/leave-management';
-  static const String studentLeaves = '/leave-management/students';
   static const String meetings = '/meetings';
   static const String meetingSchedule = '/meetings/schedule';
   static const String meetingJoinPath = '/meetings/join/:id';

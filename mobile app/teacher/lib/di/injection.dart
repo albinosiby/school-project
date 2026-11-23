@@ -66,17 +66,16 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
   }
 
   if (AppConfig.isFirebase) {
-    getIt.registerLazySingleton<IStaffCertificatesRepository>(
-      () => FirebaseStaffCertificatesRepository(
-        MobileSchoolClient(
-          auth: FirebaseAuth.instance,
-          db: FirebaseFirestore.instance,
-          emulator: AppConfig.useEmulator,
-          emulatorHost: AppConfig.emulatorHost,
-          emulatorUsb: AppConfig.emulatorUsb,
-        ),
+    getIt.registerLazySingleton<MobileSchoolClient>(
+      () => MobileSchoolClient(
+        auth: FirebaseAuth.instance,
+        db: FirebaseFirestore.instance,
+        emulator: AppConfig.useEmulator,
+        emulatorHost: AppConfig.emulatorHost,
+        emulatorUsb: AppConfig.emulatorUsb,
       ),
     );
+    getIt.registerLazySingleton<IStaffCertificatesRepository>(() => FirebaseStaffCertificatesRepository(getIt<MobileSchoolClient>()));
   } else {
     getIt.registerLazySingleton<IStaffCertificatesRepository>(() => EmptyStaffCertificatesRepository());
   }

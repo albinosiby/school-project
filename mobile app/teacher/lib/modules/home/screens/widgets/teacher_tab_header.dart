@@ -8,8 +8,10 @@ import '../../bloc/notifications_bloc.dart';
 
 /// [AppTabHeader] wired to the signed-in teacher and unread notifications. Used by all five tabs.
 class TeacherTabHeader extends StatelessWidget {
-  const TeacherTabHeader({super.key, required this.title, this.subtitle, this.eyebrow, this.icon});
+  const TeacherTabHeader({super.key, required this.title, this.subtitle, this.eyebrow, this.icon, this.bell = false, this.avatar = false});
   final String title;
+  /// Home shows the bell, More the avatar; the other tabs show neither.
+  final bool bell, avatar;
   final String? subtitle, eyebrow;
   /// null shows the app logo
   final IconData? icon;
@@ -20,6 +22,7 @@ class TeacherTabHeader extends StatelessWidget {
     final unread = context.select<NotificationsBloc, int>((b) => b.state.unread);
     return AppTabHeader(
       title: title, subtitle: subtitle, eyebrow: eyebrow, icon: icon, userName: name, userPhoto: photo.isEmpty ? null : photo, hasUnread: unread > 0,
+      showBell: bell, showAvatar: avatar,
       onBell: () => context.push(RoutePaths.notifications),
       onAvatar: () => context.push(RoutePaths.profile),
     );

@@ -13,9 +13,9 @@ const _routes = [
   '/home', '/timetable', '/classes', '/tasks', '/more', '/profile/settings', '/notifications', '/profile', '/profile/faculty-id',
   '/timetable/weekly', '/classes/behaviour', '/classes/behaviour/new', '/classes/resources', '/students', '/homework/new', '/tasks/add',
   '/duties', '/attendance/mark', '/attendance/trends', '/attendance/self-log', '/attendance/medical-slips', '/attendance/history',
-  '/marks', '/marks/enter', '/leave/apply', '/circulars', '/lesson-plans', '/tests', '/tests/new', '/certificates', '/certificates/mine',
+  '/marks', '/marks/enter', '/leave/apply', '/circulars', '/lesson-plans', '/tests', '/tests/new', '/certificates',
   '/certificates/issue', '/certificates/templates', '/live-classes', '/live-classes/schedule', '/leave-management',
-  '/leave-management/students', '/meetings', '/meetings/schedule', '/exam-duties', '/messages', '/messages/new', '/messages/drafts',
+  '/meetings', '/meetings/schedule', '/exam-duties', '/messages', '/messages/new', '/messages/drafts',
 ];
 final _bad = RegExp(r'\b(null|NaN|undefined|Invalid Date|Instance of)\b');
 

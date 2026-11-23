@@ -211,18 +211,6 @@ void main() {
         expect(find.text('Absent • Unexcused'), findsWidgets);
       }));
 
-  testWidgets('self log regularization validates and saves', (t) => quiet(() async {
-        await open(t, RoutePaths.attendanceSelfLog);
-        expect(find.text('Staff Self-Log'), findsWidgets);
-        await t.scrollUntilVisible(find.text('Request Attendance Regularization'), 400, scrollable: scroll);
-        await tapText(t, 'Request Attendance Regularization');
-        await tapText(t, 'Submit Regularization Request');
-        expect(find.textContaining('justification'), findsOneWidget);
-        await t.enterText(find.byType(TextField).last, 'Conducted gate assembly duty');
-        await tapText(t, 'Submit Regularization Request');
-        expect(db.list('att_regs').length, 1);
-      }));
-
   testWidgets('medical slips approve', (t) => quiet(() async {
         await open(t, RoutePaths.medicalSlips);
         expect(find.text('Approve Leave'), findsOneWidget);

@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart' show PlatformAppVersionRepository;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -11,12 +12,7 @@ import '../../modules/auth/bloc/auth_events.dart';
 import '../../modules/home/bloc/settings_bloc.dart';
 import '../../modules/home/bloc/settings_events.dart';
 import '../../modules/home/models/home_models.dart';
-import '../../modules/home/models/timetable_models.dart';
-import '../../modules/home/screens/widgets/edit_account_sheet.dart';
-import '../../modules/home/screens/widgets/teacher_tab_header.dart';
 import '../../modules/school/bloc/school_bloc.dart';
-import '../../modules/school/models/school_models.dart';
-import '../../utils/helpers/date_helper.dart' show hhmm, parseTime;
 import '../../utils/services/firebase/push_notification_service.dart';
 import '../../utils/services/local_storage_service.dart';
 
@@ -63,15 +59,6 @@ class ApplicationSettingsScreen extends StatelessWidget {
 class _SettingsView extends StatelessWidget {
   const _SettingsView();
 
-  Future<void> _pickQuietHours(BuildContext context, AppSettings st) async {
-    final from = await showTimePicker(context: context, initialTime: parseTime(st.dndFrom), helpText: 'Quiet hours start');
-    if (from == null || !context.mounted) return;
-    final to = await showTimePicker(context: context, initialTime: parseTime(st.dndTo), helpText: 'Quiet hours end');
-    if (to == null || !context.mounted) return;
-    context.read<SettingsBloc>().add(SettingsChanged(st.copyWith(dndFrom: hhmm(from), dndTo: hhmm(to))));
-    AppDialogs.showSnackBar(context, message: 'Quiet hours updated');
-  }
-
   Future<void> _logOut(BuildContext context) async {
     if (AppConfig.isFirebase) {
       // a real sign-out: removes this phone's push token and returns to the login page (router guard)
@@ -91,36 +78,12 @@ class _SettingsView extends StatelessWidget {
     final st = context.watch<SettingsBloc>().state.settings;
     final school = context.watch<SchoolBloc>().state;
     final me = school.teacher;
-    final classes = school.classes;
-    final def = (st.defaultClass == null ? null : school.classById(st.defaultClass!)) ?? classes.firstOrNull;
     void save(AppSettings s) => context.read<SettingsBloc>().add(SettingsChanged(s));
-    final chevron = Icon(Icons.chevron_right_rounded, color: C.muted, size: 22.r);
 
     return DetailScaffold(
       title: 'Settings',
       fallbackRoute: RoutePaths.profile,
-      actions: const [TeacherHeaderActions()],
       body: ListView(padding: EdgeInsets.fromLTRB(S.page, 14.h, S.page, 40.h), children: [
-        AppCard(
-          radius: R.xl, onTap: () => showEditAccountSheet(context),
-          child: Row(children: [
-            Avatar(me?.name ?? 'T', size: 56, online: true), SizedBox(width: 12.w),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(me?.name ?? '', style: T.h2, maxLines: 1, overflow: TextOverflow.ellipsis),
-                SizedBox(height: 4.h),
-                const Pill('Verified', tone: Tone.success, dot: true),
-                SizedBox(height: 4.h),
-                Text('${me?.designation ?? ''} • ${me?.empId ?? ''}', style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
-              ]),
-            ),
-            Semantics(label: 'Edit account', child: Icon(Icons.edit_outlined, size: 18.r, color: C.slate)),
-          ]),
-        ),
-        const SectionHeader('Account & security', caps: true),
-        AppSettingsGroup([
-          AppSettingsRow(icon: Icons.fingerprint_rounded, title: 'Biometric Login', subtitle: 'Face ID / Touch ID recognition', switchValue: st.biometric, onSwitch: (v) => save(st.copyWith(biometric: v))),
-        ]),
         const SectionHeader('Notifications & preferences', caps: true),
         if (AppConfig.isFirebase) ...[const _PushPermissionRow(), SizedBox(height: 10.h)],
         AppSettingsGroup([
@@ -133,49 +96,8 @@ class _SettingsView extends StatelessWidget {
           ),
           AppSettingsRow(title: 'Sound & Vibration', subtitle: 'In-app chimes & haptics', switchValue: st.sound, onSwitch: (v) => save(st.copyWith(sound: v))),
         ]),
-        const SectionHeader('Teaching & classroom preferences', caps: true),
-        AppSettingsGroup([
-          AppSettingsRow(
-            title: 'Default Academic Class',
-            subtitle: def == null ? 'No classes' : 'Class ${def.label} (${def.subject})',
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [Pill(def == null ? 'None' : 'Class ${def.label}'), chevron]),
-            onTap: () async {
-              final c = await showPickSheet<SchoolClass>(context,
-                  title: 'Default academic class', items: classes, selected: def, label: (c) => 'Class ${c.label} (${c.subject})');
-              if (c == null || !context.mounted) return;
-              save(st.copyWith(defaultClass: c.id));
-              AppDialogs.showSnackBar(context, message: 'Default class updated');
-            },
-          ),
-          AppSettingsRow(title: 'Attendance Quick-Mark', subtitle: 'One-tap default all present on start', switchValue: st.quickMark, onSwitch: (v) => save(st.copyWith(quickMark: v))),
-        ]),
-        const SectionHeader('Focus & quiet hours', caps: true),
-        AppSettingsGroup([
-          AppSettingsRow(icon: Icons.bedtime_outlined, title: 'Do Not Disturb', subtitle: 'Mutes non-urgent parent chats', switchValue: st.dnd, onSwitch: (v) => save(st.copyWith(dnd: v))),
-          AppSettingsRow(
-            icon: Icons.schedule_rounded, title: '${t12(st.dndFrom)} – ${t12(st.dndTo)}', subtitle: 'Tap to change quiet hours',
-            trailing: chevron, onTap: () => _pickQuietHours(context, st),
-          ),
-          AppSettingsRow(title: 'Parent Chat Mute', subtitle: 'Silence incoming parent DMs on Sat & Sun', switchValue: st.parentMute, onSwitch: (v) => save(st.copyWith(parentMute: v))),
-        ]),
-        const SectionHeader('System & storage', caps: true),
-        AppSettingsGroup([
-          AppSettingsRow(
-            icon: Icons.sync_rounded, title: 'Sync Frequency', subtitle: 'Auto-sync on Wi-Fi & cellular',
-            trailing: Row(mainAxisSize: MainAxisSize.min, children: [Pill(st.sync, tone: Tone.success), chevron]),
-            onTap: () async {
-              final f = await showPickSheet<String>(context, title: 'Sync frequency', items: AppSettings.syncOptions, selected: st.sync, label: (f) => f);
-              if (f == null || !context.mounted) return;
-              save(st.copyWith(sync: f));
-              AppDialogs.showSnackBar(context, message: 'Sync set to $f');
-            },
-          ),
-          AppSettingsRow(
-            icon: Icons.palette_outlined, title: 'Design System', subtitle: 'Tokens and reusable components',
-            trailing: chevron, onTap: () => context.push(RoutePaths.showcase),
-          ),
-          const AppSettingsRow(icon: Icons.info_outline_rounded, title: 'Application Build', subtitle: 'v3.4.2 (Official)'),
-        ]),
+        const SectionHeader('About', caps: true),
+        const AppSettingsGroup([_AppVersionRow()]),
         SizedBox(height: 20.h),
         AppButton('Log Out', icon: Icons.logout_rounded, kind: BtnKind.danger, onPressed: () => _logOut(context)),
         SizedBox(height: 10.h),
@@ -185,6 +107,22 @@ class _SettingsView extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// The installed app version (static text, so screens settle in tests).
+class _AppVersionRow extends StatefulWidget {
+  const _AppVersionRow();
+  @override
+  State<_AppVersionRow> createState() => _AppVersionRowState();
+}
+
+class _AppVersionRowState extends State<_AppVersionRow> {
+  late final Future<String> _version = PlatformAppVersionRepository().installedVersion().catchError((_) => 'Unavailable');
+  @override
+  Widget build(BuildContext context) => FutureBuilder<String>(
+        future: _version,
+        builder: (_, snap) => AppSettingsRow(icon: Icons.info_outline_rounded, title: 'App version', subtitle: snap.data ?? 'Checking…'),
+      );
 }
 
 /// Whether this phone shows the app's notifications (the OS permission asked at login), with a way to turn it on.

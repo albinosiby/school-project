@@ -8,6 +8,9 @@ import 'load_status.dart';
 const shiftStart = '08:00', shiftEnd = '16:30', onTimeBy = '08:30', unlockAt = '16:00';
 const shiftMinutes = 510;
 
+/// Monday to Friday are working days; the weekend is off.
+bool workingWeekday(int weekday) => weekday <= 5;
+
 class SelfLogState extends Equatable {
   const SelfLogState({
     this.policyVersion = '',
@@ -37,7 +40,7 @@ class SelfLogState extends Equatable {
     final t = todayDate();
     var n = 0;
     for (var d = DateTime(t.year, t.month, 1); !d.isAfter(t); d = d.add(const Duration(days: 1))) {
-      if (d.weekday <= 5) n++;
+      if (workingWeekday(d.weekday)) n++;
     }
     return n;
   }
