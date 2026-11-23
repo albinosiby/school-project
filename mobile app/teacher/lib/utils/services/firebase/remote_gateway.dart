@@ -1,3 +1,8 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:school_sync/school_sync.dart';
+import '../../../config/app_config.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data_store.dart';
@@ -27,11 +32,15 @@ class FirestoreGateway implements RemoteGateway {
   FirestoreGateway([FirebaseFirestore? firestore]) : _fs = firestore;
   FirebaseFirestore? _fs;
   String? _school;
+  String? _attendancePolicyKey;
 
   FirebaseFirestore get _db => _fs ??= FirebaseFirestore.instance;
 
   @override
-  void bind(String schoolId) => _school = schoolId;
+  void bind(String schoolId) {
+    _school = schoolId;
+    _attendancePolicyKey = null;
+  }
 
   CollectionReference<Map<String, dynamic>> _col(String c) => _db.collection('schools/$_school/$c');
 
@@ -40,7 +49,36 @@ class FirestoreGateway implements RemoteGateway {
     Query<Map<String, dynamic>> query = _col(q.collection);
     q.eq.forEach((k, v) => query = query.where(k == '__name__' ? FieldPath.documentId : k, isEqualTo: v));
     if (q.inField != null) query = query.where(q.inField == '__name__' ? FieldPath.documentId : q.inField!, whereIn: q.inValues);
-    return query.snapshots().map((s) => [for (final d in s.docs) {...decode(d.data()), 'id': d.id}]);
+    return query.snapshots().map((snapshot) {
+      final rows = [
+        for (final d in snapshot.docs) {...decode(d.data()), 'id': d.id},
+      ];
+      if (q.collection == 'school') {
+        final policy = rows.where((row) => row['id'] == 'mobile').firstOrNull;
+        final key = policy == null ? null : jsonEncode([policy['academicYear'], policy['academicRange']]);
+        final previous = _attendancePolicyKey;
+        _attendancePolicyKey = key;
+        if (previous != null && key != previous) {
+          unawaited(
+            MobileSchoolClient(
+                  auth: FirebaseAuth.instance,
+                  db: _db,
+                  emulator: AppConfig.useEmulator,
+                  emulatorHost: AppConfig.emulatorHost,
+                  emulatorUsb: AppConfig.emulatorUsb,
+                )
+                .call('getMobileSchoolContext', {'refreshAttendance': true})
+                .then<void>(
+                  (_) {},
+                  onError: (Object error) {
+                    debugPrint('Attendance summary refresh failed: $error');
+                  },
+                ),
+          );
+        }
+      }
+      return rows;
+    });
   }
 
   @override
@@ -60,11 +98,11 @@ class FirestoreGateway implements RemoteGateway {
 
   /// Firestore types -> JSON types (Timestamp -> ISO string).
   static dynamic decodeValue(Object? v) => switch (v) {
-        Timestamp t => t.toDate().toIso8601String(),
-        Map m => {for (final e in m.entries) '${e.key}': decodeValue(e.value)},
-        List l => [for (final e in l) decodeValue(e)],
-        _ => v,
-      };
+    Timestamp t => t.toDate().toIso8601String(),
+    Map m => {for (final e in m.entries) '${e.key}': decodeValue(e.value)},
+    List l => [for (final e in l) decodeValue(e)],
+    _ => v,
+  };
 
   static Rec decode(Map<String, dynamic> d) => {for (final e in d.entries) e.key: decodeValue(e.value)};
 }

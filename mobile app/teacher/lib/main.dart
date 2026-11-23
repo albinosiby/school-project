@@ -16,6 +16,7 @@ import 'constants/app_constants.dart';
 import 'design_system/design_system.dart';
 import 'di/global_blocs.dart';
 import 'di/injection.dart';
+import 'utils/services/app_messenger.dart';
 import 'utils/services/firebase/push_notification_service.dart';
 
 Future<void> main() async {
@@ -49,8 +50,6 @@ Future<TeacherApp> bootstrap() async {
 }
 
 /// Shows snack bars for messages that arrive while the app is open, and opens the screen of a tapped notification.
-final rootMessengerKey = GlobalKey<ScaffoldMessengerState>();
-
 void _listenForPush() {
   final push = getIt<PushNotificationService>();
   push.openedRoutes.listen(router.go);

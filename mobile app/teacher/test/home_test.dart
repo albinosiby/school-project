@@ -22,7 +22,9 @@ import 'package:teacher_app/modules/home/bloc/substitution_states.dart';
 import 'package:teacher_app/modules/home/bloc/timetable_bloc.dart';
 import 'package:teacher_app/modules/home/bloc/timetable_events.dart';
 import 'package:teacher_app/modules/home/bloc/timetable_states.dart';
+import 'package:teacher_app/modules/home/models/home_models.dart';
 import 'package:teacher_app/modules/home/models/timetable_models.dart';
+import 'package:teacher_app/modules/school/models/school_models.dart';
 import 'package:teacher_app/modules/home/repositories/settings_repository_interface.dart';
 import 'package:teacher_app/modules/home/screens/home_screen.dart';
 import 'package:teacher_app/modules/home/screens/timetable_screen.dart';
@@ -80,6 +82,37 @@ void main() {
       getIt<LocalDatabaseService>().update('tt_subs', 'sub_1', {'status': 'declined'});
       await expectLater(bloc.stream, emitsThrough(predicate<TimetableState>((s) => s.periodsOf(1).firstWhere((p) => p.slot == 'P5').kind == PeriodKind.prep)));
       await bloc.close();
+    });
+  });
+
+  group('marking route', () {
+    test('opens the marking screen on the given class and period', () {
+      expect(RoutePaths.markAttendance(classId: 'cls_5B', period: 3), '/attendance/mark?class=cls_5B&period=3');
+      expect(RoutePaths.markAttendance(classId: 'cls_5B'), '/attendance/mark?class=cls_5B');
+      expect(RoutePaths.markAttendance(), '/attendance/mark');
+    });
+  });
+
+  group('attention list', () {
+    test('lists pending substitutions, unmarked class-teacher classes once school has started, then open tasks', () {
+      const cls = SchoolClass(id: 'cls_9A', grade: '9', section: 'A', subject: 'Maths', topic: '', room: 'R1', wing: '', students: 30, classTeacher: true, rep: '', attendance: 90);
+      const other = SchoolClass(id: 'cls_8B', grade: '8', section: 'B', subject: 'Maths', topic: '', room: 'R2', wing: '', students: 28, classTeacher: false, rep: '', attendance: 90);
+      const task = PendingTask(id: 'hp_1', tag: 'Marks', tone: 'purple', due: 'Due today', title: 'Enter marks', desc: '', route: '/tasks');
+      const sub = Substitution(id: 'sub_1', day: 1, slot: 'P2', status: SubStatus.pending, classLabel: '7-B', subject: 'Science', faculty: '', dept: '', role: '', room: '', posted: '', tag: '', chapter: '', objective: '', directive: '');
+      final state = const HomeState(status: HomeStatus.loaded).copyWith(pending: [task, task.copyWith(done: true)], subs: [sub]);
+      final morning = schoolNow(DateTime(2026, 10, 26, 10, 20)); // Monday, during school
+      final items = attentionItems(state, [cls, other], morning);
+      expect(items.map((i) => i.id), ['sub_sub_1', 'att_cls_9A', 'task_hp_1']);
+      expect(items.first.sub, contains('Today'));
+      expect(items[1].title, 'Mark attendance • Class 9-A');
+      expect(items[1].route, '/attendance/mark?class=cls_9A');
+      expect(items.last.taskId, 'hp_1');
+      // a saved draft asks to finish, a submitted record or a time before school removes the row
+      final drafted = attentionItems(state.copyWith(drafts: {'cls_9A'}), [cls], morning);
+      expect(drafted[1].title, 'Finish attendance • Class 9-A');
+      expect(drafted[1].sub, contains('Draft saved'));
+      expect(attentionItems(state.copyWith(today: {'cls_9A': (total: 30, present: 28, absent: 2, late: 0, excused: 0)}), [cls], morning).map((i) => i.id), ['sub_sub_1', 'task_hp_1']);
+      expect(attentionItems(state, [cls], schoolNow(DateTime(2026, 10, 26, 7, 0))).map((i) => i.id), ['sub_sub_1', 'task_hp_1']);
     });
   });
 
@@ -141,13 +174,17 @@ void main() {
       final hasLive = find.textContaining('NOW HAPPENING').evaluate().isNotEmpty;
       if (!hasLive) expect(find.textContaining(RegExp('Break until|No class in progress')), findsOneWidget);
       expect(find.text("Today's Schedule"), findsOneWidget);
-      await t.scrollUntilVisible(find.text('4 Pending'), 200, scrollable: find.byType(Scrollable).first);
+      expect(find.text('Attendance'), findsOneWidget); // quick actions sit right under the now card
+      await t.scrollUntilVisible(find.text('Needs your attention'), 200, scrollable: find.byType(Scrollable).first);
       await t.ensureVisible(find.byTooltip('Mark done').first);
       await t.pumpAndSettle();
+      expect(find.byTooltip('Mark done', skipOffstage: false), findsNWidgets(4));
       await t.tap(find.byTooltip('Mark done').first);
       await t.pumpAndSettle();
       expect(getIt<LocalDatabaseService>().byId('hm_pending', 'hp_1')!['done'], isTrue);
-      expect(find.text('3 Pending', skipOffstage: false), findsOneWidget);
+      expect(find.byTooltip('Mark done', skipOffstage: false), findsNWidgets(3));
+      expect(find.text('My Classes', skipOffstage: false), findsOneWidget);
+      expect(find.textContaining('DAILY INSPIRATION', skipOffstage: false), findsNothing);
       // no sync banner on Home: the data syncs by itself
       expect(find.byTooltip('Sync now'), findsNothing);
       expect(find.textContaining('Not synced'), findsNothing);
@@ -250,6 +287,8 @@ void main() {
       expect(find.text('Mrs. Anita S. Sharma'), findsOneWidget);
 
       await t.scrollUntilVisible(find.text('Notification & Account Settings'), 300);
+      await t.ensureVisible(find.text('Notification & Account Settings'));
+      await t.pump(const Duration(milliseconds: 400)); // the version row's shimmer never settles in tests
       await t.tap(find.text('Notification & Account Settings'));
       await t.pumpAndSettle();
       expect(find.text('Biometric Login'), findsOneWidget);
@@ -275,10 +314,26 @@ void main() {
       expect(find.text('Welcome to Edvio'), findsOneWidget);
     });
 
+    testWidgets('home shows the teacher\'s own check-in and records the punch', (t) async {
+      await _pump(t, RoutePaths.home);
+      await t.pump(const Duration(milliseconds: 300));
+      expect(find.text('MY ATTENDANCE'), findsOneWidget);
+      if (find.text('Check In').evaluate().isNotEmpty) {
+        await t.tap(find.text('Check In'));
+        await t.pump(const Duration(milliseconds: 600));
+        expect(find.text('Check Out'), findsOneWidget);
+        expect(find.textContaining('Checked in'), findsWidgets);
+      } else {
+        // the demo seed already has today's punch
+        expect(find.text('Check Out').evaluate().isNotEmpty || find.textContaining('Checked out at').evaluate().isNotEmpty, isTrue);
+      }
+    });
+
     testWidgets('faculty id renders', (t) async {
       await _pump(t, RoutePaths.facultyId);
       expect(find.text('FACULTY PASS'), findsOneWidget);
-      expect(find.text('DPS-FAC-2018-042-MTH'), findsOneWidget);
+      expect(find.text('EMPLOYEE ID'), findsOneWidget);
+      expect(find.byWidgetPredicate((w) => w is Semantics && (w.properties.label ?? '').startsWith('QR code for employee ID')), findsOneWidget);
       expect(find.text('Download PDF'), findsOneWidget);
     });
 

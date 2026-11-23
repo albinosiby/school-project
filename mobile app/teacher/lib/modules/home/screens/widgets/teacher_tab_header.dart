@@ -16,9 +16,10 @@ class TeacherTabHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = context.select<SchoolBloc, String>((b) => b.state.teacher?.name ?? 'Teacher');
+    final photo = context.select<SchoolBloc, String>((b) => b.state.teacher?.photo ?? '');
     final unread = context.select<NotificationsBloc, int>((b) => b.state.unread);
     return AppTabHeader(
-      title: title, subtitle: subtitle, eyebrow: eyebrow, icon: icon, userName: name, hasUnread: unread > 0,
+      title: title, subtitle: subtitle, eyebrow: eyebrow, icon: icon, userName: name, userPhoto: photo.isEmpty ? null : photo, hasUnread: unread > 0,
       onBell: () => context.push(RoutePaths.notifications),
       onAvatar: () => context.push(RoutePaths.profile),
     );
@@ -52,7 +53,7 @@ class TeacherHeaderActions extends StatelessWidget {
           ),
         ),
       if (bell && avatar) SizedBox(width: 8.w),
-      if (avatar) Semantics(button: true, label: 'Profile', child: InkResponse(onTap: () => context.push(RoutePaths.profile), child: Avatar(name, size: 44, online: true))),
+      if (avatar) Semantics(button: true, label: 'Profile', child: InkResponse(onTap: () => context.push(RoutePaths.profile), child: Avatar(name, size: 44, online: true, image: context.select<SchoolBloc, String?>((b) => b.state.teacher?.photo.isEmpty ?? true ? null : b.state.teacher!.photo)))),
       SizedBox(width: 4.w),
     ]);
   }

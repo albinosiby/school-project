@@ -76,7 +76,49 @@ void main() {
       expect(me['year'], 'AY 2026-27');
       expect(me['term'], 'Term 2');
       expect(me['empId'], 'EMP-2041');
+      expect(me['photo'], '', reason: 'no photo doc: initials');
+      final withPhoto = {...fake, 'staff_hr_photos': [{'id': 'stf_025', 'image': 'data:image/jpeg;base64,/9j/'}]};
+      expect(const MeAdapter().build(ctx, withPhoto).single['photo'], 'data:image/jpeg;base64,/9j/');
+      expect(const MeAdapter().queries(ctx, fake).any((q) => q.collection == 'staff_hr_photos' && q.eq['__name__'] == 'stf_025'), isTrue);
     });
+    test('hm_profile = the HR card the server mirrors, with experience from joining and a private desk note', () {
+      final self = {'id': 'stf_025', 'department': 'Mathematics', 'bloodGroup': 'O+', 'phone': '9876543210', 'joined': '2012-06-01',
+        'emergency': {'name': 'Rahul', 'relationship': 'Spouse', 'mobile': '9876500000'},
+        'qualifications': [{'level': 'Postgraduate', 'course': 'M.Sc. Mathematics', 'institution': 'Kannur University', 'year': '2008'}]};
+      final prof = const ProfileAdapter().build(ctx, {...fake, 'staff_self': [self]}).single;
+      expect(prof['bloodGroup'], 'O+');
+      expect(prof['emergency'], 'Rahul (Spouse) 9876500000');
+      expect(prof['experience'], greaterThan(10));
+      expect((prof['qualifications'] as List).single, {'title': 'Postgraduate • M.Sc. Mathematics', 'note': 'Kannur University • 2008', 'tone': 'brand'});
+      expect(prof['cardNo'], 'EMP-2041');
+      // the ID card: a stable token from the employee id and staff id, the school's board/affiliation/city line, the emergency number
+      expect(prof['token'], 'FAC-EMP-2041-STF025');
+      expect(prof['emergencyPhone'], '9876500000');
+      final withBoard = const ProfileAdapter().build(ctx, {...fake, 'staff_self': [self],
+        'school': [{'id': 'school', 'name': 'Greenfield', 'academicYear': '2026-27', 'board': 'CBSE', 'affiliation': '#134563', 'city': 'Chemperi'}]}).single;
+      expect(withBoard['schoolLine'], 'CBSE • Affiliation 134563 • Chemperi');
+      expect(prof['schoolLine'], '');
+      // the dashboard's sections, documents, bank and payroll history ride along for the Profile page
+      expect((prof['sections'] as List).map((s) => (s as Map)['key']), contains('emergency'));
+      expect(prof['hrUpdatedAt'], '');
+      expect(prof['documents'], isEmpty);
+      expect(prof['bank'], isEmpty);
+      final rich = const ProfileAdapter().build(ctx, {...fake, 'staff_self': [{...self, 'updatedAt': '2026-11-23T10:00:00.000Z',
+        'documents': [{'category': 'pan', 'label': 'PAN card', 'name': 'pan.pdf', 'uploadedAt': '2026-11-02T00:00:00.000Z'}],
+        'payroll': {'account': {'bank': 'SBI', 'accountHolder': 'Anita', 'ifsc': 'SBIN0000001', 'lastFour': '4321'}, 'payments': [{'month': '2026-10', 'paidOn': '2026-10-31', 'grossPaise': 100000, 'deductionsPaise': 0, 'netPaise': 100000}]}}]}).single;
+      expect(rich['hrUpdatedAt'], '2026-11-23T10:00:00.000Z');
+      expect((rich['documents'] as List).single['label'], 'PAN card');
+      expect((rich['bank'] as List).last, {'label': 'Account number', 'value': '•••• 4321'});
+      expect((rich['payments'] as List).single['net'], 1000.0);
+      final bare = const ProfileAdapter().build(ctx, fake).single;
+      expect(bare['qualifications'], isEmpty);
+      expect(bare['bloodGroup'], '');
+      final w = const ProfileAdapter().write(ctx, fake, {'id': 'hm_profile', 'desk': 'Staff room 2', 'bloodGroup': 'ignored'}).single;
+      expect((w.collection, w.id, w.data['desk'], w.data.containsKey('bloodGroup')), ('hm_profile', 'stf_025', 'Staff room 2', false));
+      // the profile's phone falls back to the HR card when the staff record has none
+      expect(const MeAdapter().build(ctx, {...fake, 'staff_self': [self]}).single['phone'], anyOf('9876543210', isNotEmpty));
+    });
+
     test('me profile edits are a private overlay', () {
       final w = const MeAdapter().write(ctx, fake, {'id': 'me', 'name': 'Anita S.', 'email': 'n@x', 'phone': '2', 'school': 'ignored'}).single;
       expect(w.collection, 'hm_me'); // a teacher-private prefix: the rules deny any other remote name
@@ -711,6 +753,28 @@ void main() {
       expect(gw.writes.last.collection, 'ops_attendance');
       store.update('att_records', r['id'] as String, {'marks': {'stu_101': 'L'}});
       expect(store.byId('att_records', r['id'] as String)!['marks'], {'stu_101': 'L'});
+    });
+
+    test('a write the server refuses is rolled back locally and reported', () async {
+      final errors = <Object>[];
+      store = FirestoreDataStore(gw, onError: (e, s) => errors.add(e));
+      store.start(ctx);
+      gw.load(fake);
+      await pump();
+      gw.failNextWith = Exception('[cloud_firestore/permission-denied] The caller does not have permission to execute the specified operation.');
+      final r = store.add('att_records', {'classId': 'cls_10B', 'date': '2026-10-26', 'period': 1, 'total': 42, 'marks': <String, dynamic>{}, 'submitted': true});
+      expect(store.byId('att_records', r['id'] as String), isNotNull, reason: 'shown at once (optimistic)');
+      await pump();
+      expect(store.byId('att_records', r['id'] as String), isNull, reason: 'gone again once the server refused it');
+      expect(errors.single.toString(), contains('permission-denied'));
+      expect(gw.writes.where((w) => w.collection == 'ops_attendance'), isEmpty);
+      // a refused update restores the previous version of the record
+      store.add('att_records', {'classId': 'cls_10B', 'date': '2026-10-26', 'period': 2, 'total': 42, 'marks': <String, dynamic>{}, 'submitted': true});
+      await pump();
+      gw.failNextWith = Exception('[cloud_firestore/permission-denied] no');
+      store.update('att_records', '2026-10-26_cls_10B_2', {'marks': {'stu_101': 'A'}});
+      await pump();
+      expect(store.byId('att_records', '2026-10-26_cls_10B_2')!['marks'], isEmpty);
     });
 
     test('punch in with a local id keeps one remote doc per day; punch out updates it', () async {

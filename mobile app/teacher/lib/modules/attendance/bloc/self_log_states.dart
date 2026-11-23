@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
 import '../models/attendance_models.dart';
 import '../models/leave_models.dart';
@@ -8,7 +9,14 @@ const shiftStart = '08:00', shiftEnd = '16:30', onTimeBy = '08:30', unlockAt = '
 const shiftMinutes = 510;
 
 class SelfLogState extends Equatable {
-  const SelfLogState({this.status = LoadStatus.initial, this.logs = const [], this.regs = const [], this.quota = const []});
+  const SelfLogState({
+    this.policyVersion = '',
+    this.status = LoadStatus.initial,
+    this.logs = const [],
+    this.regs = const [],
+    this.quota = const [],
+  });
+  final String policyVersion;
   final LoadStatus status;
   final List<StaffLog> logs;
   final List<Regularization> regs;
@@ -19,7 +27,10 @@ class SelfLogState extends Equatable {
   List<StaffLog> get thisMonth {
     final t = todayDate();
     final from = dkey(DateTime(t.year, t.month, 1));
-    return [for (final r in logs) if (r.date.compareTo(from) >= 0) r];
+    return [
+      for (final r in logs)
+        if (r.date.compareTo(from) >= 0) r,
+    ];
   }
 
   int get workingDays {
@@ -50,9 +61,14 @@ class SelfLogState extends Equatable {
   /// Most recent day with a missed punch.
   StaffLog? get lastIrregular => sorted.where((r) => r.status == 'Irregular').firstOrNull;
 
-  SelfLogState copyWith({LoadStatus? status, List<StaffLog>? logs, List<Regularization>? regs, List<LeaveQuota>? quota}) =>
-      SelfLogState(status: status ?? this.status, logs: logs ?? this.logs, regs: regs ?? this.regs, quota: quota ?? this.quota);
+  SelfLogState copyWith({LoadStatus? status, List<StaffLog>? logs, List<Regularization>? regs, List<LeaveQuota>? quota}) => SelfLogState(
+    policyVersion: SchoolPolicyRuntime.current.version,
+    status: status ?? this.status,
+    logs: logs ?? this.logs,
+    regs: regs ?? this.regs,
+    quota: quota ?? this.quota,
+  );
 
   @override
-  List<Object?> get props => [status, logs, regs, quota];
+  List<Object?> get props => [policyVersion, status, logs, regs, quota];
 }

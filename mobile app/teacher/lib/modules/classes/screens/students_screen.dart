@@ -137,7 +137,14 @@ class _StudentsViewState extends State<_StudentsView> {
             ),
           ),
           const Spacer(),
-          Text('${list.length} ${list.length == 1 ? 'student' : 'students'}', style: T.small),
+          if (cls.classTeacher && AppConfig.isFirebase && roster.any((s) => s.roll <= 0))
+            TextButton.icon(
+              onPressed: () => _assignRollsByName(context, roster),
+              icon: Icon(Icons.format_list_numbered_rounded, size: 18.r),
+              label: Text('Assign roll numbers', style: T.smallStrong.copyWith(color: C.primary)),
+            )
+          else
+            Text('${list.length} ${list.length == 1 ? 'student' : 'students'}', style: T.small),
         ]),
         if (list.isEmpty) const AppEmptyState('No students match', hint: 'Try another search or filter.', icon: Icons.person_search_outlined),
         for (final s in list) _StudentCard(s, merits: meritsOf(s, logs),
@@ -147,6 +154,40 @@ class _StudentsViewState extends State<_StudentsView> {
       ]),
     );
   }
+}
+
+/// Numbers every student without a roll in name order, continuing after the highest number already in use, through
+/// the server's per-student allotment (which refuses a number another student holds). Renumbering a division that is
+/// already numbered is done by the office on the dashboard.
+Future<void> _assignRollsByName(BuildContext context, List<Student> roster) async {
+  final pending = [for (final s in roster) if (s.roll <= 0) s]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  if (pending.isEmpty) return;
+  var next = roster.fold<int>(0, (m, s) => s.roll > m ? s.roll : m) + 1;
+  final ok = await AppDialogs.showConfirmDialog(
+    context,
+    title: 'Assign roll numbers?',
+    message: '${pending.length} students have no roll number. They get $next to ${next + pending.length - 1} in alphabetical order: ${pending.take(3).map((s) => s.name).join(', ')}${pending.length > 3 ? '…' : ''}.',
+    confirm: 'Assign',
+  );
+  if (!ok || !context.mounted) return;
+  final callable = FirebaseFunctions.instanceFor(region: 'asia-south1').httpsCallable('assignStudentRoll');
+  var done = 0;
+  String? failure;
+  for (final s in pending) {
+    try {
+      await callable.call({'studentId': s.id, 'roll': next});
+      done++;
+      next++;
+    } on FirebaseFunctionsException catch (error) {
+      failure = error.message ?? 'Could not assign a roll number.';
+      break;
+    } catch (_) {
+      failure = 'Could not assign a roll number.';
+      break;
+    }
+  }
+  if (!context.mounted) return;
+  AppDialogs.showSnackBar(context, message: failure == null ? 'Roll numbers assigned to $done students' : '$done assigned, then: $failure');
 }
 
 class _StudentCard extends StatelessWidget {

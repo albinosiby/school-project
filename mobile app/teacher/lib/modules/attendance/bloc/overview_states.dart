@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
 import '../../school/models/school_models.dart';
 import '../models/attendance_models.dart';
@@ -5,7 +6,16 @@ import 'load_status.dart';
 
 /// State of the Attendance overview (1.2): today's periods, homeroom stats and pending leave slips.
 class OverviewState extends Equatable {
-  const OverviewState({this.status = LoadStatus.initial, this.classes = const [], this.students = const [], this.schedule = const [], this.records = const [], this.slips = const []});
+  const OverviewState({
+    this.policyVersion = '',
+    this.status = LoadStatus.initial,
+    this.classes = const [],
+    this.students = const [],
+    this.schedule = const [],
+    this.records = const [],
+    this.slips = const [],
+  });
+  final String policyVersion;
   final LoadStatus status;
   final List<SchoolClass> classes;
   final List<Student> students;
@@ -16,7 +26,10 @@ class OverviewState extends Equatable {
   SchoolClass? classById(String id) => classes.where((c) => c.id == id).firstOrNull;
   Student? studentById(String id) => students.where((s) => s.id == id).firstOrNull;
   SchoolClass? get home => classes.where((c) => c.classTeacher).firstOrNull ?? classes.firstOrNull;
-  List<LeaveSlip> get pendingSlips => [for (final s in slips) if (s.status == 'Pending') s];
+  List<LeaveSlip> get pendingSlips => [
+    for (final s in slips)
+      if (s.status == 'Pending') s,
+  ];
 
   /// Today's record for a scheduled slot.
   AttendanceRecord? recordFor(ScheduleSlot sc) {
@@ -24,7 +37,8 @@ class OverviewState extends Equatable {
     return records.where((r) => r.classId == sc.classId && r.date == today && r.period == sc.period).firstOrNull;
   }
 
-  List<AttendanceRecord> homeDaily({String? from, String? to}) => home == null ? const [] : dailyRecords(records, home!.id, from: from, to: to);
+  List<AttendanceRecord> homeDaily({String? from, String? to}) =>
+      home == null ? const [] : dailyRecords(records, home!.id, from: from, to: to);
 
   /// Average rate of the homeroom over the last 7 days and the 7 days before.
   ({double overall, double previous}) get homeTrend {
@@ -39,7 +53,7 @@ class OverviewState extends Equatable {
     final h = home;
     if (h == null) return 0;
     final recs = homeDaily();
-    return students.where((s) => s.classId == h.id && studentRate(recs, s.id) < 75).length;
+    return students.where((s) => s.classId == h.id && studentRate(recs, s.id, admissionDate: s.admissionDate) < minimumAttendance).length;
   }
 
   /// Totals over today's submitted periods; [nowMinutes] decides which unmarked periods have started.
@@ -59,12 +73,23 @@ class OverviewState extends Equatable {
     return (present: present, total: total, absent: absent, unmarked: unmarked);
   }
 
-  OverviewState copyWith({LoadStatus? status, List<SchoolClass>? classes, List<Student>? students, List<ScheduleSlot>? schedule, List<AttendanceRecord>? records, List<LeaveSlip>? slips}) =>
-      OverviewState(
-        status: status ?? this.status, classes: classes ?? this.classes, students: students ?? this.students, schedule: schedule ?? this.schedule,
-        records: records ?? this.records, slips: slips ?? this.slips,
-      );
+  OverviewState copyWith({
+    LoadStatus? status,
+    List<SchoolClass>? classes,
+    List<Student>? students,
+    List<ScheduleSlot>? schedule,
+    List<AttendanceRecord>? records,
+    List<LeaveSlip>? slips,
+  }) => OverviewState(
+    policyVersion: SchoolPolicyRuntime.current.version,
+    status: status ?? this.status,
+    classes: classes ?? this.classes,
+    students: students ?? this.students,
+    schedule: schedule ?? this.schedule,
+    records: records ?? this.records,
+    slips: slips ?? this.slips,
+  );
 
   @override
-  List<Object?> get props => [status, classes, students, schedule, records, slips];
+  List<Object?> get props => [policyVersion, status, classes, students, schedule, records, slips];
 }

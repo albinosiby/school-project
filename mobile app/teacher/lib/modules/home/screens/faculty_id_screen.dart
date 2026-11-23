@@ -1,9 +1,16 @@
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:qr/qr.dart';
 import '../../../config/routes/routes.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
+import '../../../utils/services/cached_image_service.dart';
 import '../../school/bloc/school_bloc.dart';
 import '../bloc/profile_bloc.dart';
 import '../bloc/profile_events.dart';
@@ -19,8 +26,41 @@ class FacultyIdScreen extends StatelessWidget {
       );
 }
 
-class _FacultyIdView extends StatelessWidget {
+class _FacultyIdView extends StatefulWidget {
   const _FacultyIdView();
+  @override
+  State<_FacultyIdView> createState() => _FacultyIdViewState();
+}
+
+class _FacultyIdViewState extends State<_FacultyIdView> {
+  final _card = GlobalKey();
+  bool _exporting = false;
+
+  /// Renders the card exactly as shown into a one-page PDF and opens the system share/save sheet.
+  Future<void> _downloadPdf(String name, String empId) async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final boundary = _card.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) throw StateError('card not ready');
+      final image = await boundary.toImage(pixelRatio: 3);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) throw StateError('card could not be rendered');
+      final png = pw.MemoryImage(data.buffer.asUint8List());
+      final doc = pw.Document(title: 'Faculty ID • $name');
+      doc.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a5,
+        margin: const pw.EdgeInsets.all(24),
+        build: (_) => pw.Center(child: pw.Image(png, fit: pw.BoxFit.contain)),
+      ));
+      final file = 'faculty-id-${(empId.isEmpty ? name : empId).replaceAll(RegExp(r'[^A-Za-z0-9-]+'), '-')}.pdf';
+      await Printing.sharePdf(bytes: await doc.save(), filename: file);
+    } catch (e) {
+      if (mounted) AppDialogs.showSnackBar(context, message: 'Could not create the PDF: $e');
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,21 +68,22 @@ class _FacultyIdView extends StatelessWidget {
     final prof = context.watch<ProfileBloc>().state.profile;
     final me = school.teacher;
     final incharge = school.classes.where((c) => c.classTeacher).firstOrNull;
-    final token = prof.token;
+    final empId = me?.empId ?? '';
+    final schoolLine = prof.schoolLine.isNotEmpty ? prof.schoolLine : [me?.year ?? '', me?.term ?? ''].where((v) => v.isNotEmpty).join(' • ');
     return DetailScaffold(
       title: 'Digital Faculty ID',
       fallbackRoute: RoutePaths.profile,
-      actions: const [TeacherHeaderActions()],
+      actions: const [TeacherHeaderActions(bell: false)],
       bottom: Row(children: [
         Expanded(
-          child: AppButton('Download PDF', icon: Icons.download_rounded, kind: BtnKind.outline,
-              onPressed: () => AppDialogs.showSnackBar(context, message: 'Faculty ID saved as PDF (simulated)')),
+          child: AppButton(_exporting ? 'Preparing…' : 'Download PDF', icon: Icons.download_rounded, kind: BtnKind.outline,
+              onPressed: _exporting ? null : () => _downloadPdf(me?.name ?? 'Teacher', empId)),
         ),
         SizedBox(width: 12.w),
         Expanded(
-          child: AppButton('Share Link', icon: Icons.share_outlined, kind: BtnKind.outline, onPressed: () {
-            Clipboard.setData(ClipboardData(text: 'https://faculty.school.edu/id/$token'));
-            AppDialogs.showSnackBar(context, message: 'ID link copied to clipboard');
+          child: AppButton('Copy ID', icon: Icons.copy_rounded, kind: BtnKind.outline, onPressed: () {
+            Clipboard.setData(ClipboardData(text: [me?.name ?? '', me?.empId ?? '', me?.designation ?? '', me?.school ?? ''].where((v) => v.isNotEmpty).join(' • ')));
+            AppDialogs.showSnackBar(context, message: 'ID details copied to clipboard');
           }),
         ),
       ]),
@@ -63,7 +104,7 @@ class _FacultyIdView extends StatelessWidget {
           Expanded(child: Text('Tap phone to classroom terminal or gate reader for contactless pass', style: T.small)),
         ]),
         SizedBox(height: 14.h),
-        Container(
+        RepaintBoundary(key: _card, child: Container(
           decoration: BoxDecoration(
             color: C.bg, borderRadius: BorderRadius.circular(R.xxl), border: Border.all(color: C.border),
             boxShadow: [BoxShadow(color: C.ink.withValues(alpha: .08), blurRadius: 24.r, offset: Offset(0, 8.h))],
@@ -73,16 +114,15 @@ class _FacultyIdView extends StatelessWidget {
             Container(
               color: C.primaryDark, padding: EdgeInsets.all(14.r),
               child: Row(children: [
-                Container(
-                  width: 44.r, height: 44.r,
-                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(R.md)),
-                  child: Icon(Icons.account_balance_rounded, color: Colors.white, size: 24.r),
-                ),
+                _SchoolLogo(me?.logo ?? ''),
                 SizedBox(width: 10.w),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text((me?.school ?? '').toUpperCase(), style: T.h3.copyWith(color: Colors.white, fontSize: 13.sp), maxLines: 1)),
-                    Text('Affiliated to CBSE, New Delhi • Estd 1982', style: T.small.copyWith(color: Colors.white70, fontSize: 10.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text((me?.school ?? '').toUpperCase(), style: T.h3.copyWith(color: Colors.white, fontSize: 13.sp, height: 1.25), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    if (schoolLine.isNotEmpty) ...[
+                      SizedBox(height: 2.h),
+                      Text(schoolLine, style: T.small.copyWith(color: Colors.white70, fontSize: 10.5.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ],
                   ]),
                 ),
                 SizedBox(width: 8.w),
@@ -94,7 +134,7 @@ class _FacultyIdView extends StatelessWidget {
               ]),
             ),
             SizedBox(height: 18.h),
-            Avatar(me?.name ?? 'T', size: 92, tone: Tone.brand),
+            Avatar(me?.name ?? 'T', size: 132, tone: Tone.brand, image: (me?.photo ?? '').isEmpty ? null : me!.photo),
             SizedBox(height: 10.h),
             Padding(
               padding: EdgeInsets.symmetric(horizontal: 14.w),
@@ -125,7 +165,7 @@ class _FacultyIdView extends StatelessWidget {
                   ]),
                   SizedBox(height: 8.h),
                   Row(children: [
-                    Expanded(child: _Cell('Emergency Phone', prof.emergency)), SizedBox(width: 8.w),
+                    Expanded(child: _Cell('Mobile', me?.phone ?? '')), SizedBox(width: 8.w),
                     Expanded(child: _Cell('Valid Through', prof.validThrough, color: C.primary)),
                   ]),
                 ]),
@@ -139,43 +179,38 @@ class _FacultyIdView extends StatelessWidget {
                 decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.lg)),
                 child: Row(children: [
                   Container(
-                    width: 84.r, height: 84.r, padding: EdgeInsets.all(6.r),
-                    decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(R.md)),
-                    child: Semantics(label: 'QR code', image: true, child: CustomPaint(painter: _CodePainter(token, qr: true))),
+                    width: 96.r, height: 96.r, padding: EdgeInsets.all(6.r),
+                    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(R.md)),
+                    child: empId.isEmpty
+                        ? Icon(Icons.qr_code_2_rounded, color: C.muted, size: 48.r)
+                        : Semantics(label: 'QR code for employee ID $empId', image: true, child: CustomPaint(painter: _QrPainter(facultyQr(empId)))),
                   ),
                   SizedBox(width: 12.w),
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
-                        Expanded(child: Text('AUTHENTIC TOKEN', style: T.capsMuted.copyWith(fontSize: 10.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                        const Pill('ISO-27001', tone: Tone.brand),
+                        Expanded(child: Text('EMPLOYEE ID', style: T.capsMuted.copyWith(fontSize: 10.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                        Pill((me?.status ?? '').isEmpty ? 'Active' : me!.status, tone: (me?.status ?? 'Active') == 'Active' ? Tone.success : Tone.neutral),
                       ]),
-                      SizedBox(height: 8.h),
-                      SizedBox(height: 34.h, width: double.infinity, child: Semantics(label: 'Barcode', image: true, child: CustomPaint(painter: _CodePainter(token)))),
+                      SizedBox(height: 6.h),
+                      Text(empId.isEmpty ? '—' : empId, style: T.h2.copyWith(fontWeight: FontWeight.w800), maxLines: 1, overflow: TextOverflow.ellipsis),
                       SizedBox(height: 4.h),
-                      Text(token, style: T.small.copyWith(fontSize: 10.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text(
+                        empId.isEmpty ? 'The code appears once the office assigns an employee ID' : 'Scan the code to read the employee ID',
+                        style: T.small.copyWith(fontSize: 10.5.sp), maxLines: 2, overflow: TextOverflow.ellipsis,
+                      ),
                     ]),
                   ),
                 ]),
               ),
             ),
-            SizedBox(height: 12.h),
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: 14.w), padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
-              decoration: BoxDecoration(gradient: const LinearGradient(colors: [C.warningSoft, C.panel, C.successSoft]), borderRadius: BorderRadius.circular(R.md)),
-              child: Row(children: [
-                Icon(Icons.shield_outlined, size: 14.r), SizedBox(width: 6.w),
-                Expanded(child: Text('GOVT. ACCREDITED • SECURE ID', style: T.smallStrong.copyWith(fontSize: 10.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                Text(prof.cardNo, style: T.smallStrong.copyWith(fontSize: 10.5.sp, color: C.successDark)),
-              ]),
-            ),
             SizedBox(height: 14.h),
           ]),
-        ),
+        )),
         SizedBox(height: 14.h),
-        Text('Official Institutional Clearance', style: T.smallStrong, textAlign: TextAlign.center),
+        Text('Issued by ${(me?.school ?? '').isEmpty ? 'the school' : me!.school}', style: T.smallStrong, textAlign: TextAlign.center),
         SizedBox(height: 4.h),
-        Text('This digital credential is officially authorized by school administration. For security inquiries, audits, or lost card reporting, contact Admin Desk Ext #102.',
+        Text('This digital ID reflects the staff record kept by the school office. For corrections, audits or a lost card, contact the school office.',
             style: T.small.copyWith(fontSize: 11.sp), textAlign: TextAlign.center),
       ]),
     );
@@ -198,48 +233,50 @@ class _Cell extends StatelessWidget {
       );
 }
 
-/// Deterministic decorative QR / barcode derived from the token string.
-class _CodePainter extends CustomPainter {
-  _CodePainter(this.seed, {this.qr = false});
-  final String seed;
-  final bool qr;
+/// A real QR code carrying the employee ID, so any scanner app reads the number back.
+QrImage facultyQr(String empId) => QrImage(QrCode.fromData(data: empId, errorCorrectLevel: QrErrorCorrectLevel.M));
+
+class _QrPainter extends CustomPainter {
+  _QrPainter(this.image);
+  final QrImage image;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final n = image.moduleCount;
+    final c = size.shortestSide / n;
     final p = Paint()..color = C.ink;
-    var h = seed.codeUnits.fold<int>(7, (a, b) => (a * 31 + b) & 0x7fffffff);
-    int next() {
-      h = (h * 1103515245 + 12345) & 0x7fffffff;
-      return h;
-    }
-
-    if (qr) {
-      const n = 21;
-      final c = size.width / n;
-      bool finder(int x, int y) => (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7);
-      for (var y = 0; y < n; y++) {
-        for (var x = 0; x < n; x++) {
-          bool on;
-          if (finder(x, y)) {
-            final fx = x >= n - 7 ? x - (n - 7) : x, fy = y >= n - 7 ? y - (n - 7) : y;
-            on = fx == 0 || fx == 6 || fy == 0 || fy == 6 || (fx >= 2 && fx <= 4 && fy >= 2 && fy <= 4);
-          } else {
-            on = next() % 2 == 0;
-          }
-          if (on) canvas.drawRect(Rect.fromLTWH(x * c, y * c, c + .3, c + .3), p);
-        }
-      }
-    } else {
-      final unit = size.height / 34; // scales bar widths with the box
-      var x = 0.0;
-      while (x < size.width) {
-        final w = (1.0 + next() % 3) * unit;
-        if (next() % 2 == 0) canvas.drawRect(Rect.fromLTWH(x, 0, w, size.height), p);
-        x += w + unit;
+    for (var r = 0; r < n; r++) {
+      for (var col = 0; col < n; col++) {
+        if (image.isDark(r, col)) canvas.drawRect(Rect.fromLTWH(col * c, r * c, c + .2, c + .2), p);
       }
     }
   }
 
   @override
-  bool shouldRepaint(_CodePainter old) => old.seed != seed || old.qr != qr;
+  bool shouldRepaint(_QrPainter old) => old.image != image;
+}
+
+/// The school's logo on the card header, cached on the device after the first download, with the generic emblem
+/// when none is set or it cannot be fetched.
+class _SchoolLogo extends StatelessWidget {
+  const _SchoolLogo(this.url);
+  final String url;
+  @override
+  Widget build(BuildContext context) {
+    Widget tile(Widget child, {Color color = Colors.white}) => Container(
+      width: 48.r, height: 48.r, padding: EdgeInsets.all(4.r),
+      decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(R.md)),
+      clipBehavior: Clip.antiAlias,
+      child: child,
+    );
+    if (url.isEmpty) return tile(Icon(Icons.account_balance_rounded, color: Colors.white, size: 24.r), color: Colors.white24);
+    final cached = CachedImageService.peek(url);
+    if (cached != null) return tile(Image.memory(cached, fit: BoxFit.contain, gaplessPlayback: true));
+    return FutureBuilder<Uint8List?>(
+      future: CachedImageService.bytes(url),
+      builder: (_, snap) => tile(snap.data == null
+          ? Icon(Icons.account_balance_rounded, color: snap.hasError || (snap.connectionState == ConnectionState.done) ? C.primaryDark : C.muted, size: 24.r)
+          : Image.memory(snap.data!, fit: BoxFit.contain, gaplessPlayback: true)),
+    );
+  }
 }

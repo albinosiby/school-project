@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
 import '../models/circular_models.dart';
 import 'load_status.dart';
@@ -5,7 +6,16 @@ import 'load_status.dart';
 const circularCategories = ['All', 'Academic', 'Admin', 'Events'];
 
 class CircularsState extends Equatable {
-  const CircularsState({this.status = LoadStatus.initial, this.items = const [], this.category = 'All', this.query = '', this.unreadOnly = false, this.newestFirst = true});
+  const CircularsState({
+    this.policyVersion = '',
+    this.status = LoadStatus.initial,
+    this.items = const [],
+    this.category = 'All',
+    this.query = '',
+    this.unreadOnly = false,
+    this.newestFirst = true,
+  });
+  final String policyVersion;
   final LoadStatus status;
   final List<Circular> items;
   final String category, query;
@@ -22,19 +32,30 @@ class CircularsState extends Equatable {
       if (category != 'All' && e.cat != category) return false;
       if (unreadOnly && e.read) return false;
       return q.isEmpty || '${e.title} ${e.ref} ${e.summary}'.toLowerCase().contains(q);
-    }).toList()
-      ..sort((a, b) {
-        if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
-        final c = a.date.compareTo(b.date);
-        return newestFirst ? -c : c;
-      });
+    }).toList()..sort((a, b) {
+      if (a.pinned != b.pinned) return a.pinned ? -1 : 1;
+      final c = a.date.compareTo(b.date);
+      return newestFirst ? -c : c;
+    });
   }
 
-  CircularsState copyWith({LoadStatus? status, List<Circular>? items, String? category, String? query, bool? unreadOnly, bool? newestFirst}) => CircularsState(
-        status: status ?? this.status, items: items ?? this.items, category: category ?? this.category, query: query ?? this.query,
-        unreadOnly: unreadOnly ?? this.unreadOnly, newestFirst: newestFirst ?? this.newestFirst,
-      );
+  CircularsState copyWith({
+    LoadStatus? status,
+    List<Circular>? items,
+    String? category,
+    String? query,
+    bool? unreadOnly,
+    bool? newestFirst,
+  }) => CircularsState(
+    policyVersion: SchoolPolicyRuntime.current.version,
+    status: status ?? this.status,
+    items: items ?? this.items,
+    category: category ?? this.category,
+    query: query ?? this.query,
+    unreadOnly: unreadOnly ?? this.unreadOnly,
+    newestFirst: newestFirst ?? this.newestFirst,
+  );
 
   @override
-  List<Object?> get props => [status, items, category, query, unreadOnly, newestFirst];
+  List<Object?> get props => [policyVersion, status, items, category, query, unreadOnly, newestFirst];
 }

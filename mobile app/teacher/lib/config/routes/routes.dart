@@ -1,6 +1,7 @@
 /// Every route path in the app. Use these constants (and the helpers for
 /// parameterised paths) instead of string literals.
 class RoutePaths {
+  static const myCertificates = '/my-school-certificates';
   RoutePaths._();
 
   // Tabs (shell branches)
@@ -58,6 +59,12 @@ class RoutePaths {
 
   // Attendance module
   static const String attendanceMark = '/attendance/mark';
+  /// The marking screen opened on one class and period (both optional): the live period from Home and the
+  /// timetable, a class from the attention list, or nothing for the quick action (the screen then picks the first).
+  static String markAttendance({String? classId, int? period}) {
+    final query = {if (classId != null && classId.isNotEmpty) 'class': classId, if (period != null) 'period': '$period'};
+    return query.isEmpty ? attendanceMark : Uri(path: attendanceMark, queryParameters: query).toString();
+  }
   static const String attendanceTrends = '/attendance/trends';
   static const String attendanceSelfLog = '/attendance/self-log';
   static const String medicalSlips = '/attendance/medical-slips';

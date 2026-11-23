@@ -11,6 +11,9 @@ class FakeGateway implements RemoteGateway {
   final List<RemoteWrite> writes = [];
   final List<(String, String, String, String)> joins = [];
 
+  /// When set, the next [set] / [delete] fails with it (a server-side rejection), then clears.
+  Object? failNextWith;
+
   int get activeListeners => _ctrls.values.where((c) => c.hasListener).length;
 
   void load(Remote data) {
@@ -42,10 +45,24 @@ class FakeGateway implements RemoteGateway {
   Stream<List<String>> watchSubIds(String collection, String id, String sub) => const Stream.empty();
 
   @override
-  Future<void> set(String collection, String id, Rec data) async => writes.add(RemoteWrite(collection, id, data));
+  Future<void> set(String collection, String id, Rec data) async {
+    final fail = failNextWith;
+    if (fail != null) {
+      failNextWith = null;
+      throw fail;
+    }
+    writes.add(RemoteWrite(collection, id, data));
+  }
 
   @override
-  Future<void> delete(String collection, String id) async => writes.add(RemoteWrite(collection, id, const {}, delete: true));
+  Future<void> delete(String collection, String id) async {
+    final fail = failNextWith;
+    if (fail != null) {
+      failNextWith = null;
+      throw fail;
+    }
+    writes.add(RemoteWrite(collection, id, const {}, delete: true));
+  }
 
   @override
   Future<void> setSub(String collection, String id, String sub, String subId, Rec data) async => joins.add((collection, id, sub, subId));

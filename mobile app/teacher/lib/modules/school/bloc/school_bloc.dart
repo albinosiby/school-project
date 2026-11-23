@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../utils/exceptions/app_exception.dart';
+import '../../../utils/services/cached_image_service.dart';
 import '../repositories/school_repository_interface.dart';
 import 'school_events.dart';
 import 'school_states.dart';
@@ -20,12 +21,15 @@ class SchoolBloc extends Bloc<SchoolEvent, SchoolState> {
   Future<void> _onLoad(SchoolLoadRequested e, Emitter<SchoolState> emit) async {
     if (state.status == SchoolStatus.initial) emit(state.copyWith(status: SchoolStatus.loading));
     try {
+      final teacher = await _repo.getTeacher();
       emit(state.copyWith(
         status: SchoolStatus.loaded,
-        teacher: await _repo.getTeacher(),
+        teacher: teacher,
         classes: await _repo.getClasses(),
         students: await _repo.getStudents(),
       ));
+      // the school logo is fetched once here so the ID card shows it instantly
+      if (teacher.logo.isNotEmpty) unawaited(CachedImageService.bytes(teacher.logo));
     } on AppException catch (err) {
       emit(state.copyWith(status: SchoolStatus.failure, error: err.message));
     }

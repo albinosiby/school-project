@@ -25,8 +25,10 @@ class AddTaskScreen extends StatelessWidget {
   const AddTaskScreen({super.key, this.editId});
   final String? editId;
   @override
-  Widget build(BuildContext context) =>
-      BlocProvider(create: (_) => getIt<TaskFormBloc>()..add(TaskFormLoadRequested(editId: editId)), child: const _AddTaskView());
+  Widget build(BuildContext context) => BlocProvider(
+    create: (_) => getIt<TaskFormBloc>()..add(TaskFormLoadRequested(editId: editId)),
+    child: const _AddTaskView(),
+  );
 }
 
 class _AddTaskView extends StatefulWidget {
@@ -88,17 +90,32 @@ class _AddTaskViewState extends State<_AddTaskView> {
       _dateError = dueErr;
     });
     if (!_form.currentState!.validate() || dueErr != null) return;
-    context.read<TaskFormBloc>().add(TaskFormSubmitted(TaskItem(
-          id: '', title: _title.text.trim(), kind: _reminder ? 'reminder' : 'task', category: _reminder ? kReminderCategory : _cat, priority: _pri,
-          classId: _class, due: _due.toIso8601String(), notify: _notify, notes: _notes.text.trim(),
-        )));
+    context.read<TaskFormBloc>().add(
+      TaskFormSubmitted(
+        TaskItem(
+          id: '',
+          title: _title.text.trim(),
+          kind: _reminder ? 'reminder' : 'task',
+          category: _reminder ? kReminderCategory : _cat,
+          priority: _pri,
+          classId: _class,
+          due: _due.toIso8601String(),
+          notify: _notify,
+          notes: _notes.text.trim(),
+        ),
+      ),
+    );
   }
 
   Future<void> _pickClass(TaskFormState s) async {
-    final picked = await showPickSheet<String>(context,
-        title: 'Class & Batch Assignment', items: ['', ...s.classes.map((c) => c.id)], selected: _class,
-        label: (id) => id.isEmpty ? 'General (no class)' : 'Class ${_classOf(s, id)?.label ?? id}',
-        sub: (id) => id.isEmpty ? 'Not linked to a class' : '${_classOf(s, id)?.students ?? 0} enrolled students');
+    final picked = await showPickSheet<String>(
+      context,
+      title: 'Class & Batch Assignment',
+      items: ['', ...s.classes.map((c) => c.id)],
+      selected: _class,
+      label: (id) => id.isEmpty ? 'General (no class)' : 'Class ${_classOf(s, id)?.label ?? id}',
+      sub: (id) => id.isEmpty ? 'Not linked to a class' : '${_classOf(s, id)?.students ?? 0} enrolled students',
+    );
     if (picked != null) setState(() => _class = picked);
   }
 
@@ -106,36 +123,50 @@ class _AddTaskViewState extends State<_AddTaskView> {
 
   @override
   Widget build(BuildContext context) => BlocConsumer<TaskFormBloc, TaskFormState>(
-        listenWhen: (a, b) => a.status != b.status,
-        listener: (context, s) {
-          if (s.status == TaskFormStatus.ready) setState(() => _fill(s.task));
-          if (s.status == TaskFormStatus.saved) {
-            final noun = s.savedReminder ? 'Reminder' : 'Task';
-            AppDialogs.showSnackBar(context, message: s.task != null ? '$noun updated' : '$noun created');
-            _close();
-          }
-          if (s.status == TaskFormStatus.failure) AppDialogs.showSnackBar(context, message: s.error ?? 'Could not save', isError: true);
-        },
-        builder: (context, s) {
-          final noun = _reminder ? 'Reminder' : 'Task';
-          final editing = s.isEdit;
-          final loading = s.status == TaskFormStatus.initial || s.status == TaskFormStatus.loading;
-          return DetailScaffold(
-            title: editing ? 'Edit $noun' : 'Add $noun',
-            fallbackRoute: RoutePaths.tasks,
-            bottom: Row(children: [
-              Expanded(child: AppButton('Cancel', kind: BtnKind.outline, onPressed: _close)),
-              SizedBox(width: 12.w),
-              Expanded(flex: 2, child: AppButton(editing ? 'Save Changes' : 'Create $noun', busy: s.status == TaskFormStatus.saving, onPressed: loading ? null : () => _save(s))),
-            ]),
-            body: loading ? const Center(child: CircularProgressIndicator()) : _body(s, noun),
-          );
-        },
+    listenWhen: (a, b) => a.status != b.status,
+    listener: (context, s) {
+      if (s.status == TaskFormStatus.ready) setState(() => _fill(s.task));
+      if (s.status == TaskFormStatus.saved) {
+        final noun = s.savedReminder ? 'Reminder' : 'Task';
+        AppDialogs.showSnackBar(context, message: s.task != null ? '$noun updated' : '$noun created');
+        _close();
+      }
+      if (s.status == TaskFormStatus.failure) AppDialogs.showSnackBar(context, message: s.error ?? 'Could not save', isError: true);
+    },
+    builder: (context, s) {
+      final noun = _reminder ? 'Reminder' : 'Task';
+      final editing = s.isEdit;
+      final loading = s.status == TaskFormStatus.initial || s.status == TaskFormStatus.loading;
+      return DetailScaffold(
+        title: editing ? 'Edit $noun' : 'Add $noun',
+        fallbackRoute: RoutePaths.tasks,
+        bottom: Row(
+          children: [
+            Expanded(
+              child: AppButton('Cancel', kind: BtnKind.outline, onPressed: _close),
+            ),
+            SizedBox(width: 12.w),
+            Expanded(
+              flex: 2,
+              child: AppButton(
+                editing ? 'Save Changes' : 'Create $noun',
+                busy: s.status == TaskFormStatus.saving,
+                onPressed: loading ? null : () => _save(s),
+              ),
+            ),
+          ],
+        ),
+        body: loading ? const SchoolSkeletonList() : _body(s, noun),
       );
+    },
+  );
 
   Widget _body(TaskFormState s, String noun) {
     final c = _classOf(s, _class);
-    Widget label(String t) => Padding(padding: EdgeInsets.only(bottom: 8.h), child: Text(t, style: T.smallStrong.copyWith(color: C.slate)));
+    Widget label(String t) => Padding(
+      padding: EdgeInsets.only(bottom: 8.h),
+      child: Text(t, style: T.smallStrong.copyWith(color: C.slate)),
+    );
     return Form(
       key: _form,
       autovalidateMode: _submitted ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
@@ -143,79 +174,136 @@ class _AddTaskViewState extends State<_AddTaskView> {
         // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
         // would be skipped and an invalid value saved
         scrollCacheExtent: kFormScrollCache,
-        padding: EdgeInsets.all(S.page), children: [
-        AppSegmented(items: const ['Task', 'Reminder'], value: _reminder ? 'Reminder' : 'Task', track: true, onChanged: (v) => setState(() => _reminder = v == 'Reminder')),
-        SizedBox(height: 16.h),
-        Row(children: [
-          Expanded(child: Text.rich(TextSpan(style: T.smallStrong.copyWith(color: C.slate), children: [TextSpan(text: '$noun Title '), TextSpan(text: '*', style: TextStyle(color: C.danger))]))),
-          Text('${_title.text.length}/80', style: T.small),
-        ]),
-        SizedBox(height: 6.h),
-        TextFormField(
-          controller: _title, maxLength: 80, style: T.bodyStrong.copyWith(fontWeight: FontWeight.w500),
-          decoration: const InputDecoration(hintText: 'e.g. Grade 10-B Math Term Mid-Papers', counterText: ''),
-          validator: (v) => (v == null || v.trim().isEmpty) ? 'Please enter a title' : (v.trim().length < 3 ? 'Title is too short' : null),
-        ),
-        SizedBox(height: 16.h),
-        if (!_reminder) ...[
-          label('Category'),
-          AppChoiceChips(items: kTaskCategories, value: _cat, solid: true, icons: _catIcons, onChanged: (v) => setState(() => _cat = v)),
+        padding: EdgeInsets.all(S.page),
+        children: [
+          AppSegmented(
+            items: const ['Task', 'Reminder'],
+            value: _reminder ? 'Reminder' : 'Task',
+            track: true,
+            onChanged: (v) => setState(() => _reminder = v == 'Reminder'),
+          ),
           SizedBox(height: 16.h),
+          Row(
+            children: [
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    style: T.smallStrong.copyWith(color: C.slate),
+                    children: [
+                      TextSpan(text: '$noun Title '),
+                      TextSpan(
+                        text: '*',
+                        style: TextStyle(color: C.danger),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Text('${_title.text.length}/80', style: T.small),
+            ],
+          ),
+          SizedBox(height: 6.h),
+          TextFormField(
+            controller: _title,
+            maxLength: 80,
+            style: T.bodyStrong.copyWith(fontWeight: FontWeight.w500),
+            decoration: const InputDecoration(hintText: 'e.g. Grade 10-B Math Term Mid-Papers', counterText: ''),
+            validator: (v) =>
+                (v == null || v.trim().isEmpty) ? 'Please enter a title' : (v.trim().length < 3 ? 'Title is too short' : null),
+          ),
+          SizedBox(height: 16.h),
+          if (!_reminder) ...[
+            label('Category'),
+            AppChoiceChips(items: kTaskCategories, value: _cat, solid: true, icons: _catIcons, onChanged: (v) => setState(() => _cat = v)),
+            SizedBox(height: 16.h),
+          ],
+          label('Priority Level'),
+          AppChoiceChips(
+            items: _pris.values.toList(),
+            value: _pris[_pri]!,
+            toneOf: (v) => switch (v) {
+              'Urgent' => Tone.danger,
+              'Medium' => Tone.warning,
+              _ => Tone.neutral,
+            },
+            onChanged: (v) => setState(() => _pri = _pris.entries.firstWhere((e) => e.value == v).key),
+          ),
+          SizedBox(height: 16.h),
+          PickField(
+            label: 'Class & Batch Assignment',
+            icon: Icons.groups_outlined,
+            tile: true,
+            title: c == null ? 'General (no class)' : 'Class ${c.label}',
+            sub: c == null ? 'Not linked to a class' : '${c.students} enrolled students${s.term.isEmpty ? '' : ' • ${s.term}'}',
+            trailing: Icon(Icons.keyboard_arrow_down_rounded, color: C.slate, size: 24.r),
+            onTap: () => _pickClass(s),
+          ),
+          SizedBox(height: 16.h),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: PickField(
+                  label: 'Due Date',
+                  icon: Icons.calendar_today_outlined,
+                  title: relDay(_date),
+                  sub: fmtLong(_date),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final d = await showDatePicker(
+                      context: context,
+                      initialDate: _date.isBefore(now.subtract(const Duration(days: 365))) ? now : _date,
+                      firstDate: now.subtract(const Duration(days: 365)),
+                      lastDate: now.add(const Duration(days: 365 * 2)),
+                    );
+                    if (d == null) return;
+                    setState(() {
+                      _date = d;
+                      _dateError = _submitted ? _validateDue(s.isEdit) : null;
+                    });
+                  },
+                ),
+              ),
+              SizedBox(width: 12.w),
+              Expanded(
+                child: PickField(
+                  label: 'Due Time',
+                  icon: Icons.schedule_rounded,
+                  title: _time.format(context),
+                  sub: _time.hour < 12
+                      ? 'Morning'
+                      : _time.hour < 15
+                      ? 'Afternoon'
+                      : 'End of school',
+                  onTap: () async {
+                    final t = await showTimePicker(context: context, initialTime: _time);
+                    if (t == null) return;
+                    setState(() {
+                      _time = t;
+                      _dateError = _submitted ? _validateDue(s.isEdit) : null;
+                    });
+                  },
+                ),
+              ),
+            ],
+          ),
+          if (_dateError != null)
+            Padding(
+              padding: EdgeInsets.only(top: 6.h),
+              child: Text(_dateError!, style: T.small.copyWith(color: C.danger)),
+            ),
+          SizedBox(height: 14.h),
+          AppToggleRow(
+            title: 'Notify 30 mins before',
+            subtitle: 'Push alert + SMS summary',
+            value: _notify,
+            tinted: true,
+            onChanged: (v) => setState(() => _notify = v),
+          ),
+          SizedBox(height: 16.h),
+          AppTextField(label: 'Objective & Notes (Optional)', controller: _notes, maxLines: 3, hint: 'Add details…'),
         ],
-        label('Priority Level'),
-        AppChoiceChips(
-          items: _pris.values.toList(), value: _pris[_pri]!,
-          toneOf: (v) => switch (v) { 'Urgent' => Tone.danger, 'Medium' => Tone.warning, _ => Tone.neutral },
-          onChanged: (v) => setState(() => _pri = _pris.entries.firstWhere((e) => e.value == v).key),
-        ),
-        SizedBox(height: 16.h),
-        PickField(
-          label: 'Class & Batch Assignment', icon: Icons.groups_outlined, tile: true,
-          title: c == null ? 'General (no class)' : 'Class ${c.label}',
-          sub: c == null ? 'Not linked to a class' : '${c.students} enrolled students${s.term.isEmpty ? '' : ' • ${s.term}'}',
-          trailing: Icon(Icons.keyboard_arrow_down_rounded, color: C.slate, size: 24.r),
-          onTap: () => _pickClass(s),
-        ),
-        SizedBox(height: 16.h),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-            child: PickField(
-              label: 'Due Date', icon: Icons.calendar_today_outlined, title: relDay(_date), sub: fmtLong(_date),
-              onTap: () async {
-                final now = DateTime.now();
-                final d = await showDatePicker(
-                    context: context, initialDate: _date.isBefore(now.subtract(const Duration(days: 365))) ? now : _date,
-                    firstDate: now.subtract(const Duration(days: 365)), lastDate: now.add(const Duration(days: 365 * 2)));
-                if (d == null) return;
-                setState(() {
-                  _date = d;
-                  _dateError = _submitted ? _validateDue(s.isEdit) : null;
-                });
-              },
-            ),
-          ),
-          SizedBox(width: 12.w),
-          Expanded(
-            child: PickField(
-              label: 'Due Time', icon: Icons.schedule_rounded, title: _time.format(context),
-              sub: _time.hour < 12 ? 'Morning' : _time.hour < 15 ? 'Afternoon' : 'End of school',
-              onTap: () async {
-                final t = await showTimePicker(context: context, initialTime: _time);
-                if (t == null) return;
-                setState(() {
-                  _time = t;
-                  _dateError = _submitted ? _validateDue(s.isEdit) : null;
-                });
-              },
-            ),
-          ),
-        ]),
-        if (_dateError != null) Padding(padding: EdgeInsets.only(top: 6.h), child: Text(_dateError!, style: T.small.copyWith(color: C.danger))),
-        SizedBox(height: 14.h),
-        AppToggleRow(title: 'Notify 30 mins before', subtitle: 'Push alert + SMS summary', value: _notify, tinted: true, onChanged: (v) => setState(() => _notify = v)),
-        SizedBox(height: 16.h),
-        AppTextField(label: 'Objective & Notes (Optional)', controller: _notes, maxLines: 3, hint: 'Add details…'),
-      ]),
+      ),
     );
   }
 }

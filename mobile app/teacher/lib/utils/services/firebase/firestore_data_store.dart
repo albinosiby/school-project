@@ -1,3 +1,4 @@
+import 'package:school_sync/school_sync.dart';
 import 'dart:async';
 import 'dart:math';
 import '../data_store.dart';
@@ -12,7 +13,8 @@ import 'store_adapters.dart';
 /// - Writes are applied to the mirror immediately (optimistic) and written through to Firestore.
 /// - Collections load lazily on first read; [start] preloads the core ones.
 class FirestoreDataStore implements DataStore {
-  FirestoreDataStore(this._gateway, {List<StoreAdapter>? adapters, this._onError}) : _adapters = {for (final a in adapters ?? defaultAdapters()) a.local: a};
+  FirestoreDataStore(this._gateway, {List<StoreAdapter>? adapters, this._onError})
+    : _adapters = {for (final a in adapters ?? defaultAdapters()) a.local: a};
 
   final RemoteGateway _gateway;
   final Map<String, StoreAdapter> _adapters;
@@ -53,6 +55,7 @@ class FirestoreDataStore implements DataStore {
 
   /// Sign-out: drops listeners and every cached row.
   void stop() {
+    SchoolPolicyRuntime.clear();
     final names = {..._active, ..._local.keys};
     for (final s in _querySubs.values) {
       s.cancel();
@@ -162,7 +165,14 @@ class FirestoreDataStore implements DataStore {
   }
 
   void _apply(StoreAdapter a, Rec row) {
-    final writes = a.write(_ctx!, _remote(), row);
+    final List<RemoteWrite> writes;
+    try {
+      writes = a.write(_ctx!, _remote(), row);
+    } catch (e, s) {
+      // the adapter refused the change (e.g. a record owned by another teacher): tell the app and the caller
+      _onError?.call(e, s);
+      rethrow;
+    }
     if (writes.isEmpty) {
       _onError?.call(StateError('${a.local} is read-only for this record'), null);
       return;
@@ -170,11 +180,14 @@ class FirestoreDataStore implements DataStore {
     _commit(writes);
   }
 
-  /// Optimistic mirror update + write-through.
+  /// Optimistic mirror update + write-through. A write the server refuses is rolled back in the mirror, so the
+  /// screens never keep showing a change that was not saved, and reported through [_onError].
   void _commit(List<RemoteWrite> writes) {
     final touched = <String>{};
+    final before = <(String, String), Rec?>{};
     for (final w in writes) {
       final docs = _mirror.putIfAbsent(w.collection, () => {});
+      before[(w.collection, w.id)] = docs[w.id];
       if (w.delete) {
         docs.remove(w.id);
         _owners[w.collection]?.remove(w.id);
@@ -186,7 +199,18 @@ class FirestoreDataStore implements DataStore {
     _rebuild(touched);
     for (final w in writes) {
       final f = w.delete ? _gateway.delete(w.collection, w.id) : _gateway.set(w.collection, w.id, cleanRec(w.data));
-      f.catchError((Object e, StackTrace s) => _onError?.call(e, s));
+      f.catchError((Object e, StackTrace s) {
+        final docs = _mirror.putIfAbsent(w.collection, () => {});
+        final previous = before[(w.collection, w.id)];
+        if (previous == null) {
+          docs.remove(w.id);
+          _owners[w.collection]?.remove(w.id);
+        } else {
+          docs[w.id] = previous;
+        }
+        _rebuild({w.collection});
+        _onError?.call(e, s);
+      });
     }
   }
 
@@ -214,7 +238,9 @@ class FirestoreDataStore implements DataStore {
     for (final e in want.entries) {
       if (_querySubs.containsKey(e.key)) continue;
       _queries[e.key] = e.value;
-      _querySubs[e.key] = _gateway.watch(e.value).listen((docs) => _onSnapshot(e.value, docs), onError: (Object err, StackTrace s) => _onError?.call(err, s));
+      _querySubs[e.key] = _gateway
+          .watch(e.value)
+          .listen((docs) => _onSnapshot(e.value, docs), onError: (Object err, StackTrace s) => _onError?.call(err, s));
     }
   }
 
@@ -261,6 +287,10 @@ class FirestoreDataStore implements DataStore {
     if (ctx == null) return;
     if (remoteCollections.contains('live_classes')) _syncJoinListeners();
     final remote = _remote();
+    if (remoteCollections.contains('school') || force) {
+      final policy = (remote['school'] ?? const <Rec>[]).where((r) => r['id'] == 'mobile').firstOrNull;
+      SchoolPolicyRuntime.current = SchoolPolicy.fromJson(policy ?? const {});
+    }
     for (final c in _active.toList()) {
       final a = _adapter(c);
       if (!force && a.sources.intersection(remoteCollections).isEmpty) continue;
@@ -297,6 +327,8 @@ class FirestoreDataStore implements DataStore {
     }
   }
 
-  void _setJoinCount(String sessionId) =>
-      _mirror.putIfAbsent(LiveClassesAdapter.joinsSource, () => {})[sessionId] = {'id': sessionId, 'count': _joinIds[sessionId]?.length ?? 0};
+  void _setJoinCount(String sessionId) => _mirror.putIfAbsent(LiveClassesAdapter.joinsSource, () => {})[sessionId] = {
+    'id': sessionId,
+    'count': _joinIds[sessionId]?.length ?? 0,
+  };
 }

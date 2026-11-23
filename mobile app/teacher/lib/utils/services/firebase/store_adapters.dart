@@ -1,5 +1,7 @@
+import 'package:school_sync/school_sync.dart';
 import 'dart:convert';
 import '../data_store.dart';
+import '../../helpers/staff_profile_sections.dart';
 
 /// Per-collection adapters between the teacher app's local collections and the shared Firestore
 /// collections defined in website/docs/DATA_CONTRACT.md. They are pure (no Firebase imports) so they
@@ -25,7 +27,8 @@ class RemoteQuery {
   final String? inField;
   final List<String> inValues;
 
-  String get key => '$collection|${(eq.entries.map((e) => '${e.key}=${e.value}').toList()..sort()).join('&')}|${inField ?? ''}|${inValues.join(',')}';
+  String get key =>
+      '$collection|${(eq.entries.map((e) => '${e.key}=${e.value}').toList()..sort()).join('&')}|${inField ?? ''}|${inValues.join(',')}';
 }
 
 /// A write to one remote doc. Only the top-level [data] fields are replaced (nested maps are replaced as a whole).
@@ -54,29 +57,24 @@ String localClassId(String remoteId) => remoteId;
   final id = remoteClassId(classId);
   final senior = _seniorClassPattern.firstMatch(id);
   if (senior != null) return (grade: senior.group(1)!, section: senior.group(3)!);
-  final m = RegExp(r'^cls_(\d+)([A-Za-z]+)$').firstMatch(id);
+  final m = RegExp(r'^cls_(LKG|UKG|\d+)([A-Za-z]+)$').firstMatch(id);
   return (grade: m?.group(1) ?? '', section: m?.group(2) ?? '');
 }
 
-final _seniorClassPattern = RegExp(
-  r'^cls_(11|12)_(science|commerce|humanities|course_[a-z0-9]+(?:_[a-z0-9]+)*)_([A-H])$',
-);
+final _seniorClassPattern = RegExp(r'^cls_(11|12)_(science|commerce|humanities|course_[a-z0-9]+(?:_[a-z0-9]+)*)_([A-H])$');
 
 String classLabelOf(String classId) {
   final senior = _seniorClassPattern.firstMatch(remoteClassId(classId));
   if (senior != null) {
     final stream = senior.group(2)!.replaceFirst('course_', '');
-    final name = stream
-        .split('_')
-        .map((word) => word[0].toUpperCase() + word.substring(1))
-        .join(' ');
+    final name = stream.split('_').map((word) => word[0].toUpperCase() + word.substring(1)).join(' ');
     return '${senior.group(1)}-$name-${senior.group(3)}';
   }
   final g = gradeSectionOf(classId);
   return g.grade.isEmpty ? classId : '${g.grade}-${g.section}';
 }
 
-const kDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const kDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 /// `Mon` -> 1 .. `Sat` -> 6 (0 when unknown).
 int dayNumber(Object? day) {
@@ -84,7 +82,7 @@ int dayNumber(Object? day) {
   return i < 0 ? 0 : i + 1;
 }
 
-String dayName(int n) => n >= 1 && n <= 6 ? kDays[n - 1] : 'Mon';
+String dayName(int n) => n >= 1 && n <= 7 ? kDays[n - 1] : 'Mon';
 
 /// Period 3 -> `P3`.
 String slotOf(Object? period) => 'P${(period as num?)?.toInt() ?? int.tryParse('$period') ?? 1}';
@@ -93,16 +91,29 @@ String slotOf(Object? period) => 'P${(period as num?)?.toInt() ?? int.tryParse('
 int periodOf(Object? slot) => int.tryParse('$slot'.replaceAll(RegExp(r'[^0-9]'), '')) ?? 1;
 
 String shortSubject(String subject) {
-  const known = {'Mathematics': 'Math', 'Advanced Mathematics': 'Math', 'Science': 'Sci', 'Physics': 'Phy', 'Chemistry': 'Chem', 'Biology': 'Bio', 'English': 'Eng', 'Social Science': 'SST'};
+  const known = {
+    'Mathematics': 'Math',
+    'Advanced Mathematics': 'Math',
+    'Science': 'Sci',
+    'Physics': 'Phy',
+    'Chemistry': 'Chem',
+    'Biology': 'Bio',
+    'English': 'Eng',
+    'Social Science': 'SST',
+  };
   return known[subject] ?? (subject.length <= 4 ? subject : subject.substring(0, 4));
 }
 
 String firstName(String full) {
-  final parts = full.split(' ').where((p) => p.isNotEmpty && !RegExp(r'^(Mr|Mrs|Ms|Dr|Prof|Sir)\.?$', caseSensitive: false).hasMatch(p)).toList();
+  final parts = full
+      .split(' ')
+      .where((p) => p.isNotEmpty && !RegExp(r'^(Mr|Mrs|Ms|Dr|Prof|Sir)\.?$', caseSensitive: false).hasMatch(p))
+      .toList();
   return parts.isEmpty ? full : parts.first;
 }
 
-String _isoDay(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+String _isoDay(DateTime d) =>
+    '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 Rec _clean(Rec r) => jsonDecode(jsonEncode(r)) as Rec;
 
@@ -118,7 +129,12 @@ Rec? _byId(Remote r, String c, String id) {
 /// Staff doc of the signed-in teacher.
 Rec staffOf(AdapterContext ctx, Remote r) => _byId(r, 'staff', ctx.staffId) ?? {'id': ctx.staffId};
 
-Rec stamp(AdapterContext ctx, Rec data) => {...data, 'teacherId': ctx.staffId, 'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid};
+Rec stamp(AdapterContext ctx, Rec data) => {
+  ...data,
+  'teacherId': ctx.staffId,
+  'updatedAt': ctx.now.toIso8601String(),
+  'updatedBy': ctx.authUid,
+};
 
 /// Class ids the teacher teaches or is class teacher of (assignments, classes, own periods).
 List<String> myClassIds(AdapterContext ctx, Remote r) {
@@ -158,7 +174,10 @@ RemoteQuery ownedSheetsQuery(AdapterContext ctx) => RemoteQuery('exm_sheets', eq
 /// Firestore `whereIn` takes at most 30 values: split into several queries.
 List<RemoteQuery> inQueries(String collection, String field, Iterable<String> values) {
   final v = values.toSet().toList()..sort();
-  return [for (var i = 0; i < v.length; i += 30) RemoteQuery(collection, inField: field, inValues: v.sublist(i, i + 30 > v.length ? v.length : i + 30))];
+  return [
+    for (var i = 0; i < v.length; i += 30)
+      RemoteQuery(collection, inField: field, inValues: v.sublist(i, i + 30 > v.length ? v.length : i + 30)),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +221,9 @@ class PrivateAdapter extends StoreAdapter {
   Set<String> get sources => {_remote};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery(_remote, eq: {'teacherId': ctx.staffId})];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery(_remote, eq: {'teacherId': ctx.staffId}),
+  ];
 
   /// Single-document collections (`settings`) use the collection name as the row id; remotely that id gets the
   /// teacher's staff id so every teacher has their own document.
@@ -218,10 +239,14 @@ class PrivateAdapter extends StoreAdapter {
   }
 
   @override
-  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [RemoteWrite(_remote, _remoteId(ctx, '${row['id']}'), stamp(ctx, _withoutId(row)))];
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite(_remote, _remoteId(ctx, '${row['id']}'), stamp(ctx, _withoutId(row))),
+  ];
 
   @override
-  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) => [RemoteWrite(_remote, _remoteId(ctx, '${row['id']}'), const {}, delete: true)];
+  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite(_remote, _remoteId(ctx, '${row['id']}'), const {}, delete: true),
+  ];
 }
 
 Rec _withoutId(Rec r) => {...r}..remove('id');
@@ -234,9 +259,9 @@ List<Rec> sortByOrd(List<Rec> rows) {
   num o(Rec r) => (r['ord'] as num?) ?? 0;
   final idx = {for (var i = 0; i < rows.length; i++) rows[i]['id']: i};
   return [...rows]..sort((a, b) {
-      final c = o(b).compareTo(o(a));
-      return c != 0 ? c : (idx[a['id']] ?? 0).compareTo(idx[b['id']] ?? 0);
-    });
+    final c = o(b).compareTo(o(a));
+    return c != 0 ? c : (idx[a['id']] ?? 0).compareTo(idx[b['id']] ?? 0);
+  });
 }
 
 /// Shared master data the teacher only reads (school, calendar...). Fields pass through.
@@ -252,7 +277,13 @@ class ReadOnlyAdapter extends StoreAdapter {
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery(remoteName, eq: where)];
   @override
-  List<Rec> build(AdapterContext ctx, Remote remote) => [..._docs(remote, remoteName)];
+  List<Rec> build(AdapterContext ctx, Remote remote) {
+    if (remoteName == 'school') {
+      final policy = _byId(remote, 'school', 'mobile');
+      SchoolPolicyRuntime.current = SchoolPolicy.fromJson(policy ?? const {});
+    }
+    return [..._docs(remote, remoteName)];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -267,14 +298,17 @@ class MeAdapter extends StoreAdapter {
   static const overlay = 'hm_me';
 
   @override
-  Set<String> get sources => {'staff', 'school', overlay};
+  Set<String> get sources => {'staff', 'school', overlay, 'staff_hr_photos', 'staff_self'};
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        const RemoteQuery('staff'),
-        const RemoteQuery('school'),
-        RemoteQuery(overlay, eq: {'teacherId': ctx.staffId}),
-      ];
+    const RemoteQuery('staff'),
+    const RemoteQuery('school'),
+    RemoteQuery(overlay, eq: {'teacherId': ctx.staffId}),
+    // the office's profile photo and HR card (rules: a teacher reads only their own docs)
+    RemoteQuery('staff_hr_photos', eq: {'__name__': ctx.staffId}),
+    RemoteQuery('staff_self', eq: {'__name__': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -282,22 +316,136 @@ class MeAdapter extends StoreAdapter {
     if (_byId(remote, 'staff', ctx.staffId) == null) return [];
     final school = _byId(remote, 'school', 'school') ?? const {};
     final over = _byId(remote, overlay, ctx.staffId) ?? const {};
-    String s(String k, [String d = '']) => '${over[k] ?? staff[k] ?? d}';
+    final self = _byId(remote, 'staff_self', ctx.staffId) ?? const {};
+    String s(String k, [String d = '']) => '${over[k] ?? staff[k] ?? self[k] ?? d}';
     final name = s('name');
     final year = '${school['academicYear'] ?? ''}';
     return [
       {
-        'id': 'me', 'staffId': ctx.staffId, 'name': name, 'short': firstName(name), 'title': '${staff['title'] ?? staff['designation'] ?? staff['role'] ?? ''}',
-        'subjects': '${staff['subjects'] ?? staff['department'] ?? ''}', 'designation': s('designation', '${staff['role'] ?? ''}'), 'empId': '${staff['empId'] ?? ''}',
-        'school': '${school['name'] ?? ''}', 'year': year.isEmpty ? '' : 'AY $year', 'term': '${school['term'] ?? ''}', 'email': s('email'), 'phone': s('phone'),
-        'joined': '${staff['joined'] ?? ''}', 'online': true,
-      }
+        'id': 'me',
+        'staffId': ctx.staffId,
+        'name': name,
+        'short': firstName(name),
+        'title': '${staff['title'] ?? staff['designation'] ?? staff['role'] ?? ''}',
+        'subjectNames': staff['subjectNames'] ?? const [],
+        'subjects': '${staff['subjects'] ?? staff['department'] ?? ''}',
+        'designation': s('designation', '${staff['role'] ?? ''}'),
+        'empId': '${staff['empId'] ?? ''}',
+        'school': '${school['name'] ?? ''}',
+        'year': year.isEmpty ? '' : 'AY $year',
+        'term': '${school['term'] ?? ''}',
+        'email': s('email'),
+        'phone': s('phone'),
+        'joined': '${staff['joined'] ?? ''}',
+        'photo': '${_byId(remote, 'staff_hr_photos', ctx.staffId)?['image'] ?? ''}',
+        'status': '${staff['status'] ?? ''}',
+        'logo': '${school['logoUrl'] ?? ''}',
+        'online': true,
+      },
     ];
   }
 
   @override
-  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) =>
-      [RemoteWrite(overlay, ctx.staffId, stamp(ctx, {for (final k in editable) if (row[k] != null) k: row[k]}))];
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite(
+      overlay,
+      ctx.staffId,
+      stamp(ctx, {
+        for (final k in editable)
+          if (row[k] != null) k: row[k],
+      }),
+    ),
+  ];
+}
+
+/// `hm_profile` <- `staff_self` (the office's HR card for this staff member, written by the server) + `staff` + `school`.
+/// The teacher may keep a desk note of their own in the private `hm_profile` overlay; everything else is read-only.
+class ProfileAdapter extends StoreAdapter {
+  const ProfileAdapter() : super('hm_profile');
+  static const overlay = 'hm_profile';
+
+  @override
+  Set<String> get sources => {'staff_self', 'staff', 'school', overlay};
+
+  @override
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('staff_self', eq: {'__name__': ctx.staffId}),
+    const RemoteQuery('staff'),
+    const RemoteQuery('school'),
+    RemoteQuery(overlay, eq: {'teacherId': ctx.staffId}),
+  ];
+
+  /// Years of experience: the office's figure, else the years since joining.
+  static int experienceOf(Rec self, Rec staff, DateTime now) {
+    final given = int.tryParse('${self['teachingExperience'] ?? ''}');
+    if (given != null && given > 0) return given;
+    final joined = DateTime.tryParse('${self['joined'] ?? staff['joined'] ?? ''}');
+    if (joined == null) return 0;
+    var years = now.year - joined.year;
+    if (now.month < joined.month || (now.month == joined.month && now.day < joined.day)) years--;
+    return years < 0 ? 0 : years;
+  }
+
+  @override
+  List<Rec> build(AdapterContext ctx, Remote remote) {
+    final staff = staffOf(ctx, remote);
+    final self = _byId(remote, 'staff_self', ctx.staffId) ?? const {};
+    final school = _byId(remote, 'school', 'school') ?? const {};
+    final over = _byId(remote, overlay, ctx.staffId) ?? const {};
+    final emergency = Map<String, dynamic>.from(self['emergency'] as Map? ?? const {});
+    final emergencyText = [
+      '${emergency['name'] ?? ''}',
+      if ('${emergency['relationship'] ?? ''}'.isNotEmpty) '(${emergency['relationship']})',
+      '${emergency['mobile'] ?? ''}',
+    ].where((s) => s.isNotEmpty).join(' ');
+    final year = '${school['academicYear'] ?? ''}';
+    final empId = '${staff['empId'] ?? self['empId'] ?? ''}';
+    final tail = ctx.staffId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+    final affiliation = '${school['affiliation'] ?? ''}'.replaceFirst(RegExp(r'^#'), '');
+    return [
+      {
+        'id': 'hm_profile',
+        // the ID card's token is stable per staff member and school (shown as text, QR and barcode)
+        'token': empId.isEmpty ? '' : 'FAC-$empId-${tail.substring(tail.length < 6 ? 0 : tail.length - 6)}',
+        // "CBSE • Affiliation 134563 • Chemperi" under the school name on the card
+        'schoolLine': [
+          '${school['board'] ?? ''}',
+          if (affiliation.isNotEmpty) 'Affiliation $affiliation',
+          '${school['city'] ?? ''}',
+        ].where((v) => v.trim().isNotEmpty).join(' • '),
+        'emergencyPhone': '${emergency['mobile'] ?? ''}',
+        'department': '${self['department'] ?? staff['department'] ?? ''}',
+        'bloodGroup': '${self['bloodGroup'] ?? ''}',
+        'emergency': emergencyText,
+        'validThrough': year.isEmpty ? '' : 'AY $year',
+        'cardNo': empId,
+        'desk': '${over['desk'] ?? ''}',
+        'attendancePct': 0,
+        'experience': experienceOf(self, staff, ctx.now),
+        'qualifications': [
+          for (final q in self['qualifications'] as List? ?? const [])
+            if (q is Map)
+              {
+                'title': [q['level'], q['course']].where((v) => '${v ?? ''}'.isNotEmpty).join(' • '),
+                'note': [q['specialization'], q['institution'], q['year']].where((v) => '${v ?? ''}'.isNotEmpty).join(' • '),
+                'tone': 'brand',
+              },
+        ],
+        'phone': '${self['phone'] ?? ''}',
+        // the office's full staff profile, as the dashboard shows it (read-only here)
+        'sections': profileSectionsOf(self, staff: staff),
+        'documents': profileDocumentsOf(self),
+        'bank': profileBankOf(self),
+        'payments': profilePaymentsOf(self),
+        'hrUpdatedAt': '${self['updatedAt'] ?? ''}',
+      },
+    ];
+  }
+
+  @override
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite(overlay, ctx.staffId, stamp(ctx, {if (row['desk'] != null) 'desk': row['desk']})),
+  ];
 }
 
 /// `classes`: the classes the teacher teaches (assignments + class teacher + own periods), joined with her subject/topic.
@@ -307,7 +455,7 @@ class ClassesAdapter extends StoreAdapter {
   @override
   bool get readOnly => true;
   @override
-  Set<String> get sources => {'classes', 'assignments', 'ops_periods', 'students', 'exm_papers', 'exm_sheets'};
+  Set<String> get sources => {'classes', 'assignments', 'ops_periods', 'students', 'exm_papers', 'exm_sheets', 'school'};
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) {
@@ -328,20 +476,53 @@ class ClassesAdapter extends StoreAdapter {
     final rows = <Rec>[];
     for (final id in ids) {
       final c = _byId(remote, 'classes', id);
-      if (c == null) continue;
-      final mine = [for (final a in _docs(remote, 'assignments')) if (a['teacherId'] == ctx.staffId && a['classId'] == id) a];
-      final studs = [for (final s in _docs(remote, 'students')) if (s['classId'] == id) s];
-      final att = studs.isEmpty ? 0.0 : studs.fold<double>(0, (t, s) => t + ((s['attendance'] as num?)?.toDouble() ?? 0)) / studs.length;
+      if (c == null || c['deleted'] == true) continue;
+      final mine = [
+        for (final a in _docs(remote, 'assignments'))
+          if (a['teacherId'] == ctx.staffId && a['classId'] == id) a,
+      ];
+      final studs = [
+        for (final s in _docs(remote, 'students'))
+          if (s['classId'] == id && s['deleted'] != true) s,
+      ];
+      final att = studs.isEmpty ? 0.0 : studs.fold<double>(0, (t, s) => t + academicAttendanceOf(s)) / studs.length;
       rows.add({
-        'id': localClassId(id), 'grade': '${c['grade']}', 'section': '${c['section']}', 'subject': mine.isEmpty ? '' : '${mine.first['subject']}',
-        'topic': mine.isEmpty ? '' : '${mine.first['topic'] ?? ''}', 'room': '${c['room'] ?? ''}', 'wing': '${c['wing'] ?? ''}',
-        'students': (c['studentCount'] as num?)?.toInt() ?? studs.length, 'classTeacher': c['classTeacherId'] == ctx.staffId, 'rep': '',
+        'id': localClassId(id),
+        'label': classLabelOf(id),
+        'subjects': [
+          ...{
+            for (final a in mine) '${a['subject'] ?? ''}',
+            for (final p in _docs(remote, 'ops_periods'))
+              if (p['teacherId'] == ctx.staffId && p['classId'] == id) '${p['subject'] ?? ''}',
+          },
+        ].where((s) => s.isNotEmpty).toList(),
+        'grade': '${c['grade']}',
+        'section': '${c['section']}',
+        'subject': mine.isEmpty ? '' : '${mine.first['subject']}',
+        'topic': mine.isEmpty ? '' : '${mine.first['topic'] ?? ''}',
+        'room': '${c['room'] ?? ''}',
+        'wing': '${c['wing'] ?? ''}',
+        'students': (c['studentCount'] as num?)?.toInt() ?? studs.length,
+        'classTeacher': c['classTeacherId'] == ctx.staffId,
+        'rep': '',
         'attendance': double.parse(att.toStringAsFixed(1)),
       });
     }
     rows.sort((a, b) => (b['classTeacher'] == true ? 1 : 0).compareTo(a['classTeacher'] == true ? 1 : 0));
     return rows;
   }
+}
+
+double academicAttendanceOf(Rec student) {
+  final value = student['academicAttendance'];
+  final policy = SchoolPolicyRuntime.current;
+  if (value is! Map ||
+      value['academicYear'] != policy.academicYear ||
+      (value['start'] ?? '') != (policy.rangeStart?.toIso8601String().split('T').first ?? '') ||
+      (value['end'] ?? '') != (policy.rangeEnd?.toIso8601String().split('T').first ?? '')) {
+    return 0;
+  }
+  return (value['percentage'] as num?)?.toDouble() ?? 0;
 }
 
 /// `students` of the teacher's classes. The contract keeps the letter grade in `perfGrade`.
@@ -351,7 +532,7 @@ class StudentsAdapter extends StoreAdapter {
   @override
   bool get readOnly => true;
   @override
-  Set<String> get sources => {'students', 'exm_papers', 'exm_sheets'};
+  Set<String> get sources => {'students', 'exm_papers', 'exm_sheets', 'school'};
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) {
@@ -362,13 +543,22 @@ class StudentsAdapter extends StoreAdapter {
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final rows = [
-      for (final s in _docs(remote, 'students'))
+      for (final s in _docs(remote, 'students')) if (s['deleted'] != true)
         {
-          'id': s['id'], 'name': s['name'], 'roll': s['roll'], 'classId': localClassId('${s['classId']}'), 'adm': s['admissionNumber'] ?? s['grn'] ?? '', 'guardian': s['guardian'] ?? '',
-          'phone': s['phone'] ?? '', 'attendance': (s['attendance'] as num?)?.toInt() ?? 0, 'grade': s['perfGrade'] ?? '',
+          'id': s['id'],
+          'name': s['name'],
+          'roll': s['roll'],
+          'classId': localClassId('${s['classId']}'),
+          'adm': s['admissionNumber'] ?? s['grn'] ?? '',
+          'guardian': s['guardian'] ?? '',
+          'phone': s['phone'] ?? '',
+          'attendance': academicAttendanceOf(s),
+          'admissionDate':
+              s['admissionDate'] ?? (s['academicAttendance'] is Map ? (s['academicAttendance'] as Map)['admissionDate'] : '') ?? '',
+          'grade': s['perfGrade'] ?? '',
           // linked parent logins (§13.1): a guardian without one cannot be messaged
           'guardianUids': MessagesAdapter.guardianUids(s),
-        }
+        },
     ];
     rows.sort((a, b) {
       final c = '${a['classId']}'.compareTo('${b['classId']}');
@@ -388,10 +578,10 @@ class PeriodsAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
-        RemoteQuery('ops_substitutions', eq: {'substituteTeacherId': ctx.staffId}),
-        RemoteQuery('tt_periods', eq: {'teacherId': ctx.staffId}),
-      ];
+    RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
+    RemoteQuery('ops_substitutions', eq: {'substituteTeacherId': ctx.staffId}),
+    RemoteQuery('tt_periods', eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -407,26 +597,48 @@ class PeriodsAdapter extends StoreAdapter {
       if (p['teacherId'] != ctx.staffId) continue;
       final cid = '${p['classId']}';
       rows.add({
-        'id': p['id'], 'day': dayNumber(p['day']), 'slot': slotOf(p['period']), 'kind': 'core', 'classId': localClassId(cid), 'label': classLabelOf(cid),
-        'subject': '${p['subject']}', 'short': shortSubject('${p['subject']}'), 'room': '${p['room'] ?? ''}', 'topic': topicFor(cid, '${p['subject']}'),
+        'id': p['id'],
+        'day': dayNumber(p['day']),
+        'slot': slotOf(p['period']),
+        'kind': 'core',
+        'classId': localClassId(cid),
+        'label': classLabelOf(cid),
+        'subject': '${p['subject']}',
+        'short': shortSubject('${p['subject']}'),
+        'room': '${p['room'] ?? ''}'.isNotEmpty ? '${p['room']}' : '${_byId(remote, 'classes', '${p['classId']}')?['room'] ?? ''}',
+        'topic': topicFor(cid, '${p['subject']}'),
       });
     }
     final now = ctx.now;
     final monday = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
-    final from = _isoDay(monday), to = _isoDay(monday.add(const Duration(days: 5)));
+    final from = _isoDay(monday), to = _isoDay(monday.add(const Duration(days: 6)));
     for (final s in _docs(remote, 'ops_substitutions')) {
       final date = '${s['date']}';
-      if (s['substituteTeacherId'] != ctx.staffId || s['status'] == 'Declined' || date.compareTo(from) < 0 || date.compareTo(to) > 0) continue;
+      if (s['substituteTeacherId'] != ctx.staffId || s['status'] == 'Declined' || date.compareTo(from) < 0 || date.compareTo(to) > 0) {
+        continue;
+      }
       final cid = '${s['classId']}';
       final cls = _byId(remote, 'classes', cid);
       rows.add({
-        'id': 'sp_${s['id']}', 'day': dayNumber(s['day']), 'slot': slotOf(s['period']), 'kind': 'sub', 'classId': localClassId(cid), 'label': classLabelOf(cid),
-        'subject': '${s['subject']} (Sub)', 'short': 'Sub', 'room': '${cls?['room'] ?? ''}', 'topic': '${s['topic'] ?? ''}', 'subId': s['id'],
+        'id': 'sp_${s['id']}',
+        'day': dayNumber(s['day']),
+        'slot': slotOf(s['period']),
+        'kind': 'sub',
+        'classId': localClassId(cid),
+        'label': classLabelOf(cid),
+        'subject': '${s['subject']} (Sub)',
+        'short': 'Sub',
+        'room': '${cls?['room'] ?? ''}',
+        'topic': '${s['topic'] ?? ''}',
+        'subId': s['id'],
       });
     }
     // private extras never shadow a real period in the same slot
     final taken = {for (final r in rows) '${r['day']}_${r['slot']}'};
-    for (final e in sortByOrd([for (final d in _docs(remote, 'tt_periods')) if (d['teacherId'] == ctx.staffId) _stripMeta(d)])) {
+    for (final e in sortByOrd([
+      for (final d in _docs(remote, 'tt_periods'))
+        if (d['teacherId'] == ctx.staffId) _stripMeta(d),
+    ])) {
       if (!taken.contains('${e['day']}_${e['slot']}')) rows.add(e);
     }
     return rows;
@@ -456,12 +668,12 @@ class SubstitutionsAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        RemoteQuery('ops_substitutions', eq: {'substituteTeacherId': ctx.staffId}),
-        const RemoteQuery('staff'),
-        RemoteQuery('classes', eq: {'classTeacherId': ctx.staffId}),
-        ...inQueries('classes', '__name__', [for (final s in _docs(remote, 'ops_substitutions')) '${s['classId']}']),
-        RemoteQuery('tt_subs', eq: {'teacherId': ctx.staffId}),
-      ];
+    RemoteQuery('ops_substitutions', eq: {'substituteTeacherId': ctx.staffId}),
+    const RemoteQuery('staff'),
+    RemoteQuery('classes', eq: {'classTeacherId': ctx.staffId}),
+    ...inQueries('classes', '__name__', [for (final s in _docs(remote, 'ops_substitutions')) '${s['classId']}']),
+    RemoteQuery('tt_subs', eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -473,11 +685,26 @@ class SubstitutionsAdapter extends StoreAdapter {
       final absent = _byId(remote, 'staff', '${s['absentTeacherId']}') ?? const {};
       final over = _byId(remote, 'tt_subs', '${s['id']}') ?? const {};
       rows.add({
-        'id': s['id'], 'day': dayNumber(s['day']), 'slot': slotOf(s['period']), 'status': _toLocal['${s['status']}'] ?? 'pending',
-        'classLabel': '${classLabelOf(cid)} ${s['subject']}', 'subject': '${s['subject']}', 'classId': localClassId(cid), 'faculty': '${absent['name'] ?? ''}',
-        'dept': '${absent['department'] ?? ''}', 'role': '${absent['role'] ?? ''}', 'room': '${cls?['room'] ?? ''}', 'posted': '${s['date']}',
-        'tag': 'Substitution', 'chapter': '${s['topic'] ?? ''}', 'objective': '${s['topic'] ?? ''}', 'directive': '${s['note'] ?? ''}', 'date': s['date'],
-        'tasks': over['tasks'] ?? const <Rec>[], 'files': over['files'] ?? const <Rec>[], 'contacts': over['contacts'] ?? const <Rec>[],
+        'id': s['id'],
+        'day': dayNumber(s['day']),
+        'slot': slotOf(s['period']),
+        'status': _toLocal['${s['status']}'] ?? 'pending',
+        'classLabel': '${classLabelOf(cid)} ${s['subject']}',
+        'subject': '${s['subject']}',
+        'classId': localClassId(cid),
+        'faculty': '${absent['name'] ?? ''}',
+        'dept': '${absent['department'] ?? ''}',
+        'role': '${absent['role'] ?? ''}',
+        'room': '${cls?['room'] ?? ''}',
+        'posted': '${s['date']}',
+        'tag': 'Substitution',
+        'chapter': '${s['topic'] ?? ''}',
+        'objective': '${s['topic'] ?? ''}',
+        'directive': '${s['note'] ?? ''}',
+        'date': s['date'],
+        'tasks': over['tasks'] ?? const <Rec>[],
+        'files': over['files'] ?? const <Rec>[],
+        'contacts': over['contacts'] ?? const <Rec>[],
       });
     }
     rows.sort((a, b) => '${a['date']}'.compareTo('${b['date']}'));
@@ -494,8 +721,13 @@ class SubstitutionsAdapter extends StoreAdapter {
     final sendStatus = cur != null && cur['status'] != status && (status == 'Accepted' || status == 'Declined');
     return [
       // status lives on the shared substitution record (the admin sees accept/decline)
-      if (sendStatus) RemoteWrite('ops_substitutions', id, {'status': status, 'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid}),
-      RemoteWrite('tt_subs', id, stamp(ctx, {'tasks': row['tasks'] ?? const [], 'files': row['files'] ?? const [], 'contacts': row['contacts'] ?? const []})),
+      if (sendStatus)
+        RemoteWrite('ops_substitutions', id, {'status': status, 'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid}),
+      RemoteWrite(
+        'tt_subs',
+        id,
+        stamp(ctx, {'tasks': row['tasks'] ?? const [], 'files': row['files'] ?? const [], 'contacts': row['contacts'] ?? const []}),
+      ),
     ];
   }
 }
@@ -509,10 +741,13 @@ class AttendanceAdapter extends StoreAdapter {
   const AttendanceAdapter() : super('att_records');
 
   @override
-  Set<String> get sources => {'ops_attendance'};
+  Set<String> get sources => {'ops_attendance', 'assignments', 'ops_periods', 'classes'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery('ops_attendance', eq: {'teacherId': ctx.staffId})];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('ops_attendance', eq: {'teacherId': ctx.staffId}),
+    ...inQueries('ops_attendance', 'classId', myClassIds(ctx, remote)),
+  ];
 
   @override
   String? newId(AdapterContext ctx, Rec row) => idFor(row);
@@ -523,11 +758,17 @@ class AttendanceAdapter extends StoreAdapter {
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final rows = [
       for (final d in _docs(remote, 'ops_attendance'))
-        if (d['teacherId'] == ctx.staffId)
+        if (d['teacherId'] == ctx.staffId || myClassIds(ctx, remote).contains(d['classId']))
           {
-            'id': d['id'], 'classId': localClassId('${d['classId']}'), 'date': d['date'], 'period': (d['period'] as num?)?.toInt() ?? 1, 'total': (d['total'] as num?)?.toInt() ?? 0,
-            'marks': Map<String, dynamic>.from(d['marks'] as Map? ?? const {}), 'submitted': d['submitted'] == true, 'updatedAt': d['updatedAt'],
-          }
+            'id': d['id'],
+            'classId': localClassId('${d['classId']}'),
+            'date': d['date'],
+            'period': (d['period'] as num?)?.toInt() ?? 1,
+            'total': (d['total'] as num?)?.toInt() ?? 0,
+            'marks': Map<String, dynamic>.from(d['marks'] as Map? ?? const {}),
+            'submitted': d['submitted'] == true, 'readOnly': d['teacherId'] != ctx.staffId,
+            'updatedAt': d['updatedAt'],
+          },
     ];
     rows.sort((a, b) {
       final c = '${b['date']}'.compareTo('${a['date']}');
@@ -538,13 +779,27 @@ class AttendanceAdapter extends StoreAdapter {
 
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
+    final saved = _byId(remote, 'ops_attendance', idFor(row));
+    if (saved != null && saved['teacherId'] != ctx.staffId) {
+      throw StateError('This attendance was recorded by another teacher. Contact the school office for corrections.');
+    }
     final cid = remoteClassId('${row['classId']}');
     final g = gradeSectionOf(cid);
     return [
-      RemoteWrite('ops_attendance', idFor(row), stamp(ctx, {
-        'date': row['date'], 'classId': cid, 'grade': g.grade, 'section': g.section, 'period': row['period'], 'total': row['total'],
-        'marks': row['marks'] ?? const {}, 'submitted': row['submitted'] == true,
-      })),
+      RemoteWrite(
+        'ops_attendance',
+        idFor(row),
+        stamp(ctx, {
+          'date': row['date'],
+          'classId': cid,
+          'grade': g.grade,
+          'section': g.section,
+          'period': row['period'],
+          'total': row['total'],
+          'marks': row['marks'] ?? const {},
+          'submitted': row['submitted'] == true,
+        }),
+      ),
     ];
   }
 }
@@ -559,12 +814,16 @@ class HomeworkAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        RemoteQuery('ops_homework', eq: {'teacherId': ctx.staffId}),
-        RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
-      ];
+    RemoteQuery('ops_homework', eq: {'teacherId': ctx.staffId}),
+    RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
+  ];
 
   /// Admin web statuses ("Published", "Completed", "Draft") in the teacher app's words.
-  static String localStatus(Object? s) => switch ('${s ?? ''}'.toLowerCase()) { 'published' || '' => 'open', 'completed' => 'closed', final v => v };
+  static String localStatus(Object? s) => switch ('${s ?? ''}'.toLowerCase()) {
+    'published' || '' => 'open',
+    'completed' => 'closed',
+    final v => v,
+  };
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -580,8 +839,12 @@ class HomeworkAdapter extends StoreAdapter {
         }
       }
       rows.add({
-        ...({...d}..removeWhere((k, _) => denormalized.contains(k))), 'classId': localClassId(cid), 'submissions': subs,
-        'status': localStatus(d['status']), 'createdAt': d['createdAt'] ?? '${d['assigned'] ?? ''}T08:00:00', 'maxMarks': d['maxMarks'] ?? 20,
+        ...({...d}..removeWhere((k, _) => denormalized.contains(k))),
+        'classId': localClassId(cid),
+        'submissions': subs,
+        'status': localStatus(d['status']),
+        'createdAt': d['createdAt'] ?? '${d['assigned'] ?? ''}T08:00:00',
+        'maxMarks': d['maxMarks'] ?? 20,
       });
     }
     return sortByOrd(rows..sort((a, b) => '${b['createdAt']}'.compareTo('${a['createdAt']}')));
@@ -595,17 +858,29 @@ class HomeworkAdapter extends StoreAdapter {
     final submitted = subs.values.where((s) => s is Map && (s['status'] == 'submitted' || s['status'] == 'graded')).length;
     final created = '${row['createdAt'] ?? ''}';
     return [
-      RemoteWrite('ops_homework', '${row['id']}', stamp(ctx, {
-        ..._withoutId(row), 'classId': cid, 'teacher': '${staffOf(ctx, remote)['name'] ?? ''}', 'grade': g.grade, 'section': g.section,
-        'assigned': created.length >= 10 ? created.substring(0, 10) : _isoDay(ctx.now), 'submitted': submitted, 'total': subs.length,
-      })),
+      RemoteWrite(
+        'ops_homework',
+        '${row['id']}',
+        stamp(ctx, {
+          ..._withoutId(row),
+          'classId': cid,
+          'teacher': '${staffOf(ctx, remote)['name'] ?? ''}',
+          'grade': g.grade,
+          'section': g.section,
+          'assigned': created.length >= 10 ? created.substring(0, 10) : _isoDay(ctx.now),
+          'submitted': submitted,
+          'total': subs.length,
+        }),
+      ),
     ];
   }
 
   /// Soft delete (contract §2: hard delete is admin-only, the rules reject it): `deleted: true` hides the homework here
   /// and removes the parents' `par_homework` copies (§13.6).
   @override
-  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) => [RemoteWrite('ops_homework', '${row['id']}', stamp(ctx, {'deleted': true}))];
+  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite('ops_homework', '${row['id']}', stamp(ctx, {'deleted': true})),
+  ];
 }
 
 /// `att_marks` <-> `exm_marks`: id `{paperId}__cand_{studentId}`, theory = marks. Status/tag/note ride along.
@@ -615,7 +890,9 @@ bool subjectCovers(String paper, String assigned) {
   if (p.isEmpty || a.isEmpty) return false;
   if (p == a || p.contains(a) || a.contains(p)) return true;
   // the natural sciences only: "Social Science" and "Computer Science" are other subjects
-  bool sci(String x) => const {'physics', 'chemistry', 'biology'}.any(x.contains) || (x.contains('science') && !x.contains('social') && !x.contains('computer'));
+  bool sci(String x) =>
+      const {'physics', 'chemistry', 'biology'}.any(x.contains) ||
+      (x.contains('science') && !x.contains('social') && !x.contains('computer'));
   return sci(p) && sci(a);
 }
 
@@ -624,7 +901,10 @@ bool subjectCovers(String paper, String assigned) {
 bool paperLocked(Rec paper, Rec? cycle, String? classId) {
   if (paper['setupPublished'] == false || ['Postponed', 'Cancelled'].contains(paper['scheduleStatus'])) return true;
   if (paper['locked'] == true || cycle?['locked'] == true) return true;
-  if ((paper['lockedClassIds'] as List? ?? const []).contains(classId) || (paper['publishedClassIds'] as List? ?? const []).contains(classId)) return true;
+  if ((paper['lockedClassIds'] as List? ?? const []).contains(classId) ||
+      (paper['publishedClassIds'] as List? ?? const []).contains(classId)) {
+    return true;
+  }
   if (classId == null) return false;
   final published = [for (final c in paper['published'] as List? ?? const []) '$c'];
   return published.contains(classId) || published.contains(classLabelOf(classId));
@@ -635,11 +915,11 @@ const sheetOpenStatuses = {'NotStarted', 'InProgress', 'Returned'};
 
 /// `exm_sheets.status` -> the teacher app's exam status (contract §4).
 String sheetLocalStatus(Object? remote) => switch ('$remote') {
-      'Submitted' => 'Submitted',
-      'Returned' => 'Returned',
-      'Approved' || 'Locked' => 'Locked',
-      _ => 'Draft',
-    };
+  'Submitted' => 'Submitted',
+  'Returned' => 'Returned',
+  'Approved' || 'Locked' => 'Locked',
+  _ => 'Draft',
+};
 
 /// The sheet of a paper × class the signed-in teacher owns, if any (`exm_sheets/{paperId}__{classId}`).
 Rec? ownedSheet(AdapterContext ctx, Remote remote, String paperId, String? classId) {
@@ -677,12 +957,12 @@ class ExamsAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        const RemoteQuery('exm_papers'),
-        const RemoteQuery('exm_cycles'),
-        RemoteQuery('assignments', eq: {'teacherId': ctx.staffId}),
-        RemoteQuery('att_exam_state', eq: {'teacherId': ctx.staffId}),
-        RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId}),
-      ];
+    const RemoteQuery('exm_papers'),
+    const RemoteQuery('exm_cycles'),
+    RemoteQuery('assignments', eq: {'teacherId': ctx.staffId}),
+    RemoteQuery('att_exam_state', eq: {'teacherId': ctx.staffId}),
+    RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId}),
+  ];
 
   Rec _sheetRow(Remote remote, Rec s) {
     final ids = parseSheetId('${s['id']}');
@@ -701,17 +981,31 @@ class ExamsAdapter extends StoreAdapter {
     final roster = [for (final id in s['rosterIds'] as List? ?? const []) '$id'];
     final status = sheetLocalStatus(s['status']);
     return {
-      'id': localId(paperId, classId), 'classId': localClassId(classId), 'name': '${cycle?['short'] ?? cycle?['title'] ?? 'Exam'}',
-      'subject': '${s['subject'] ?? paper?['subject'] ?? ''}', 'max': components['theory'],
-      'status': status, 'submittedAt': s['submittedAt'], 'sections': const <Rec>[],
-      'date': paper?['date'], 'paperId': paperId, 'studentIds': roster, 'rosterIds': roster, 'components': components,
-      'returnNote': ?(status == 'Returned' ? s['returnNote'] : null), 'hasSheet': true, 'sheetId': s['id'],
+      'id': localId(paperId, classId),
+      'classId': localClassId(classId),
+      'name': '${cycle?['short'] ?? cycle?['title'] ?? 'Exam'}',
+      'subject': '${s['subject'] ?? paper?['subject'] ?? ''}',
+      'max': components['theory'],
+      'status': status,
+      'submittedAt': s['submittedAt'],
+      'sections': const <Rec>[],
+      'date': paper?['date'],
+      'paperId': paperId,
+      'studentIds': roster,
+      'rosterIds': roster,
+      'components': components,
+      'returnNote': ?(status == 'Returned' ? s['returnNote'] : null),
+      'hasSheet': true,
+      'sheetId': s['id'],
     };
   }
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
-    final mine = [for (final a in _docs(remote, 'assignments')) if (a['teacherId'] == ctx.staffId) a];
+    final mine = [
+      for (final a in _docs(remote, 'assignments'))
+        if (a['teacherId'] == ctx.staffId) a,
+    ];
     final rows = <Rec>[];
     final sheeted = <String>{};
     for (final s in _docs(remote, 'exm_sheets')) {
@@ -739,10 +1033,17 @@ class ExamsAdapter extends StoreAdapter {
         final st = _byId(remote, 'att_exam_state', id);
         final locked = paperLocked(p, cycle, classId) || p['assessmentMode'] == 'grade' || p['theory'] == 0;
         rows.add({
-          'id': id, 'classId': localClassId(classId), 'name': '${cycle?['short'] ?? cycle?['title'] ?? 'Exam'}',
-          'subject': '${p['subject'] ?? a['subject']}', 'max': (p['theory'] as num?)?.toInt() ?? 100,
-          'status': locked ? 'Locked' : '${st?['status'] ?? 'Draft'}', 'submittedAt': st?['submittedAt'], 'sections': const <Rec>[],
-          'date': p['date'], 'paperId': p['id'], 'studentIds': p['studentIds'],
+          'id': id,
+          'classId': localClassId(classId),
+          'name': '${cycle?['short'] ?? cycle?['title'] ?? 'Exam'}',
+          'subject': '${p['subject'] ?? a['subject']}',
+          'max': (p['theory'] as num?)?.toInt() ?? 100,
+          'status': locked ? 'Locked' : '${st?['status'] ?? 'Draft'}',
+          'submittedAt': st?['submittedAt'],
+          'sections': const <Rec>[],
+          'date': p['date'],
+          'paperId': p['id'],
+          'studentIds': p['studentIds'],
         });
       }
     }
@@ -760,13 +1061,20 @@ class ExamsAdapter extends StoreAdapter {
       if (row['status'] != 'Submitted' || sheet == null || !sheetOpenStatuses.contains('${sheet['status']}')) return const [];
       return [
         RemoteWrite('exm_sheets', '${sheet['id']}', {
-          'status': 'Submitted', 'submittedAt': row['submittedAt'] ?? ctx.now.toIso8601String(), 'submittedBy': ctx.staffId,
-          'updatedAt': ctx.now.toIso8601String(), 'updatedBy': ctx.authUid,
+          'status': 'Submitted',
+          'submittedAt': row['submittedAt'] ?? ctx.now.toIso8601String(),
+          'submittedBy': ctx.staffId,
+          'updatedAt': ctx.now.toIso8601String(),
+          'updatedBy': ctx.authUid,
         }),
       ];
     }
     return [
-      RemoteWrite('att_exam_state', '${row['id']}', stamp(ctx, {'status': row['status'], 'submittedAt': row['submittedAt'], 'teacherId': ctx.staffId})),
+      RemoteWrite(
+        'att_exam_state',
+        '${row['id']}',
+        stamp(ctx, {'status': row['status'], 'submittedAt': row['submittedAt'], 'teacherId': ctx.staffId}),
+      ),
     ];
   }
 }
@@ -786,25 +1094,32 @@ class MarksAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        RemoteQuery('exm_marks', eq: {'teacherId': ctx.staffId}),
-        const RemoteQuery('exm_papers'),
-        const RemoteQuery('exm_cycles'),
-        RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId}),
-      ];
+    RemoteQuery('exm_marks', eq: {'teacherId': ctx.staffId}),
+    const RemoteQuery('exm_papers'),
+    const RemoteQuery('exm_cycles'),
+    RemoteQuery('exm_sheets', eq: {'ownerId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) => [
-        for (final d in _docs(remote, 'exm_marks'))
-          if (d['teacherId'] == ctx.staffId) _local(d, '${d['classId'] ?? _byId(remote, 'students', '${d['studentId']}')?['classId'] ?? ''}'),
-      ];
+    for (final d in _docs(remote, 'exm_marks'))
+      if (d['teacherId'] == ctx.staffId) _local(d, '${d['classId'] ?? _byId(remote, 'students', '${d['studentId']}')?['classId'] ?? ''}'),
+  ];
 
   Rec _local(Rec d, String classId) {
     final examId = classId.isEmpty ? '${d['paperId']}' : ExamsAdapter.localId('${d['paperId']}', classId);
     final hasAny = d['theory'] != null || d['practical'] != null || d['internal'] != null || '${d['gradeValue'] ?? ''}'.isNotEmpty;
     return {
-      'id': '${examId}_${d['studentId']}', 'examId': examId, 'studentId': d['studentId'], 'status': d['status'] ?? (hasAny ? 'Present' : 'Absent'),
-      'marks': d['theory'], 'practical': d['practical'], 'internal': d['internal'], 'gradeValue': '${d['gradeValue'] ?? ''}',
-      'tag': d['tag'] ?? '', 'note': d['note'] ?? '',
+      'id': '${examId}_${d['studentId']}',
+      'examId': examId,
+      'studentId': d['studentId'],
+      'status': d['status'] ?? (hasAny ? 'Present' : 'Absent'),
+      'marks': d['theory'],
+      'practical': d['practical'],
+      'internal': d['internal'],
+      'gradeValue': '${d['gradeValue'] ?? ''}',
+      'tag': d['tag'] ?? '',
+      'note': d['note'] ?? '',
     };
   }
 
@@ -828,10 +1143,21 @@ class MarksAdapter extends StoreAdapter {
       if (grade.isNotEmpty && options.isNotEmpty && !options.contains(grade)) return const [];
       return [
         RemoteWrite('exm_marks', remoteId(ex.paperId, st), {
-          'paperId': ex.paperId, 'candId': 'cand_$st', 'studentId': st, 'classId': ex.classId,
-          'theory': theory, 'practical': practical, 'internal': internal, 'gradeValue': grade,
-          'status': row['status'], 'tag': row['tag'] ?? '', 'note': row['note'] ?? '', 'teacherId': ctx.staffId,
-          'enteredAt': now, 'updatedAt': now, 'updatedBy': ctx.authUid,
+          'paperId': ex.paperId,
+          'candId': 'cand_$st',
+          'studentId': st,
+          'classId': ex.classId,
+          'theory': theory,
+          'practical': practical,
+          'internal': internal,
+          'gradeValue': grade,
+          'status': row['status'],
+          'tag': row['tag'] ?? '',
+          'note': row['note'] ?? '',
+          'teacherId': ctx.staffId,
+          'enteredAt': now,
+          'updatedAt': now,
+          'updatedBy': ctx.authUid,
         }),
       ];
     }
@@ -868,21 +1194,33 @@ class StaffLeavesAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        RemoteQuery('staff_leaves', eq: {'staffId': ctx.staffId}),
-        RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
-        RemoteQuery(withdrawn, eq: {'teacherId': ctx.staffId}),
-      ];
+    RemoteQuery('staff_leaves', eq: {'staffId': ctx.staffId}),
+    RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
+    RemoteQuery(withdrawn, eq: {'teacherId': ctx.staffId}),
+  ];
 
   Rec _local(Rec d) => {
-        ...({...d}..remove('updatedBy')..remove('teacherId')..remove('staffId')),
-        'from': d['from'] ?? d['start'], 'to': d['to'] ?? d['end'],
-        if (_att) ...{'start': d['start'] ?? d['from'], 'end': d['end'] ?? d['to'], 'by': d['by'] ?? (d['status'] == 'Pending' ? '' : 'School Admin'), 'handovers': d['handovers'] ?? const []},
-        if (!_att) 'sanctionedBy': d['sanctionedBy'] ?? (d['status'] == 'Approved' ? 'School Admin' : ''),
-      };
+    ...({...d}
+      ..remove('updatedBy')
+      ..remove('teacherId')
+      ..remove('staffId')),
+    'from': d['from'] ?? d['start'],
+    'to': d['to'] ?? d['end'],
+    if (_att) ...{
+      'start': d['start'] ?? d['from'],
+      'end': d['end'] ?? d['to'],
+      'by': d['by'] ?? (d['status'] == 'Pending' ? '' : 'School Admin'),
+      'handovers': d['handovers'] ?? const [],
+    },
+    if (!_att) 'sanctionedBy': d['sanctionedBy'] ?? (d['status'] == 'Approved' ? 'School Admin' : ''),
+  };
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
-    final live = {for (final d in _docs(remote, 'staff_leaves')) if (d['staffId'] == ctx.staffId) '${d['id']}'};
+    final live = {
+      for (final d in _docs(remote, 'staff_leaves'))
+        if (d['staffId'] == ctx.staffId) '${d['id']}',
+    };
     return sortByOrd([
       for (final d in _docs(remote, 'staff_leaves'))
         if (d['staffId'] == ctx.staffId) _local(d),
@@ -900,18 +1238,26 @@ class StaffLeavesAdapter extends StoreAdapter {
     if (curStatus != 'Pending') return const []; // decided by the admin: read-only for the teacher
     final data = {
       ..._withoutId(row),
-      'from': row['from'] ?? row['start'], 'to': row['to'] ?? row['end'], 'staffId': ctx.staffId,
+      'from': row['from'] ?? row['start'],
+      'to': row['to'] ?? row['end'],
+      'staffId': ctx.staffId,
       'createdAt': row['createdAt'] ?? cur?['createdAt'] ?? row['at'] ?? ctx.now.toIso8601String(),
     };
     if (_withdrawnStatuses.contains('${row['status']}')) {
       if (cur == null) return const [];
       return [
         RemoteWrite('staff_leaves', id, const {}, delete: true),
-        RemoteWrite(withdrawn, id, stamp(ctx, {...cur, ...data, 'status': 'Cancelled', 'withdrawnAt': ctx.now.toIso8601String()}..remove('id'))),
+        RemoteWrite(
+          withdrawn,
+          id,
+          stamp(ctx, {...cur, ...data, 'status': 'Cancelled', 'withdrawnAt': ctx.now.toIso8601String()}..remove('id')),
+        ),
       ];
     }
     // a new request always starts Pending; an edit keeps it Pending (rules)
-    return [RemoteWrite('staff_leaves', id, stamp(ctx, {...data, 'status': 'Pending'}))];
+    return [
+      RemoteWrite('staff_leaves', id, stamp(ctx, {...data, 'status': 'Pending'})),
+    ];
   }
 
   @override
@@ -951,7 +1297,9 @@ List<({String id, String name, String type, int total})> leavePolicy(Remote remo
   return [
     for (final t in types.whereType<Map>())
       (
-        id: '${t['id'] ?? ''}', name: '${t['name'] ?? t['id'] ?? ''}', type: '${t['type'] ?? t['name'] ?? ''}',
+        id: '${t['id'] ?? ''}',
+        name: '${t['name'] ?? t['id'] ?? ''}',
+        type: '${t['type'] ?? t['name'] ?? ''}',
         total: (t['total'] as num?)?.toInt() ?? int.tryParse('${t['total']}') ?? 0,
       ),
   ];
@@ -982,11 +1330,15 @@ class LeaveQuotaAdapter extends StoreAdapter {
   @override
   Set<String> get sources => {'staff_leaves', 'set_leave_policy'};
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery('staff_leaves', eq: {'staffId': ctx.staffId}), policyQuery];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('staff_leaves', eq: {'staffId': ctx.staffId}),
+    policyQuery,
+  ];
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) => [
-        for (final p in leavePolicy(remote).take(3)) {'id': p.id, 'name': p.name, 'short': p.type, 'total': p.total, 'used': usedLeave(ctx, remote, p.type).ceil()},
-      ];
+    for (final p in leavePolicy(remote).take(3))
+      {'id': p.id, 'name': p.name, 'short': p.type, 'total': p.total, 'used': usedLeave(ctx, remote, p.type).ceil()},
+  ];
 }
 
 /// `lm_balance` (Leave Management entitlements; that screen subtracts the used days itself).
@@ -1000,8 +1352,9 @@ class LeaveBalanceAdapter extends StoreAdapter {
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => const [policyQuery];
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) => [
-        for (final p in leavePolicy(remote)) if (p.id != 'DL') {'id': 'lb_${p.id}', 'type': p.type, 'total': p.total},
-      ];
+    for (final p in leavePolicy(remote))
+      if (p.id != 'DL') {'id': 'lb_${p.id}', 'type': p.type, 'total': p.total},
+  ];
 }
 
 /// `att_staff` <-> `staff_attendance/{date}_{staffId}` (§12.1): one doc per day, whatever local id the punch-in used.
@@ -1016,17 +1369,28 @@ class StaffAttendanceAdapter extends StoreAdapter {
   Set<String> get sources => {'staff_attendance', 'set_leave_policy'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery('staff_attendance', eq: {'staffId': ctx.staffId}), policyQuery];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('staff_attendance', eq: {'staffId': ctx.staffId}),
+    policyQuery,
+  ];
 
   @override
   String? newId(AdapterContext ctx, Rec row) => remoteId('${row['date']}', ctx.staffId);
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) => [
-        for (final d in _docs(remote, 'staff_attendance'))
-          if (d['staffId'] == ctx.staffId)
-            {'id': d['id'], 'date': d['date'], 'in': d['in'], 'out': d['out'], 'status': d['status'] ?? 'Present', 'note': d['note'] ?? '', 'source': d['source'] ?? 'app'},
-      ]..sort((a, b) => '${b['date']}'.compareTo('${a['date']}'));
+    for (final d in _docs(remote, 'staff_attendance'))
+      if (d['staffId'] == ctx.staffId)
+        {
+          'id': d['id'],
+          'date': d['date'],
+          'in': d['in'],
+          'out': d['out'],
+          'status': d['status'] ?? 'Present',
+          'note': d['note'] ?? '',
+          'source': d['source'] ?? 'app',
+        },
+  ]..sort((a, b) => '${b['date']}'.compareTo('${a['date']}'));
 
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
@@ -1038,7 +1402,10 @@ class StaffAttendanceAdapter extends StoreAdapter {
     if (inT != null && (status == 'Present' || status == 'Late')) status = _mins(inT) > _mins(checkInBy(remote)) ? 'Late' : 'Present';
     final data = cur == null
         ? {'staffId': ctx.staffId, 'date': date, 'in': inT, 'out': row['out'], 'status': status, 'note': row['note'] ?? '', 'source': 'app'}
-        : {'out': row['out'], if (inT != cur['in']) ...{'in': inT, 'status': status}};
+        : {
+            'out': row['out'],
+            if (inT != cur['in']) ...{'in': inT, 'status': status},
+          };
     return [RemoteWrite('staff_attendance', id, stamp(ctx, data))];
   }
 }
@@ -1052,27 +1419,47 @@ class RegularizationsAdapter extends StoreAdapter {
   Set<String> get sources => {'staff_regularizations'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery('staff_regularizations', eq: {'staffId': ctx.staffId})];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('staff_regularizations', eq: {'staffId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) => [
-        for (final d in _docs(remote, 'staff_regularizations'))
-          if (d['staffId'] == ctx.staffId)
-            {
-              'id': d['id'], 'date': d['date'] ?? '', 'type': d['type'] ?? '', 'time': d['time'] ?? '', 'reason': d['reason'] ?? '', 'note': d['note'] ?? '',
-              'status': d['status'] ?? 'Pending', 'at': d['at'] ?? '', 'decisionNote': d['decisionNote'] ?? '', 'decidedAt': d['decidedAt'],
-            },
-      ]..sort((a, b) => '${b['at']}'.compareTo('${a['at']}'));
+    for (final d in _docs(remote, 'staff_regularizations'))
+      if (d['staffId'] == ctx.staffId)
+        {
+          'id': d['id'],
+          'date': d['date'] ?? '',
+          'type': d['type'] ?? '',
+          'time': d['time'] ?? '',
+          'reason': d['reason'] ?? '',
+          'note': d['note'] ?? '',
+          'status': d['status'] ?? 'Pending',
+          'at': d['at'] ?? '',
+          'decisionNote': d['decisionNote'] ?? '',
+          'decidedAt': d['decidedAt'],
+        },
+  ]..sort((a, b) => '${b['at']}'.compareTo('${a['at']}'));
 
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
     final cur = _byId(remote, 'staff_regularizations', '${row['id']}');
     if (cur != null && (cur['status'] ?? 'Pending') != 'Pending') return const [];
     return [
-      RemoteWrite('staff_regularizations', '${row['id']}', stamp(ctx, {
-        'staffId': ctx.staffId, 'date': row['date'], 'type': row['type'], 'time': row['time'], 'reason': row['reason'] ?? '', 'note': row['note'] ?? '',
-        'status': 'Pending', 'at': row['at'] ?? ctx.now.toIso8601String(),
-      })),
+      RemoteWrite(
+        'staff_regularizations',
+        '${row['id']}',
+        stamp(ctx, {
+          'staffId': ctx.staffId,
+          'date': row['date'],
+          'type': row['type'],
+          'time': row['time'],
+          'reason': row['reason'] ?? '',
+          'note': row['note'] ?? '',
+          'status': 'Pending',
+          'at': row['at'] ?? ctx.now.toIso8601String(),
+        }),
+      ),
     ];
   }
 }
@@ -1093,10 +1480,10 @@ class StudentLeavesAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        ...inQueries('student_leaves', 'classId', myClassIds(ctx, remote)),
-        RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
-        if (!_lm) RemoteQuery(slipState, eq: {'teacherId': ctx.staffId}),
-      ];
+    ...inQueries('student_leaves', 'classId', myClassIds(ctx, remote)),
+    RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
+    if (!_lm) RemoteQuery(slipState, eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -1107,10 +1494,15 @@ class StudentLeavesAdapter extends StoreAdapter {
       final remoteStatus = '${d['status'] ?? 'Pending'}';
       final clarify = !_lm && remoteStatus == 'Pending' && _byId(remote, slipState, '${d['id']}')?['status'] == 'Clarify';
       final status = clarify ? 'Clarify' : remoteStatus;
-      final base = {...d}..remove('src')..remove('updatedBy');
+      final base = {...d}
+        ..remove('src')
+        ..remove('updatedBy');
       final decidedAt = DateTime.tryParse('${d['decidedAt'] ?? ''}');
       rows.add({
-        ...base, 'classId': localClassId('${d['classId']}'), 'name': d['name'] ?? stu?['name'] ?? '', 'roll': d['roll'] ?? stu?['roll'] ?? 0,
+        ...base,
+        'classId': localClassId('${d['classId']}'),
+        'name': d['name'] ?? stu?['name'] ?? '',
+        'roll': d['roll'] ?? stu?['roll'] ?? 0,
         'status': _lm ? status.toLowerCase() : status, 'note': _lm ? (d['decisionNote'] ?? d['note'] ?? '') : d['note'],
         // the parent app sends who asked as `by` ("Mr. X (Father)"); the slips view calls it `parent`
         if (!_lm) 'parent': d['parent'] ?? d['by'] ?? '',
@@ -1146,8 +1538,12 @@ class StudentLeavesAdapter extends StoreAdapter {
     return [
       // a decision on an existing (usually parent-created) request: only the decision fields, merged into the doc
       RemoteWrite('student_leaves', id, {
-        'status': remoteStatus, 'decisionNote': note, if (decided) 'decidedBy': ctx.staffId, if (decided) 'decidedAt': row['decidedAt'] ?? now,
-        'updatedAt': now, 'updatedBy': ctx.authUid,
+        'status': remoteStatus,
+        'decisionNote': note,
+        if (decided) 'decidedBy': ctx.staffId,
+        if (decided) 'decidedAt': row['decidedAt'] ?? now,
+        'updatedAt': now,
+        'updatedBy': ctx.authUid,
       }),
       if (clarify || over?['status'] == 'Clarify') RemoteWrite(slipState, id, stamp(ctx, {'status': clarify ? 'Clarify' : remoteStatus})),
     ];
@@ -1166,8 +1562,10 @@ class MedicalSlipsAdapter extends StoreAdapter {
   Set<String> get sources => {'student_leaves', 'students', 'staff'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) =>
-      [...inQueries('student_leaves', 'classId', myClassIds(ctx, remote)), RemoteQuery('staff', eq: {'__name__': ctx.staffId})];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    ...inQueries('student_leaves', 'classId', myClassIds(ctx, remote)),
+    RemoteQuery('staff', eq: {'__name__': ctx.staffId}),
+  ];
 
   static int _days(Rec d) {
     final n = (d['days'] as num?)?.toInt();
@@ -1181,14 +1579,27 @@ class MedicalSlipsAdapter extends StoreAdapter {
     final rows = <Rec>[];
     for (final d in _docs(remote, 'student_leaves')) {
       if (d['deleted'] == true || !isMedicalLeave(d)) continue;
-      final att = d['attachment'] ?? (d['attachments'] is List && (d['attachments'] as List).isNotEmpty ? (d['attachments'] as List).first : null);
+      final att =
+          d['attachment'] ?? (d['attachments'] is List && (d['attachments'] as List).isNotEmpty ? (d['attachments'] as List).first : null);
       final decidedBy = '${d['decidedBy'] ?? ''}';
       final reason = '${d['reason'] ?? ''}';
       rows.add({
-        'id': d['id'], 'studentId': d['studentId'], 'title': reason.isEmpty ? '${d['type'] ?? 'Medical Leave'}' : reason, 'clinic': '${d['clinic'] ?? ''}',
-        'from': d['from'] ?? '', 'to': d['to'] ?? d['from'] ?? '', 'days': _days(d), 'file': att is Map ? '${att['name'] ?? ''}' : '${att ?? ''}',
-        'uploader': '${d['by'] ?? d['name'] ?? 'Parent'}', 'uploadedAt': '${d['appliedOn'] ?? d['createdAt'] ?? ''}', 'status': '${d['status'] ?? 'Pending'}',
-        'by': decidedBy.isEmpty ? '' : decidedBy == ctx.staffId ? '${staffOf(ctx, remote)['name'] ?? ''}' : 'School Office',
+        'id': d['id'],
+        'studentId': d['studentId'],
+        'title': reason.isEmpty ? '${d['type'] ?? 'Medical Leave'}' : reason,
+        'clinic': '${d['clinic'] ?? ''}',
+        'from': d['from'] ?? '',
+        'to': d['to'] ?? d['from'] ?? '',
+        'days': _days(d),
+        'file': att is Map ? '${att['name'] ?? ''}' : '${att ?? ''}',
+        'uploader': '${d['by'] ?? d['name'] ?? 'Parent'}',
+        'uploadedAt': '${d['appliedOn'] ?? d['createdAt'] ?? ''}',
+        'status': '${d['status'] ?? 'Pending'}',
+        'by': decidedBy.isEmpty
+            ? ''
+            : decidedBy == ctx.staffId
+            ? '${staffOf(ctx, remote)['name'] ?? ''}'
+            : 'School Office',
         if (d['decisionNote'] != null && '${d['decisionNote']}'.isNotEmpty) 'reason': d['decisionNote'],
       });
     }
@@ -1203,8 +1614,12 @@ class MedicalSlipsAdapter extends StoreAdapter {
     final now = ctx.now.toIso8601String();
     return [
       RemoteWrite('student_leaves', '${row['id']}', {
-        'status': decided ? status : 'Pending', 'decisionNote': '${row['reason'] ?? ''}', if (decided) 'decidedBy': ctx.staffId, if (decided) 'decidedAt': now,
-        'updatedAt': now, 'updatedBy': ctx.authUid,
+        'status': decided ? status : 'Pending',
+        'decisionNote': '${row['reason'] ?? ''}',
+        if (decided) 'decidedBy': ctx.staffId,
+        if (decided) 'decidedAt': now,
+        'updatedAt': now,
+        'updatedBy': ctx.authUid,
       }),
     ];
   }
@@ -1215,10 +1630,17 @@ class MedicalSlipsAdapter extends StoreAdapter {
 // ---------------------------------------------------------------------------
 
 /// The teacher's own `ops_periods`.
-List<Rec> _myPeriods(AdapterContext ctx, Remote remote) => [for (final p in _docs(remote, 'ops_periods')) if (p['teacherId'] == ctx.staffId) p];
+List<Rec> _myPeriods(AdapterContext ctx, Remote remote) => [
+  for (final p in _docs(remote, 'ops_periods'))
+    if (p['teacherId'] == ctx.staffId) p,
+];
 
 /// Period times of the teacher app (contract §2: periods 1..8).
-const kPeriodTimes = {1: ('08:30', '09:15'), 2: ('09:15', '10:00'), 3: ('10:15', '11:00'), 4: ('11:00', '11:45'), 5: ('13:30', '14:15'), 6: ('14:15', '15:00'), 7: ('15:00', '15:45'), 8: ('15:45', '16:30')};
+
+Map<int, (String, String)> get kPeriodTimes => {
+  for (final row in SchoolPolicyRuntime.current.slots)
+    if (!row.isBreak && !row.isGap) int.parse(row.id.substring(1)): (row.start, row.end),
+};
 
 String _t12(String hhmm) {
   final m = _mins(hhmm), h = m ~/ 60;
@@ -1235,19 +1657,24 @@ class TodayScheduleAdapter extends StoreAdapter {
   Set<String> get sources => {'ops_periods', 'ops_substitutions'};
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
-        RemoteQuery('ops_substitutions', eq: {'substituteTeacherId': ctx.staffId}),
-      ];
+    RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
+    RemoteQuery('ops_substitutions', eq: {'substituteTeacherId': ctx.staffId}),
+  ];
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
-    final day = ctx.now.weekday <= 6 ? kDays[ctx.now.weekday - 1] : '';
+    final day = ctx.now.weekday <= 7 ? kDays[ctx.now.weekday - 1] : '';
     final today = _isoDay(ctx.now);
     final rows = [
       for (final p in _myPeriods(ctx, remote))
-        if (p['day'] == day) {'id': p['id'], 'classId': localClassId('${p['classId']}'), 'period': (p['period'] as num?)?.toInt() ?? periodOf(p['period'])},
+        if (p['day'] == day)
+          {'id': p['id'], 'classId': localClassId('${p['classId']}'), 'period': (p['period'] as num?)?.toInt() ?? periodOf(p['period'])},
       for (final s in _docs(remote, 'ops_substitutions'))
         if (s['substituteTeacherId'] == ctx.staffId && s['date'] == today && s['status'] == 'Accepted')
-          {'id': 'sub_${s['id']}', 'classId': localClassId('${s['classId']}'), 'period': (s['period'] as num?)?.toInt() ?? periodOf(s['period'])},
+          {
+            'id': 'sub_${s['id']}',
+            'classId': localClassId('${s['classId']}'),
+            'period': (s['period'] as num?)?.toInt() ?? periodOf(s['period']),
+          },
     ];
     return rows..sort((a, b) => (a['period'] as int).compareTo(b['period'] as int));
   }
@@ -1261,7 +1688,9 @@ class HandoverPeriodsAdapter extends StoreAdapter {
   @override
   Set<String> get sources => {'ops_periods'};
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId})];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('ops_periods', eq: {'teacherId': ctx.staffId}),
+  ];
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final ps = _myPeriods(ctx, remote)
@@ -1272,10 +1701,16 @@ class HandoverPeriodsAdapter extends StoreAdapter {
     return [
       for (final p in ps)
         {
-          'id': p['id'], 'label': '${p['day']} • Period ${periodOf(p['period'])}',
-          'time': kPeriodTimes[periodOf(p['period'])] == null ? '' : '${_t12(kPeriodTimes[periodOf(p['period'])]!.$1)} – ${_t12(kPeriodTimes[periodOf(p['period'])]!.$2)}',
-          'cls': 'Grade ${classLabelOf('${p['classId']}').replaceAll('-', '–')} • ${p['subject'] ?? ''}', 'room': '${p['room'] ?? ''}',
-          'day': p['day'], 'period': periodOf(p['period']), 'classId': localClassId('${p['classId']}'),
+          'id': p['id'],
+          'label': '${p['day']} • Period ${periodOf(p['period'])}',
+          'time': kPeriodTimes[periodOf(p['period'])] == null
+              ? ''
+              : '${_t12(kPeriodTimes[periodOf(p['period'])]!.$1)} – ${_t12(kPeriodTimes[periodOf(p['period'])]!.$2)}',
+          'cls': 'Grade ${classLabelOf('${p['classId']}').replaceAll('-', '–')} • ${p['subject'] ?? ''}',
+          'room': '${p['room'] ?? ''}'.isNotEmpty ? '${p['room']}' : '${_byId(remote, 'classes', '${p['classId']}')?['room'] ?? ''}',
+          'day': p['day'],
+          'period': periodOf(p['period']),
+          'classId': localClassId('${p['classId']}'),
         },
     ];
   }
@@ -1290,7 +1725,11 @@ class FacultyAdapter extends StoreAdapter {
   @override
   Set<String> get sources => {'staff', 'ops_periods', 'assignments'};
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => const [RemoteQuery('staff'), RemoteQuery('ops_periods'), RemoteQuery('assignments')];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => const [
+    RemoteQuery('staff'),
+    RemoteQuery('ops_periods'),
+    RemoteQuery('assignments'),
+  ];
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final mine = [for (final p in _myPeriods(ctx, remote)) '${p['day']}_${periodOf(p['period'])}'];
@@ -1308,10 +1747,20 @@ class FacultyAdapter extends StoreAdapter {
     final rows = <({Rec row, int free})>[];
     for (final s in _docs(remote, 'staff')) {
       final id = '${s['id']}';
-      if (id == ctx.staffId || !teaches.contains(id) || s['deleted'] == true || '${s['status'] ?? 'Active'}'.toLowerCase() == 'inactive') continue;
+      if (id == ctx.staffId || !teaches.contains(id) || s['deleted'] == true || '${s['status'] ?? 'Active'}'.toLowerCase() == 'inactive') {
+        continue;
+      }
       final free = mine.where((k) => !(busy[id]?.contains(k) ?? false)).length;
       final role = [s['designation'] ?? s['role'], s['department']].where((x) => x != null && '$x'.isNotEmpty).join(' • ');
-      rows.add((row: {'id': id, 'name': '${s['name'] ?? id}', 'role': role, 'free': mine.isEmpty ? 'Available' : 'Free $free of ${mine.length} periods'}, free: free));
+      rows.add((
+        row: {
+          'id': id,
+          'name': '${s['name'] ?? id}',
+          'role': role,
+          'free': mine.isEmpty ? 'Available' : 'Free $free of ${mine.length} periods',
+        },
+        free: free,
+      ));
     }
     rows.sort((a, b) {
       final c = b.free.compareTo(a.free);
@@ -1332,7 +1781,11 @@ class CatalogueAdapter extends PrivateAdapter {
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final own = super.build(ctx, remote);
     final ids = {for (final r in own) r['id']};
-    return [for (final d in defaults) if (!ids.contains(d['id'])) cleanRec(d), ...own];
+    return [
+      for (final d in defaults)
+        if (!ids.contains(d['id'])) cleanRec(d),
+      ...own,
+    ];
   }
 
   /// A built-in row is not stored remotely, so deleting it only removes a stored override.
@@ -1399,9 +1852,9 @@ class MessagesAdapter extends StoreAdapter {
         if (m['threadId'] == tid && (cleared == null || (_at(m) ?? epoch).isAfter(cleared))) m,
     ];
     return ms..sort((a, b) {
-        final c = (_at(a) ?? epoch).compareTo(_at(b) ?? epoch);
-        return c != 0 ? c : '${a['id']}'.compareTo('${b['id']}');
-      });
+      final c = (_at(a) ?? epoch).compareTo(_at(b) ?? epoch);
+      return c != 0 ? c : '${a['id']}'.compareTo('${b['id']}');
+    });
   }
 
   @override
@@ -1426,19 +1879,41 @@ class MessagesAdapter extends StoreAdapter {
         final mine = m['from'] == 'teacher';
         final read = mine || pending <= 0;
         if (!mine) pending--;
-        msgs.insert(0, {'from': mine ? 'me' : 'them', 'sender': mine ? 'Me' : '${m['name'] ?? t['guardian'] ?? ''}', 'text': '${m['text'] ?? ''}', 'ts': '${m['at'] ?? ''}', 'attach': null, 'read': read});
+        msgs.insert(0, {
+          'from': mine ? 'me' : 'them',
+          'sender': mine ? 'Me' : '${m['name'] ?? t['guardian'] ?? ''}',
+          'text': '${m['text'] ?? ''}',
+          'ts': '${m['at'] ?? ''}',
+          'attach': null,
+          'read': read,
+        });
       }
       final label = classLabelOf('${t['classId'] ?? stu?['classId'] ?? ''}');
       sharedKeys.add('g_$sid');
       rows.add({
-        'id': tid, 'key': 'g_$sid', 'name': '${t['guardian'] ?? stu?['guardian'] ?? ''}'.trim().isEmpty ? 'Parent of ${t['studentName'] ?? stu?['name'] ?? sid}' : '${t['guardian'] ?? stu?['guardian']}',
-        'role': 'Parent ($label)', 'kind': 'parent', 'pinned': over['pinned'] == true, 'online': false, 'unread': unread, 'subject': '${over['subject'] ?? ''}',
-        'members': 0, 'msgs': msgs, 'studentId': sid, 'studentName': '${t['studentName'] ?? stu?['name'] ?? ''}',
+        'id': tid,
+        'key': 'g_$sid',
+        'name': '${t['guardian'] ?? stu?['guardian'] ?? ''}'.trim().isEmpty
+            ? 'Parent of ${t['studentName'] ?? stu?['name'] ?? sid}'
+            : '${t['guardian'] ?? stu?['guardian']}',
+        'role': 'Parent ($label)',
+        'kind': 'parent',
+        'pinned': over['pinned'] == true,
+        'online': false,
+        'unread': unread,
+        'subject': '${over['subject'] ?? ''}',
+        'members': 0,
+        'msgs': msgs,
+        'studentId': sid,
+        'studentName': '${t['studentName'] ?? stu?['name'] ?? ''}',
       });
     }
     // private conversations; a guardian conversation from before the shared collections never reached the parent,
     // so it is not shown (sending to that guardian starts the shared thread)
-    for (final d in sortByOrd([for (final d in _docs(remote, private)) if (d['teacherId'] == ctx.staffId) _stripMeta(d)])) {
+    for (final d in sortByOrd([
+      for (final d in _docs(remote, private))
+        if (d['teacherId'] == ctx.staffId) _stripMeta(d),
+    ])) {
       final key = '${d['key'] ?? ''}';
       if (key.startsWith('g_') || sharedKeys.contains(key)) continue;
       rows.add(d);
@@ -1451,7 +1926,9 @@ class MessagesAdapter extends StoreAdapter {
   static String _text(Rec m) {
     final text = '${m['text'] ?? ''}';
     final att = m['attach'];
-    if (att is Map && '${att['name'] ?? ''}'.isNotEmpty) return text.isEmpty ? 'Attachment: ${att['name']}' : '$text\nAttachment: ${att['name']}';
+    if (att is Map && '${att['name'] ?? ''}'.isNotEmpty) {
+      return text.isEmpty ? 'Attachment: ${att['name']}' : '$text\nAttachment: ${att['name']}';
+    }
     return text;
   }
 
@@ -1479,26 +1956,52 @@ class MessagesAdapter extends StoreAdapter {
 
     // new messages = the row's messages after the ones already shown (only the teacher's own are sent)
     final shown = _visible(remote, id, over).length;
-    final rowMsgs = [for (final m in row['msgs'] as List? ?? const []) if (m is Map) Map<String, dynamic>.from(m)];
-    final fresh = [for (final m in rowMsgs.skip(shown)) if (m['from'] == 'me' && _text(m).trim().isNotEmpty) m];
+    final rowMsgs = [
+      for (final m in row['msgs'] as List? ?? const [])
+        if (m is Map) Map<String, dynamic>.from(m),
+    ];
+    final fresh = [
+      for (final m in rowMsgs.skip(shown))
+        if (m['from'] == 'me' && _text(m).trim().isNotEmpty) m,
+    ];
     if (fresh.isNotEmpty) {
       final parentUids = t == null ? guardianUids(stu) : [for (final u in t['parentUids'] as List? ?? const []) '$u'];
       if (t == null && (stu == null || parentUids.isEmpty)) return const []; // no parent login: nobody to deliver to
       final teacher = '${staffOf(ctx, remote)['name'] ?? ''}';
       if (t == null) {
         final classId = '${stu!['classId'] ?? ''}';
-        writes.add(RemoteWrite(threads, id, {
-          'studentId': sid, 'classId': classId, 'studentName': '${stu['name'] ?? ''}', 'parentUids': parentUids, 'guardian': '${stu['guardian'] ?? ''}',
-          'teacherId': ctx.staffId, 'teacher': teacher, 'role': roleFor(ctx, remote, classId), 'createdAt': now, 'updatedAt': now, 'updatedBy': ctx.authUid,
-        }));
+        writes.add(
+          RemoteWrite(threads, id, {
+            'studentId': sid,
+            'classId': classId,
+            'studentName': '${stu['name'] ?? ''}',
+            'parentUids': parentUids,
+            'guardian': '${stu['guardian'] ?? ''}',
+            'teacherId': ctx.staffId,
+            'teacher': teacher,
+            'role': roleFor(ctx, remote, classId),
+            'createdAt': now,
+            'updatedAt': now,
+            'updatedBy': ctx.authUid,
+          }),
+        );
       }
       final base = uid('msg');
       for (var i = 0; i < fresh.length; i++) {
         final m = fresh[i];
-        writes.add(RemoteWrite(messages, '${base}_$i', {
-          'threadId': id, 'studentId': sid, 'teacherId': ctx.staffId, 'parentUids': parentUids, 'from': 'teacher', 'uid': ctx.authUid, 'name': teacher,
-          'text': _text(m), 'at': '${m['ts'] ?? ''}'.isEmpty ? now : '${m['ts']}',
-        }));
+        writes.add(
+          RemoteWrite(messages, '${base}_$i', {
+            'threadId': id,
+            'studentId': sid,
+            'teacherId': ctx.staffId,
+            'parentUids': parentUids,
+            'from': 'teacher',
+            'uid': ctx.authUid,
+            'name': teacher,
+            'text': _text(m),
+            'at': '${m['ts'] ?? ''}'.isEmpty ? now : '${m['ts']}',
+          }),
+        );
       }
     }
 
@@ -1523,7 +2026,9 @@ class MessagesAdapter extends StoreAdapter {
     final last = ms.isEmpty ? null : _at(ms.last);
     final now = ctx.now;
     final cleared = last != null && last.isAfter(now) ? last : now;
-    return [RemoteWrite(state, id, stamp(ctx, {'threadId': id, 'clearedAt': cleared.toIso8601String(), 'pinned': false, 'unread': false}))];
+    return [
+      RemoteWrite(state, id, stamp(ctx, {'threadId': id, 'clearedAt': cleared.toIso8601String(), 'pinned': false, 'unread': false})),
+    ];
   }
 }
 
@@ -1538,7 +2043,9 @@ class LiveClassesAdapter extends StoreAdapter {
   Set<String> get sources => {'live_classes', joinsSource, 'classes'};
 
   @override
-  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [RemoteQuery('live_classes', eq: {'teacherId': ctx.staffId})];
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery('live_classes', eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -1548,8 +2055,13 @@ class LiveClassesAdapter extends StoreAdapter {
       final count = (_byId(remote, joinsSource, '${d['id']}')?['count'] as num?)?.toInt() ?? 0;
       final cid = '${d['classId']}';
       rows.add({
-        ...({...d}..remove('teacherId')..remove('updatedBy')), 'classId': localClassId(cid), 'audience': d['audience'] ?? 'Class ${classLabelOf(cid)}',
-        'joined': count > ((d['joined'] as num?)?.toInt() ?? 0) ? count : (d['joined'] as num?)?.toInt() ?? 0, 'status': d['status'] ?? 'upcoming',
+        ...({...d}
+          ..remove('teacherId')
+          ..remove('updatedBy')),
+        'classId': localClassId(cid),
+        'audience': d['audience'] ?? 'Class ${classLabelOf(cid)}',
+        'joined': count > ((d['joined'] as num?)?.toInt() ?? 0) ? count : (d['joined'] as num?)?.toInt() ?? 0,
+        'status': d['status'] ?? 'upcoming',
       });
     }
     return sortByOrd(rows);
@@ -1557,15 +2069,22 @@ class LiveClassesAdapter extends StoreAdapter {
 
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
-        RemoteWrite('live_classes', '${row['id']}', stamp(ctx, {
-          ..._withoutId(row)..remove('joined'), 'classId': remoteClassId('${row['classId']}'), 'createdAt': row['createdAt'] ?? ctx.now.toIso8601String(),
-        })),
-      ];
+    RemoteWrite(
+      'live_classes',
+      '${row['id']}',
+      stamp(ctx, {
+        ..._withoutId(row)..remove('joined'),
+        'classId': remoteClassId('${row['classId']}'),
+        'createdAt': row['createdAt'] ?? ctx.now.toIso8601String(),
+      }),
+    ),
+  ];
 
   /// Soft delete (hard delete is admin-only): the parent app hides `deleted` / `cancelled` sessions.
   @override
-  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) =>
-      [RemoteWrite('live_classes', '${row['id']}', stamp(ctx, {'deleted': true, 'status': 'cancelled'}))];
+  List<RemoteWrite> delete(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite('live_classes', '${row['id']}', stamp(ctx, {'deleted': true, 'status': 'cancelled'})),
+  ];
 }
 
 /// `att_circulars`: published notices for staff (`com_notices`) plus the teacher's private read/ack/pin state.
@@ -1578,7 +2097,9 @@ class CircularsAdapter extends StoreAdapter {
     final l = c.toLowerCase();
     if (l.contains('event')) return 'Events';
     if (l.contains('academic')) return 'Academic';
-    if (l.contains('staff') || l.contains('holiday') || l.contains('fee') || l.contains('campus') || l.contains('transport')) return 'Admin';
+    if (l.contains('staff') || l.contains('holiday') || l.contains('fee') || l.contains('campus') || l.contains('transport')) {
+      return 'Admin';
+    }
     return 'General';
   }
 
@@ -1587,9 +2108,9 @@ class CircularsAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        const RemoteQuery('com_notices', eq: {'status': 'Published'}),
-        RemoteQuery('att_circulars', eq: {'teacherId': ctx.staffId}),
-      ];
+    const RemoteQuery('com_notices', eq: {'status': 'Published'}),
+    RemoteQuery('att_circulars', eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -1601,10 +2122,21 @@ class CircularsAdapter extends StoreAdapter {
       final sent = '${n['sentAt'] ?? ''}';
       final att = n['attachment'];
       rows.add({
-        'id': n['id'], 'ref': circularRef('${n['id']}', '${n['sentAt'] ?? ''}'), 'cat': categoryOf(category), 'title': '${n['title']}', 'summary': '${n['body'] ?? ''}',
-        'author': '${n['author'] ?? ''}', 'office': category, 'date': sent.length >= 10 ? sent.substring(0, 10) : sent, 'read': st['read'] == true, 'ack': st['ack'] == true,
-        'pinned': st['pinned'] ?? n['pinned'] == true, 'audience': '${n['audience'] ?? ''}', 'points': const <String>[],
-        'attachment': att == null || '$att'.isEmpty ? null : {'name': '$att', 'size': '${n['attachmentSize'] ?? ''}'}, 'ackAt': st['ackAt'],
+        'id': n['id'],
+        'ref': circularRef('${n['id']}', '${n['sentAt'] ?? ''}'),
+        'cat': categoryOf(category),
+        'title': '${n['title']}',
+        'summary': '${n['body'] ?? ''}',
+        'author': '${n['author'] ?? ''}',
+        'office': category,
+        'date': sent.length >= 10 ? sent.substring(0, 10) : sent,
+        'read': st['read'] == true,
+        'ack': st['ack'] == true,
+        'pinned': st['pinned'] ?? n['pinned'] == true,
+        'audience': '${n['audience'] ?? ''}',
+        'points': const <String>[],
+        'attachment': att == null || '$att'.isEmpty ? null : {'name': '$att', 'size': '${n['attachmentSize'] ?? ''}'},
+        'ackAt': st['ackAt'],
       });
     }
     rows.sort((a, b) {
@@ -1615,8 +2147,16 @@ class CircularsAdapter extends StoreAdapter {
   }
 
   @override
-  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) =>
-      [RemoteWrite('att_circulars', '${row['id']}', stamp(ctx, {for (final k in stateFields) if (row[k] != null) k: row[k]}))];
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite(
+      'att_circulars',
+      '${row['id']}',
+      stamp(ctx, {
+        for (final k in stateFields)
+          if (row[k] != null) k: row[k],
+      }),
+    ),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -1646,11 +2186,11 @@ List<_Duty> _myDuties(AdapterContext ctx, Remote remote) {
 }
 
 List<RemoteQuery> _dutyQueries(AdapterContext ctx, Remote remote) => [
-      RemoteQuery('exm_duties', eq: {'staffId': ctx.staffId}),
-      const RemoteQuery('exm_papers'),
-      // the other duty holders of the same papers (partner)
-      ...inQueries('exm_duties', 'paperId', [for (final d in _myDuties(ctx, remote)) '${d.duty['paperId']}']),
-    ];
+  RemoteQuery('exm_duties', eq: {'staffId': ctx.staffId}),
+  const RemoteQuery('exm_papers'),
+  // the other duty holders of the same papers (partner)
+  ...inQueries('exm_duties', 'paperId', [for (final d in _myDuties(ctx, remote)) '${d.duty['paperId']}']),
+];
 
 /// Candidates of a paper: `exm_candidates` of its classes in class + roll order.
 List<Rec> _paperCandidates(Remote remote, Rec paper) {
@@ -1661,9 +2201,9 @@ List<Rec> _paperCandidates(Remote remote, Rec paper) {
       if (labels.isNotEmpty ? labels.contains(label(c)) : '${c['grade']}' == '${paper['grade']}') c,
   ];
   return rows..sort((a, b) {
-      final c = label(a).compareTo(label(b));
-      return c != 0 ? c : _rollOf(a['roll']).compareTo(_rollOf(b['roll']));
-    });
+    final c = label(a).compareTo(label(b));
+    return c != 0 ? c : _rollOf(a['roll']).compareTo(_rollOf(b['roll']));
+  });
 }
 
 /// Roll as an int: `12`, `"12"` or the admin fixture's `"#10B-12"`.
@@ -1696,12 +2236,12 @@ class ExamDutiesAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        ..._dutyQueries(ctx, remote),
-        const RemoteQuery('exm_cycles'),
-        const RemoteQuery('staff'),
-        ..._candidateQueries(remote, [for (final d in _myDuties(ctx, remote)) d.paper]),
-        RemoteQuery('ed_duty_state', eq: {'teacherId': ctx.staffId}),
-      ];
+    ..._dutyQueries(ctx, remote),
+    const RemoteQuery('exm_cycles'),
+    const RemoteQuery('staff'),
+    ..._candidateQueries(remote, [for (final d in _myDuties(ctx, remote)) d.paper]),
+    RemoteQuery('ed_duty_state', eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -1713,7 +2253,11 @@ class ExamDutiesAdapter extends StoreAdapter {
       final paperId = '${d['paperId']}', hall = f('hall', '${p['venue'] ?? ''}'), role = '${d['role'] ?? 'Invigilator'}';
       final labels = _paperLabels(p);
       final grade = f('grade');
-      final cls = labels.isNotEmpty ? 'Class ${labels.join(', ')}' : grade.isEmpty ? '' : 'Class $grade';
+      final cls = labels.isNotEmpty
+          ? 'Class ${labels.join(', ')}'
+          : grade.isEmpty
+          ? ''
+          : 'Class $grade';
       final cycle = _byId(remote, 'exm_cycles', f('cycleId'));
       final start = f('start', '09:00');
       final dur = ((p['duration'] as num?)?.toDouble() ?? 3) * 60;
@@ -1728,15 +2272,33 @@ class ExamDutiesAdapter extends StoreAdapter {
       final date = f('date');
       final candidates = (d['candidates'] as num?)?.toInt() ?? _paperCandidates(remote, p).length;
       rows.add({
-        'id': m.id, 'paperId': paperId, 'code': f('code'), 'subject': grade.isEmpty ? f('subject') : '${f('subject')} — Class $grade',
-        'sub': [cycle?['short'] ?? cycle?['title'], d['note']].where((x) => x != null && '$x'.isNotEmpty).join(' • '), 'date': date, 'start': start,
-        'end': '${d['end'] ?? p['end'] ?? _hhmm(_mins(start) + dur.round())}', 'hall': hall,
-        'venue': '${d['venue'] ?? ([if (cls.isNotEmpty) cls, if (hall.isNotEmpty) hall].join(' • '))}', 'role': role,
+        'id': m.id,
+        'paperId': paperId,
+        'code': f('code'),
+        'subject': grade.isEmpty ? f('subject') : '${f('subject')} — Class $grade',
+        'sub': [cycle?['short'] ?? cycle?['title'], d['note']].where((x) => x != null && '$x'.isNotEmpty).join(' • '),
+        'date': date,
+        'start': start,
+        'end': '${d['end'] ?? p['end'] ?? _hhmm(_mins(start) + dur.round())}',
+        'hall': hall,
+        'venue': '${d['venue'] ?? ([if (cls.isNotEmpty) cls, if (hall.isNotEmpty) hall].join(' • '))}',
+        'role': role,
         'partner': partner == null ? 'Self' : '${pStaff['name'] ?? partner['staffId']}',
-        'partnerRole': partner == null ? (role == 'Chief Invigilator' ? 'Lead Chief Invigilator' : role) : [partner['role'] ?? 'Invigilator', pStaff['designation'] ?? pStaff['department']].where((x) => x != null && '$x'.isNotEmpty).join(' • '),
-        'candidates': candidates, 'status': d['status'] == 'completed' || (date.isNotEmpty && date.compareTo(today) < 0) ? 'completed' : 'upcoming',
-        'report': '${d['reportBy'] ?? _hhmm(_mins(start) - 30)}', 'cls': cls, 'control': '${d['control'] ?? 'Exam Control Room'}',
-        'swap': st['swap'] ?? '', 'swapWith': st['swapWith'] ?? '', 'swapReason': st['swapReason'] ?? '', 'checked': st['checked'] ?? const <int>[],
+        'partnerRole': partner == null
+            ? (role == 'Chief Invigilator' ? 'Lead Chief Invigilator' : role)
+            : [
+                partner['role'] ?? 'Invigilator',
+                pStaff['designation'] ?? pStaff['department'],
+              ].where((x) => x != null && '$x'.isNotEmpty).join(' • '),
+        'candidates': candidates,
+        'status': d['status'] == 'completed' || (date.isNotEmpty && date.compareTo(today) < 0) ? 'completed' : 'upcoming',
+        'report': '${d['reportBy'] ?? _hhmm(_mins(start) - 30)}',
+        'cls': cls,
+        'control': '${d['control'] ?? 'Exam Control Room'}',
+        'swap': st['swap'] ?? '',
+        'swapWith': st['swapWith'] ?? '',
+        'swapReason': st['swapReason'] ?? '',
+        'checked': st['checked'] ?? const <int>[],
         'submitted': st['submitted'] == true,
       });
     }
@@ -1745,8 +2307,17 @@ class ExamDutiesAdapter extends StoreAdapter {
   }
 
   @override
-  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) =>
-      [RemoteWrite('ed_duty_state', _overlayId(ctx, '${row['id']}'), stamp(ctx, {'dutyId': row['id'], for (final k in stateFields) if (row[k] != null) k: row[k]}))];
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
+    RemoteWrite(
+      'ed_duty_state',
+      _overlayId(ctx, '${row['id']}'),
+      stamp(ctx, {
+        'dutyId': row['id'],
+        for (final k in stateFields)
+          if (row[k] != null) k: row[k],
+      }),
+    ),
+  ];
 }
 
 /// `ed_candidates` <- `exm_candidates` of each duty's paper classes, seated in roll order (desk D-01…), with the
@@ -1760,10 +2331,10 @@ class ExamCandidatesAdapter extends StoreAdapter {
 
   @override
   List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
-        ..._dutyQueries(ctx, remote),
-        ..._candidateQueries(remote, [for (final d in _myDuties(ctx, remote)) d.paper]),
-        RemoteQuery('ed_cand_state', eq: {'teacherId': ctx.staffId}),
-      ];
+    ..._dutyQueries(ctx, remote),
+    ..._candidateQueries(remote, [for (final d in _myDuties(ctx, remote)) d.paper]),
+    RemoteQuery('ed_cand_state', eq: {'teacherId': ctx.staffId}),
+  ];
 
   @override
   List<Rec> build(AdapterContext ctx, Remote remote) {
@@ -1777,11 +2348,23 @@ class ExamCandidatesAdapter extends StoreAdapter {
         final st = _byId(remote, 'ed_cand_state', _overlayId(ctx, id)) ?? const {};
         final seq = n + 1;
         rows.add({
-          'id': id, 'dutyId': m.id, 'candId': c['id'], 'studentId': c['studentId'], 'desk': 'D-${seq.toString().padLeft(2, '0')}', 'seq': seq,
-          'set': n.isEven ? 'A' : 'B', 'name': '${c['name'] ?? ''}', 'roll': _rollOf(c['roll']), 'cls': '${c['cls'] ?? '${c['grade']}-${c['section']}'}',
-          'cbse': '${c['grn'] ?? ''}', 'omr': '${code.isEmpty ? 'OMR' : code}-${seq.toString().padLeft(3, '0')}',
-          'supp': (st['supp'] as num?)?.toInt() ?? 0, 'suppCode': st['suppCode'] ?? '', 'status': st['status'] ?? 'present',
-          'absentReason': st['absentReason'] ?? '', 'malpractice': st['malpractice'] ?? '',
+          'id': id,
+          'dutyId': m.id,
+          'candId': c['id'],
+          'studentId': c['studentId'],
+          'desk': 'D-${seq.toString().padLeft(2, '0')}',
+          'seq': seq,
+          'set': n.isEven ? 'A' : 'B',
+          'name': '${c['name'] ?? ''}',
+          'roll': _rollOf(c['roll']),
+          'cls': '${c['cls'] ?? '${c['grade']}-${c['section']}'}',
+          'cbse': '${c['grn'] ?? ''}',
+          'omr': '${code.isEmpty ? 'OMR' : code}-${seq.toString().padLeft(3, '0')}',
+          'supp': (st['supp'] as num?)?.toInt() ?? 0,
+          'suppCode': st['suppCode'] ?? '',
+          'status': st['status'] ?? 'present',
+          'absentReason': st['absentReason'] ?? '',
+          'malpractice': st['malpractice'] ?? '',
         });
       }
     }
@@ -1790,48 +2373,70 @@ class ExamCandidatesAdapter extends StoreAdapter {
 
   @override
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) => [
-        RemoteWrite('ed_cand_state', _overlayId(ctx, '${row['id']}'),
-            stamp(ctx, {'dutyId': row['dutyId'], 'candId': row['candId'], for (final k in stateFields) if (row[k] != null) k: row[k]})),
-      ];
+    RemoteWrite(
+      'ed_cand_state',
+      _overlayId(ctx, '${row['id']}'),
+      stamp(ctx, {
+        'dutyId': row['dutyId'],
+        'candId': row['candId'],
+        for (final k in stateFields)
+          if (row[k] != null) k: row[k],
+      }),
+    ),
+  ];
 }
 
 /// All adapters with a special mapping. Every other local collection is teacher-private ([PrivateAdapter]).
 List<StoreAdapter> defaultAdapters() => const [
-      MeAdapter(),
-      ClassesAdapter(),
-      StudentsAdapter(),
-      PeriodsAdapter(),
-      SubstitutionsAdapter(),
-      AttendanceAdapter(),
-      HomeworkAdapter(),
-      ExamsAdapter(),
-      MarksAdapter(),
-      StaffLeavesAdapter(),
-      StaffLeavesAdapter('att_leaves'),
-      StaffAttendanceAdapter(),
-      RegularizationsAdapter(),
-      ExamDutiesAdapter(),
-      ExamCandidatesAdapter(),
-      LeaveQuotaAdapter(),
-      LeaveBalanceAdapter(),
-      StudentLeavesAdapter('lm_student', src: 'lm'),
-      StudentLeavesAdapter('att_slips', src: 'slip'),
-      MedicalSlipsAdapter(),
-      TodayScheduleAdapter(),
-      HandoverPeriodsAdapter(),
-      FacultyAdapter(),
-      LiveClassesAdapter(),
-      MessagesAdapter(),
-      CircularsAdapter(),
-      ReadOnlyAdapter('calendar_events', 'calendar_events'),
-      ReadOnlyAdapter('school', 'school'),
-      // the school's `notifications` belong to the admin; the teacher's own list (also filled by push notifications) is hm_
-      PrivateAdapter('notifications', 'hm_notifications'),
-      PrivateAdapter('settings', 'hm_settings'),
-    ];
+  MeAdapter(),
+  ProfileAdapter(),
+  ClassesAdapter(),
+  StudentsAdapter(),
+  PeriodsAdapter(),
+  SubstitutionsAdapter(),
+  AttendanceAdapter(),
+  HomeworkAdapter(),
+  ExamsAdapter(),
+  MarksAdapter(),
+  StaffLeavesAdapter(),
+  StaffLeavesAdapter('att_leaves'),
+  StaffAttendanceAdapter(),
+  RegularizationsAdapter(),
+  ExamDutiesAdapter(),
+  ExamCandidatesAdapter(),
+  LeaveQuotaAdapter(),
+  LeaveBalanceAdapter(),
+  StudentLeavesAdapter('lm_student', src: 'lm'),
+  StudentLeavesAdapter('att_slips', src: 'slip'),
+  MedicalSlipsAdapter(),
+  TodayScheduleAdapter(),
+  HandoverPeriodsAdapter(),
+  FacultyAdapter(),
+  LiveClassesAdapter(),
+  MessagesAdapter(),
+  CircularsAdapter(),
+  ReadOnlyAdapter('calendar_events', 'calendar_events'),
+  ReadOnlyAdapter('school', 'school'),
+  // the school's `notifications` belong to the admin; the teacher's own list (also filled by push notifications) is hm_
+  PrivateAdapter('notifications', 'hm_notifications'),
+  PrivateAdapter('settings', 'hm_settings'),
+];
 
 /// Collections loaded right after login (the rest load lazily on first read).
-const coreCollections = ['me', 'classes', 'students', 'tt_periods', 'tt_subs', 'att_records', 'tk_homework', 'lv_sessions', 'att_circulars', 'settings', 'notifications', 'calendar_events'];
+const coreCollections = [
+  'me',
+  'classes',
+  'students',
+  'tt_periods',
+  'tt_subs',
+  'att_records',
+  'tk_homework',
+  'lv_sessions',
+  'att_circulars',
+  'settings',
+  'notifications',
+  'calendar_events',
+];
 
 /// Deep copy through JSON (what Firestore stores).
 Rec cleanRec(Rec r) => _clean(r);

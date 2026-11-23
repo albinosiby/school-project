@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import 'package:school_sync/school_sync.dart';
+import '../../../config/app_config.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
@@ -13,8 +16,8 @@ import 'auth_repository_interface.dart';
 /// (DATA_CONTRACT §1); only teachers may use this app. Then the [FirestoreDataStore] is started for that school.
 class FirebaseAuthRepository implements IAuthRepository {
   FirebaseAuthRepository(this._auth, this._store, {FirebaseFirestore? firestore, PushNotificationService? push})
-      : _fs = firestore,
-        _push = push; // ignore: prefer_initializing_formals (named private parameters are not allowed)
+    : _fs = firestore,
+      _push = push; // ignore: prefer_initializing_formals (named private parameters are not allowed)
   final FirebaseAuthService _auth;
   final FirestoreDataStore _store;
   final PushNotificationService? _push;
@@ -47,7 +50,11 @@ class FirebaseAuthRepository implements IAuthRepository {
     } on fb.FirebaseAuthException catch (e) {
       throw AuthFailure(authMessage(e.code));
     } on FirebaseException catch (e) {
-      throw AuthFailure(e.code == 'permission-denied' ? 'This account is not set up for the teacher app. Contact the school admin.' : 'Could not load your school profile (${e.code}).');
+      throw AuthFailure(
+        e.code == 'permission-denied'
+            ? 'This account is not set up for the teacher app. Contact the school admin.'
+            : 'Could not load your school profile (${e.code}).',
+      );
     }
   }
 
@@ -66,15 +73,22 @@ class FirebaseAuthRepository implements IAuthRepository {
     final u = cred.user!;
     // Google signs into the account the admin created for this email (same uid), so users/{uid} already exists.
     // A brand-new account means the email was never registered by the school: remove it again.
-    if (cred.additionalUserInfo?.isNewUser == true && !(await _db.doc('users/${u.uid}').get().then((s) => s.exists, onError: (_) => false))) {
+    if (cred.additionalUserInfo?.isNewUser == true &&
+        !(await _db.doc('users/${u.uid}').get().then((s) => s.exists, onError: (_) => false))) {
       await u.delete().catchError((_) {});
       await _auth.signOut();
-      throw AuthFailure('${u.email ?? 'This Google account'} is not registered as a teacher. Ask the school admin to add this email, or sign in with your school email.');
+      throw AuthFailure(
+        '${u.email ?? 'This Google account'} is not registered as a teacher. Ask the school admin to add this email, or sign in with your school email.',
+      );
     }
     try {
       return await _resolve(u);
     } on FirebaseException catch (e) {
-      throw AuthFailure(e.code == 'permission-denied' ? 'This account is not set up for the teacher app. Contact the school admin.' : 'Could not load your school profile (${e.code}).');
+      throw AuthFailure(
+        e.code == 'permission-denied'
+            ? 'This account is not set up for the teacher app. Contact the school admin.'
+            : 'Could not load your school profile (${e.code}).',
+      );
     }
   }
 
@@ -87,14 +101,34 @@ class FirebaseAuthRepository implements IAuthRepository {
     }
     if (d['role'] != 'teacher') {
       await _auth.signOut();
-      throw AuthFailure('This app is for teachers. This account is registered as ${d['role'] == 'admin' ? 'an administrator' : 'a ${d['role']}'}.');
+      throw AuthFailure(
+        'This app is for teachers. This account is registered as ${d['role'] == 'admin' ? 'an administrator' : 'a ${d['role']}'}.',
+      );
     }
     final staffId = '${d['staffId'] ?? ''}';
     if (staffId.isEmpty) {
       await _auth.signOut();
       throw const AuthFailure('Your account has no staff profile yet. Ask the school admin to finish setting it up.');
     }
-    final user = AuthUser(uid: u.uid, email: u.email ?? '${d['email'] ?? ''}', name: '${d['name'] ?? ''}', schoolId: '${d['schoolId']}', staffId: staffId);
+    final user = AuthUser(
+      uid: u.uid,
+      email: u.email ?? '${d['email'] ?? ''}',
+      name: '${d['name'] ?? ''}',
+      schoolId: '${d['schoolId']}',
+      staffId: staffId,
+    );
+    final mobile = MobileSchoolClient(
+      auth: fb.FirebaseAuth.instance,
+      db: _db,
+      emulator: AppConfig.useEmulator,
+      emulatorHost: AppConfig.emulatorHost,
+      emulatorUsb: AppConfig.emulatorUsb,
+    );
+    final policy = await _db.doc('schools/${user.schoolId}/school/mobile').get();
+    if (!policy.exists) await mobile.call('getMobileSchoolContext');
+    unawaited(mobile.call('getMobileSchoolContext', {'refreshAttendance': true}).then<void>((_) {}, onError: (Object error) {
+      debugPrint('School settings refresh failed: $error');
+    }));
     _user = user;
     _store.start(AdapterContext(schoolId: user.schoolId, staffId: staffId, authUid: user.uid));
     // asks for notification permission and registers this device's FCM token (in the background)

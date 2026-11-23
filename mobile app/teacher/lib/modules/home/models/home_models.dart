@@ -79,29 +79,98 @@ class Qualification extends Equatable {
   List<Object?> get props => [title, note, tone];
 }
 
-/// Faculty details shown on Profile and the Digital Faculty ID (single document `hm_profile`).
+/// One labelled value on the Profile page (mirrors a dashboard "details" row).
+class ProfileField extends Equatable {
+  const ProfileField(this.label, this.value);
+  final String label, value;
+  factory ProfileField.fromJson(Map<String, dynamic> j) => ProfileField(j['label'] as String? ?? '', j['value'] as String? ?? '');
+  Map<String, dynamic> toJson() => {'label': label, 'value': value};
+  @override
+  List<Object?> get props => [label, value];
+}
+
+/// A Profile page section: groups of fields (qualifications have one group each). `note` replaces an empty body.
+class ProfileSection extends Equatable {
+  const ProfileSection({required this.key, required this.title, this.groups = const [], this.note = ''});
+  final String key, title, note;
+  final List<List<ProfileField>> groups;
+  bool get isEmpty => groups.every((g) => g.isEmpty) && note.isEmpty;
+  factory ProfileSection.fromJson(Map<String, dynamic> j) => ProfileSection(
+        key: j['key'] as String? ?? '', title: j['title'] as String? ?? '', note: j['note'] as String? ?? '',
+        groups: [
+          for (final g in (j['groups'] as List? ?? const []))
+            [for (final f in (g as List? ?? const [])) ProfileField.fromJson(Map<String, dynamic>.from(f as Map))],
+        ],
+      );
+  Map<String, dynamic> toJson() => {'key': key, 'title': title, 'note': note, 'groups': [for (final g in groups) [for (final f in g) f.toJson()]]};
+  @override
+  List<Object?> get props => [key, title, note, groups];
+}
+
+/// A document the office uploaded for the staff member (name and category only; files stay with the office).
+class StaffDocumentRow extends Equatable {
+  const StaffDocumentRow({required this.category, required this.label, required this.name, required this.uploadedAt});
+  final String category, label, name, uploadedAt;
+  factory StaffDocumentRow.fromJson(Map<String, dynamic> j) => StaffDocumentRow(
+        category: j['category'] as String? ?? '', label: j['label'] as String? ?? '', name: j['name'] as String? ?? '', uploadedAt: j['uploadedAt'] as String? ?? '');
+  Map<String, dynamic> toJson() => {'category': category, 'label': label, 'name': name, 'uploadedAt': uploadedAt};
+  @override
+  List<Object?> get props => [category, label, name, uploadedAt];
+}
+
+/// One payroll payment (amounts in rupees), newest first on the page.
+class PayrollPayment extends Equatable {
+  const PayrollPayment({required this.month, required this.paidOn, required this.gross, required this.deductions, required this.net, this.reference = ''});
+  final String month, paidOn, reference;
+  final double gross, deductions, net;
+  factory PayrollPayment.fromJson(Map<String, dynamic> j) => PayrollPayment(
+        month: j['month'] as String? ?? '', paidOn: j['paidOn'] as String? ?? '', reference: j['reference'] as String? ?? '',
+        gross: (j['gross'] as num?)?.toDouble() ?? 0, deductions: (j['deductions'] as num?)?.toDouble() ?? 0, net: (j['net'] as num?)?.toDouble() ?? 0);
+  Map<String, dynamic> toJson() => {'month': month, 'paidOn': paidOn, 'reference': reference, 'gross': gross, 'deductions': deductions, 'net': net};
+  @override
+  List<Object?> get props => [month, paidOn, reference, gross, deductions, net];
+}
+
+/// Faculty details shown on Profile and the Digital Faculty ID (single document `hm_profile`). The HR sections,
+/// documents, bank details and payroll history mirror the office's staff profile (server card `staff_self`).
 class FacultyProfile extends Equatable {
   const FacultyProfile({
     this.department = '', this.bloodGroup = '', this.emergency = '', this.validThrough = '', this.token = '', this.cardNo = '', this.desk = '',
     this.attendancePct = 0, this.experience = 0, this.qualifications = const [],
+    this.sections = const [], this.documents = const [], this.bank = const [], this.payments = const [], this.hrUpdatedAt = '',
+    this.schoolLine = '', this.emergencyPhone = '',
   });
-  final String department, bloodGroup, emergency, validThrough, token, cardNo, desk;
+  final String department, bloodGroup, emergency, validThrough, token, cardNo, desk, hrUpdatedAt, schoolLine, emergencyPhone;
   final double attendancePct;
   final int experience;
   final List<Qualification> qualifications;
+  final List<ProfileSection> sections;
+  final List<StaffDocumentRow> documents;
+  final List<ProfileField> bank;
+  final List<PayrollPayment> payments;
+  /// True once the office's HR card has reached the app (otherwise the sections are placeholders).
+  bool get hasHrCard => hrUpdatedAt.isNotEmpty;
 
   factory FacultyProfile.fromJson(Map<String, dynamic> j) => FacultyProfile(
         department: j['department'] as String? ?? '', bloodGroup: j['bloodGroup'] as String? ?? '', emergency: j['emergency'] as String? ?? '',
         validThrough: j['validThrough'] as String? ?? '', token: j['token'] as String? ?? '', cardNo: j['cardNo'] as String? ?? '',
         desk: j['desk'] as String? ?? '', attendancePct: (j['attendancePct'] as num?)?.toDouble() ?? 0, experience: (j['experience'] as num?)?.toInt() ?? 0,
         qualifications: [for (final q in (j['qualifications'] as List? ?? const [])) Qualification.fromJson(Map<String, dynamic>.from(q as Map))],
+        sections: [for (final s in (j['sections'] as List? ?? const [])) ProfileSection.fromJson(Map<String, dynamic>.from(s as Map))],
+        documents: [for (final d in (j['documents'] as List? ?? const [])) StaffDocumentRow.fromJson(Map<String, dynamic>.from(d as Map))],
+        bank: [for (final f in (j['bank'] as List? ?? const [])) ProfileField.fromJson(Map<String, dynamic>.from(f as Map))],
+        payments: [for (final p in (j['payments'] as List? ?? const [])) PayrollPayment.fromJson(Map<String, dynamic>.from(p as Map))],
+        hrUpdatedAt: j['hrUpdatedAt'] as String? ?? '', schoolLine: j['schoolLine'] as String? ?? '', emergencyPhone: j['emergencyPhone'] as String? ?? '',
       );
   Map<String, dynamic> toJson() => {
         'department': department, 'bloodGroup': bloodGroup, 'emergency': emergency, 'validThrough': validThrough, 'token': token, 'cardNo': cardNo,
         'desk': desk, 'attendancePct': attendancePct, 'experience': experience, 'qualifications': [for (final q in qualifications) q.toJson()],
+        'sections': [for (final s in sections) s.toJson()], 'documents': [for (final d in documents) d.toJson()],
+        'bank': [for (final f in bank) f.toJson()], 'payments': [for (final p in payments) p.toJson()], 'hrUpdatedAt': hrUpdatedAt,
+        'schoolLine': schoolLine, 'emergencyPhone': emergencyPhone,
       };
   FacultyProfile copyWith({String? desk, String? emergency}) => FacultyProfile.fromJson({...toJson(), 'desk': ?desk, 'emergency': ?emergency});
 
   @override
-  List<Object?> get props => [department, bloodGroup, emergency, validThrough, token, cardNo, desk, attendancePct, experience, qualifications];
+  List<Object?> get props => [department, bloodGroup, emergency, validThrough, token, cardNo, desk, attendancePct, experience, qualifications, sections, documents, bank, payments, hrUpdatedAt, schoolLine, emergencyPhone];
 }

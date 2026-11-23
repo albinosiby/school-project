@@ -10,10 +10,16 @@ import '../../bloc/engage_notice.dart';
 /// Pops the screen, or goes home when it was opened directly.
 void engageBack(BuildContext context) => context.canPop() ? context.pop() : context.go(RoutePaths.home);
 
-void showNotice(BuildContext context, String message, {bool error = false}) => AppDialogs.showSnackBar(context, message: message, isError: error);
+void showNotice(BuildContext context, String message, {bool error = false}) =>
+    AppDialogs.showSnackBar(context, message: message, isError: error);
 
-Future<bool> confirmAction(BuildContext context, {required String title, required String message, String confirm = 'Confirm', bool danger = false}) =>
-    AppDialogs.showConfirmDialog(context, title: title, message: message, confirm: confirm, danger: danger);
+Future<bool> confirmAction(
+  BuildContext context, {
+  required String title,
+  required String message,
+  String confirm = 'Confirm',
+  bool danger = false,
+}) => AppDialogs.showConfirmDialog(context, title: title, message: message, confirm: confirm, danger: danger);
 
 /// `Class 10–B` label used by the engage forms.
 String classLabel(SchoolClass c) => 'Class ${c.grade}–${c.section}';
@@ -24,14 +30,14 @@ class NoticeListener<B extends StateStreamable<St>, St extends NoticeState> exte
   final Widget child;
   @override
   Widget build(BuildContext context) => BlocListener<B, St>(
-        listenWhen: (p, c) => c.notice != null && c.notice != p.notice,
-        listener: (ctx, s) {
-          final n = s.notice!;
-          showNotice(ctx, n.message, error: n.error);
-          if (n.pop) engageBack(ctx);
-        },
-        child: child,
-      );
+    listenWhen: (p, c) => c.notice != null && c.notice != p.notice,
+    listener: (ctx, s) {
+      final n = s.notice!;
+      showNotice(ctx, n.message, error: n.error);
+      if (n.pop) engageBack(ctx);
+    },
+    child: child,
+  );
 }
 
 /// [FilterChips] driven by an index (labels carry counts that change).
@@ -52,12 +58,21 @@ class FieldLabel extends StatelessWidget {
   final Widget? trailing;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(bottom: 8.h, top: 4.h),
-        child: Row(children: [
-          Expanded(child: Text(text, style: T.smallStrong.copyWith(color: C.slate, fontSize: 13.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
-          ?trailing,
-        ]),
-      );
+    padding: EdgeInsets.only(bottom: 8.h, top: 4.h),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            style: T.smallStrong.copyWith(color: C.slate, fontSize: 13.sp),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        ?trailing,
+      ],
+    ),
+  );
 }
 
 /// White form section card with an optional icon + title row.
@@ -69,23 +84,30 @@ class FormCard extends StatelessWidget {
   final List<Widget> children;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(bottom: 12.h),
-        child: AppCard(
-          padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (title != null)
-              Padding(
-                padding: EdgeInsets.only(bottom: 12.h),
-                child: Row(children: [
+    padding: EdgeInsets.only(bottom: 12.h),
+    child: AppCard(
+      padding: EdgeInsets.all(14.w),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (title != null)
+            Padding(
+              padding: EdgeInsets.only(bottom: 12.h),
+              child: Row(
+                children: [
                   if (icon != null) ...[Icon(icon, size: 18.r, color: C.primary), SizedBox(width: 8.w)],
-                  Expanded(child: Text(title!, style: T.h3, maxLines: 2, overflow: TextOverflow.ellipsis)),
+                  Expanded(
+                    child: Text(title!, style: T.h3, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ),
                   ?trailing,
-                ]),
+                ],
               ),
-            ...children,
-          ]),
-        ),
-      );
+            ),
+          ...children,
+        ],
+      ),
+    ),
+  );
 }
 
 /// Date + start time pick tiles side by side.
@@ -95,30 +117,42 @@ class DateTimeFields extends StatelessWidget {
   final ValueChanged<String> onDate, onTime;
   final bool year;
   @override
-  Widget build(BuildContext context) => Row(children: [
-        Expanded(
-          child: AppPickTile(
-            icon: Icons.calendar_today_outlined, plainIcon: true, caption: 'Date', label: fmtDate(date, year: year), trailing: const SizedBox.shrink(),
-            onTap: () async {
-              final d = await showDatePicker(
-                context: context, initialDate: parseIso(date) ?? DateTime.now(),
-                firstDate: DateTime.now().subtract(const Duration(days: 365)), lastDate: DateTime.now().add(const Duration(days: 730)),
-              );
-              if (d != null) onDate(isoOf(d));
-            },
-          ),
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: AppPickTile(
+          icon: Icons.calendar_today_outlined,
+          plainIcon: true,
+          caption: 'Date',
+          label: fmtDate(date, year: year),
+          trailing: const SizedBox.shrink(),
+          onTap: () async {
+            final d = await showDatePicker(
+              context: context,
+              initialDate: parseIso(date) ?? DateTime.now(),
+              firstDate: DateTime.now().subtract(const Duration(days: 365)),
+              lastDate: DateTime.now().add(const Duration(days: 730)),
+            );
+            if (d != null) onDate(isoOf(d));
+          },
         ),
-        SizedBox(width: 10.w),
-        Expanded(
-          child: AppPickTile(
-            icon: Icons.access_time_rounded, plainIcon: true, caption: 'Start Time', label: fmtTime(time), trailing: const SizedBox.shrink(),
-            onTap: () async {
-              final t = await showTimePicker(context: context, initialTime: parseTime(time));
-              if (t != null) onTime(hhmm(t));
-            },
-          ),
+      ),
+      SizedBox(width: 10.w),
+      Expanded(
+        child: AppPickTile(
+          icon: Icons.access_time_rounded,
+          plainIcon: true,
+          caption: 'Start Time',
+          label: fmtTime(time),
+          trailing: const SizedBox.shrink(),
+          onTap: () async {
+            final t = await showTimePicker(context: context, initialTime: parseTime(time));
+            if (t != null) onTime(hhmm(t));
+          },
         ),
-      ]);
+      ),
+    ],
+  );
 }
 
 /// Organizer row (avatar, name, "Lead Organizer • title") shown in the schedule forms.
@@ -127,47 +161,86 @@ class OrganizerRow extends StatelessWidget {
   final Teacher? teacher;
   @override
   Widget build(BuildContext context) => Container(
-        padding: EdgeInsets.all(10.w),
-        decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md), border: Border.all(color: C.border)),
-        child: Row(children: [
-          Avatar(teacher?.name ?? '', size: 36), SizedBox(width: 10.w),
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Flexible(child: Text(teacher?.name ?? '', style: T.bodyStrong.copyWith(fontSize: 13.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                SizedBox(width: 4.w),
-                Icon(Icons.verified_rounded, size: 16.r, color: C.primary),
-              ]),
+    padding: EdgeInsets.all(10.w),
+    decoration: BoxDecoration(
+      color: C.surface,
+      borderRadius: BorderRadius.circular(R.md),
+      border: Border.all(color: C.border),
+    ),
+    child: Row(
+      children: [
+        Avatar(teacher?.name ?? '', size: 36),
+        SizedBox(width: 10.w),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      teacher?.name ?? '',
+                      style: T.bodyStrong.copyWith(fontSize: 13.sp),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  SizedBox(width: 4.w),
+                  Icon(Icons.verified_rounded, size: 16.r, color: C.primary),
+                ],
+              ),
               Text('Lead Organizer • ${teacher?.title ?? ''}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-            ]),
+            ],
           ),
-        ]),
-      );
+        ),
+      ],
+    ),
+  );
 }
 
 /// Bottom sheet asking for a short text; returns null when cancelled.
 Future<String?> askText(BuildContext context, {required String title, String? hint, String confirm = 'Save', bool required = false}) {
   final c = TextEditingController();
   String? err;
-  return showAppSheet<String>(context, title: title, builder: (ctx) => StatefulBuilder(builder: (ctx, set) {
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          AppTextField(label: hint ?? 'Note', controller: c, maxLines: 3, hint: 'Type here...'),
-          if (err != null) Padding(padding: EdgeInsets.only(bottom: 8.h), child: Text(err!, style: T.small.copyWith(color: C.danger))),
-          Row(children: [
-            Expanded(child: AppButton('Cancel', kind: BtnKind.outline, onPressed: () => Navigator.pop(ctx))),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: AppButton(confirm, onPressed: () {
-                if (required && c.text.trim().isEmpty) {
-                  set(() => err = 'Required');
-                  return;
-                }
-                Navigator.pop(ctx, c.text.trim());
-              }),
+  return showAppSheet<String>(
+    context,
+    title: title,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, set) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppTextField(label: hint ?? 'Note', controller: c, maxLines: 3, hint: 'Type here...'),
+            if (err != null)
+              Padding(
+                padding: EdgeInsets.only(bottom: 8.h),
+                child: Text(err!, style: T.small.copyWith(color: C.danger)),
+              ),
+            Row(
+              children: [
+                Expanded(
+                  child: AppButton('Cancel', kind: BtnKind.outline, onPressed: () => Navigator.pop(ctx)),
+                ),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: AppButton(
+                    confirm,
+                    onPressed: () {
+                      if (required && c.text.trim().isEmpty) {
+                        set(() => err = 'Required');
+                        return;
+                      }
+                      Navigator.pop(ctx, c.text.trim());
+                    },
+                  ),
+                ),
+              ],
             ),
-          ]),
-        ]);
-      }));
+          ],
+        );
+      },
+    ),
+  );
 }
 
 /// Centered loader / not-found / error body for engage screens.
@@ -178,8 +251,8 @@ class EngageStatusBody extends StatelessWidget {
   final VoidCallback? onRetry;
   @override
   Widget build(BuildContext context) => switch (status) {
-        EngageStatus.failure => AppErrorWidget(message: error ?? 'Something went wrong', onRetry: onRetry),
-        EngageStatus.loaded => Center(child: AppEmptyState(notFound ?? 'Not found', icon: Icons.search_off_rounded)),
-        _ => const Center(child: CircularProgressIndicator()),
-      };
+    EngageStatus.failure => AppErrorWidget(message: error ?? 'Something went wrong', onRetry: onRetry),
+    EngageStatus.loaded => Center(child: AppEmptyState(notFound ?? 'Not found', icon: Icons.search_off_rounded)),
+    _ => const SchoolSkeletonList(),
+  };
 }

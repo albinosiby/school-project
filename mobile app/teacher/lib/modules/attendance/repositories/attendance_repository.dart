@@ -6,11 +6,19 @@ class LocalAttendanceRepository implements IAttendanceRepository {
   LocalAttendanceRepository(this._db);
   final DataStore _db;
 
-  static const records = 'att_records', staff = 'att_staff', regs = 'att_regs', notices = 'att_notices', sched = 'att_sched', slips = 'att_slips', medical = 'att_medical';
+  static const records = 'att_records',
+      staff = 'att_staff',
+      regs = 'att_regs',
+      notices = 'att_notices',
+      sched = 'att_sched',
+      slips = 'att_slips',
+      medical = 'att_medical';
 
   @override
-  Future<List<AttendanceRecord>> getRecords({String? classId}) async =>
-      [for (final r in _db.list(records)) if (classId == null || r['classId'] == classId) AttendanceRecord.fromJson(r)];
+  Future<List<AttendanceRecord>> getRecords({String? classId}) async => [
+    for (final r in _db.list(records))
+      if (classId == null || r['classId'] == classId) AttendanceRecord.fromJson(r),
+  ];
 
   @override
   Future<AttendanceRecord?> findRecord(String classId, String date, int period) async {
@@ -31,7 +39,8 @@ class LocalAttendanceRepository implements IAttendanceRepository {
   }
 
   @override
-  Future<List<ScheduleSlot>> getSchedule() async => [for (final r in _db.list(sched)) ScheduleSlot.fromJson(r)]..sort((a, b) => a.period.compareTo(b.period));
+  Future<List<ScheduleSlot>> getSchedule() async =>
+      [for (final r in _db.list(sched)) if (periodTimes.containsKey(r['period'])) ScheduleSlot.fromJson(r)]..sort((a, b) => a.period.compareTo(b.period));
 
   @override
   Future<List<StaffLog>> getStaffLogs() async => [for (final r in _db.list(staff)) StaffLog.fromJson(r)];
@@ -75,11 +84,16 @@ class LocalAttendanceRepository implements IAttendanceRepository {
   @override
   Future<bool> isExcused(String studentId, String date) async {
     for (final r in [..._db.list(slips), ..._db.list(medical)]) {
-      if (r['studentId'] == studentId && r['status'] == 'Approved' && '${r['from']}'.compareTo(date) <= 0 && '${r['to']}'.compareTo(date) >= 0) return true;
+      if (r['studentId'] == studentId &&
+          r['status'] == 'Approved' &&
+          '${r['from']}'.compareTo(date) <= 0 &&
+          '${r['to']}'.compareTo(date) >= 0) {
+        return true;
+      }
     }
     return false;
   }
 
   @override
-  Stream<void> watch() => _db.watch({records, staff, regs, notices, sched, slips, medical});
+  Stream<void> watch() => _db.watch({records, staff, regs, notices, sched, slips, medical, 'school'});
 }

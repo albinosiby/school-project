@@ -77,8 +77,29 @@ void main() {
       bloc.add(const MarkAttendanceAllSet(AttCode.absent));
       bloc.add(const MarkAttendanceSaved(submit: true));
       await expectLater(bloc.stream, emitsThrough(predicate<MarkAttendanceState>((s) => s.submitted)));
-      final rec = await getIt<IAttendanceRepository>().findRecord('cls_10B', dkey(todayDate()), 3);
+      final rec = await getIt<IAttendanceRepository>().findRecord('cls_10B', dkey(todayDate()), bloc.state.period); // the bloc opens the current period
       expect(rec!.counts.absent, 42);
+      await bloc.close();
+    });
+
+    test('mark attendance refuses a period outside the bell schedule with a reason, and clears it after a save', () async {
+      Future<void> until(MarkAttendanceBloc bloc, bool Function(MarkAttendanceState s) ok) async {
+        for (var i = 0; i < 100 && !ok(bloc.state); i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(ok(bloc.state), isTrue, reason: 'state: ${bloc.state.status} period=${bloc.state.period} saved=${bloc.state.saved} error=${bloc.state.saveError}');
+      }
+      final bloc = getIt<MarkAttendanceBloc>()..add(const MarkAttendanceLoadRequested());
+      await until(bloc, (s) => s.status == LoadStatus.loaded && s.marks.isNotEmpty);
+      bloc.add(const MarkAttendancePeriodChanged(99));
+      await until(bloc, (s) => s.period == 99 && s.marks.isNotEmpty);
+      bloc.add(const MarkAttendanceSaved(submit: true));
+      await until(bloc, (s) => (s.saveError ?? '').contains('bell schedule'));
+      expect(bloc.state.saved, isFalse);
+      bloc.add(const MarkAttendancePeriodChanged(3));
+      await until(bloc, (s) => s.period == 3 && s.marks.isNotEmpty);
+      bloc.add(const MarkAttendanceSaved(submit: false));
+      await until(bloc, (s) => s.saved && !s.submitted && s.saveError == null);
       await bloc.close();
     });
 
@@ -157,7 +178,7 @@ void main() {
         expect(find.text('Mark All Absent'), findsOneWidget);
         await tapText(t, 'Mark All Absent');
         expect(find.textContaining('0/42 Present'), findsOneWidget);
-        await t.tap(find.text('Submit Attendance'));
+        await t.tap(find.text('Submit'));
         await t.pumpAndSettle();
         final rec = db.list('att_records').where((r) => r['date'] == dkey(todayDate()) && r['classId'] == 'cls_10B').toList();
         expect(rec.length, 1);

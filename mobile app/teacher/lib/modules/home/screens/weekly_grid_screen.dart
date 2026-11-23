@@ -18,7 +18,7 @@ class WeeklyGridScreen extends StatelessWidget {
       create: (_) => getIt<TimetableBloc>()..add(const TimetableLoadRequested()),
       child: DetailScaffold(
         title: 'Weekly Timetable',
-        subtitle: 'Term 2 • Week ${termWeek(now.at)} • ${dayMonth(now.monday)} – ${dayMonth(now.monday.add(const Duration(days: 5)))}',
+        subtitle: '${termWeekLabel(now.at)} • ${dayMonth(now.monday)} – ${dayMonth(now.monday.add(Duration(days: schoolWorkingDays.fold<int>(1, (a, b) => a > b ? a : b) - 1)))}',
         fallbackRoute: RoutePaths.timetable,
         body: ListView(padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 40.h), children: [WeeklyGridView(now: now)]),
       ),

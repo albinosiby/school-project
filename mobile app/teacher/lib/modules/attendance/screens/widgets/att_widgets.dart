@@ -8,11 +8,11 @@ import '../../models/attendance_models.dart';
 void toast(BuildContext context, String message) => AppDialogs.showSnackBar(context, message: message);
 
 Tone toneForStatus(String s) => switch (s) {
-      'Approved' || 'Present' || 'Acknowledged' || 'Submitted' || 'Completed' || 'Confirmed' => Tone.success,
-      'Rejected' || 'Absent' => Tone.danger,
-      'Pending' || 'Late' || 'Clarify' || 'Draft' || 'Irregular' => Tone.warning,
-      _ => Tone.neutral,
-    };
+  'Approved' || 'Present' || 'Acknowledged' || 'Submitted' || 'Completed' || 'Confirmed' => Tone.success,
+  'Rejected' || 'Absent' => Tone.danger,
+  'Pending' || 'Late' || 'Clarify' || 'Draft' || 'Irregular' => Tone.warning,
+  _ => Tone.neutral,
+};
 
 /// Shows a date picker; returns an ISO date key or null.
 Future<String?> pickDate(BuildContext context, String? initial, {DateTime? first, DateTime? last}) async {
@@ -37,7 +37,7 @@ class AttBody extends StatelessWidget {
   Widget build(BuildContext context) => ListView(padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, bottom.h), children: children);
 }
 
-Widget attLoading() => const Center(child: CircularProgressIndicator());
+Widget attLoading() => const SchoolSkeletonList();
 
 /// Navigation between Mark Attendance, Attendance Trends and Staff Self-Log.
 class AttTabs extends StatelessWidget {
@@ -50,30 +50,42 @@ class AttTabs extends StatelessWidget {
   ];
   @override
   Widget build(BuildContext context) => Container(
-        height: 52.h, padding: EdgeInsets.all(4.r),
-        decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.lg)),
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal, itemCount: _items.length, separatorBuilder: (_, _) => SizedBox(width: 6.w),
-          itemBuilder: (_, i) {
-            final on = i == index;
-            return Semantics(
-              button: true, selected: on, label: _items[i].$1,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(R.md),
-                onTap: on ? null : () => context.pushReplacement(_items[i].$3),
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 14.w), alignment: Alignment.center,
-                  decoration: BoxDecoration(color: on ? C.primary : Colors.transparent, borderRadius: BorderRadius.circular(R.md)),
-                  child: Row(children: [
-                    Icon(_items[i].$2, size: 18.r, color: on ? Colors.white : C.slate), SizedBox(width: 6.w),
-                    Text(_items[i].$1, style: T.bodyStrong.copyWith(fontSize: 13.5.sp, color: on ? Colors.white : C.slate)),
-                  ]),
-                ),
+    height: 52.h,
+    padding: EdgeInsets.all(4.r),
+    decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.lg)),
+    child: ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: _items.length,
+      separatorBuilder: (_, _) => SizedBox(width: 6.w),
+      itemBuilder: (_, i) {
+        final on = i == index;
+        return Semantics(
+          button: true,
+          selected: on,
+          label: _items[i].$1,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(R.md),
+            onTap: on ? null : () => context.pushReplacement(_items[i].$3),
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 14.w),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(color: on ? C.primary : Colors.transparent, borderRadius: BorderRadius.circular(R.md)),
+              child: Row(
+                children: [
+                  Icon(_items[i].$2, size: 18.r, color: on ? Colors.white : C.slate),
+                  SizedBox(width: 6.w),
+                  Text(
+                    _items[i].$1,
+                    style: T.bodyStrong.copyWith(fontSize: 13.5.sp, color: on ? Colors.white : C.slate),
+                  ),
+                ],
               ),
-            );
-          },
-        ),
-      );
+            ),
+          ),
+        );
+      },
+    ),
+  );
 }
 
 /// Coloured info/alert banner.
@@ -89,18 +101,34 @@ class AttBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = toneColors(tone);
     return InkWell(
-      borderRadius: BorderRadius.circular(R.md), onTap: onTap,
+      borderRadius: BorderRadius.circular(R.md),
+      onTap: onTap,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-        decoration: BoxDecoration(color: c.bg, borderRadius: BorderRadius.circular(R.md), border: Border.all(color: c.fg.withValues(alpha: .3))),
-        child: Row(children: [
-          Icon(icon, size: 20.r, color: c.fg), SizedBox(width: 8.w),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(text, style: T.smallStrong.copyWith(color: c.fg, fontSize: 13.sp)),
-            if (sub != null) Text(sub!, style: T.small.copyWith(color: c.fg)),
-          ])),
-          ?trailing,
-        ]),
+        decoration: BoxDecoration(
+          color: c.bg,
+          borderRadius: BorderRadius.circular(R.md),
+          border: Border.all(color: c.fg.withValues(alpha: .3)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 20.r, color: c.fg),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    text,
+                    style: T.smallStrong.copyWith(color: c.fg, fontSize: 13.sp),
+                  ),
+                  if (sub != null) Text(sub!, style: T.small.copyWith(color: c.fg)),
+                ],
+              ),
+            ),
+            ?trailing,
+          ],
+        ),
       ),
     );
   }
@@ -118,20 +146,60 @@ class AttCountTile extends StatelessWidget {
     final c = toneColors(tone);
     return Container(
       padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 8.w),
-      decoration: BoxDecoration(color: c.bg.withValues(alpha: .7), borderRadius: BorderRadius.circular(R.md), border: Border.all(color: c.fg.withValues(alpha: .2))),
-      child: Column(crossAxisAlignment: start ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
-        if (start) Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.small.copyWith(fontSize: 11.sp, color: c.fg, fontWeight: FontWeight.w700)),
-        FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: T.stat.copyWith(fontSize: 21.sp, color: tone == Tone.neutral ? C.ink : c.fg))),
-        if (!start) Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.small.copyWith(fontSize: 11.5.sp, color: c.fg, fontWeight: FontWeight.w700)),
-        if (sub != null) Text(sub!, maxLines: 1, overflow: TextOverflow.ellipsis, style: T.small.copyWith(fontSize: 10.5.sp)),
-      ]),
+      decoration: BoxDecoration(
+        color: c.bg.withValues(alpha: .7),
+        borderRadius: BorderRadius.circular(R.md),
+        border: Border.all(color: c.fg.withValues(alpha: .2)),
+      ),
+      child: Column(
+        crossAxisAlignment: start ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+        children: [
+          if (start)
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.small.copyWith(fontSize: 11.sp, color: c.fg, fontWeight: FontWeight.w700),
+            ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: T.stat.copyWith(fontSize: 21.sp, color: tone == Tone.neutral ? C.ink : c.fg),
+            ),
+          ),
+          if (!start)
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.small.copyWith(fontSize: 11.5.sp, color: c.fg, fontWeight: FontWeight.w700),
+            ),
+          if (sub != null)
+            Text(
+              sub!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: T.small.copyWith(fontSize: 10.5.sp),
+            ),
+        ],
+      ),
     );
   }
 }
 
 /// Asks for a short text in a sheet; returns null when cancelled.
-Future<String?> askReason(BuildContext context, {required String title, required String hint, required String action, bool required = true}) =>
-    showAppSheet<String>(context, title: title, builder: (ctx) => _ReasonForm(hint: hint, action: action, required: required));
+Future<String?> askReason(
+  BuildContext context, {
+  required String title,
+  required String hint,
+  required String action,
+  bool required = true,
+}) => showAppSheet<String>(
+  context,
+  title: title,
+  builder: (ctx) => _ReasonForm(hint: hint, action: action, required: required),
+);
 
 class _ReasonForm extends StatefulWidget {
   const _ReasonForm({required this.hint, required this.action, required this.required});
@@ -151,17 +219,27 @@ class _ReasonFormState extends State<_ReasonForm> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(children: [
-        TextField(controller: c, maxLines: 3, decoration: InputDecoration(hintText: widget.hint, errorText: err), onChanged: (_) => setState(() => err = null)),
-        SizedBox(height: 12.h),
-        AppButton(widget.action, onPressed: () {
+  Widget build(BuildContext context) => Column(
+    children: [
+      TextField(
+        controller: c,
+        maxLines: 3,
+        decoration: InputDecoration(hintText: widget.hint, errorText: err),
+        onChanged: (_) => setState(() => err = null),
+      ),
+      SizedBox(height: 12.h),
+      AppButton(
+        widget.action,
+        onPressed: () {
           if (widget.required && c.text.trim().length < 3) {
             setState(() => err = 'Please enter a short note');
             return;
           }
           Navigator.pop(context, c.text.trim());
-        }),
-      ]);
+        },
+      ),
+    ],
+  );
 }
 
 /// Caps label used above form fields.
@@ -171,7 +249,12 @@ class CapsLabel extends StatelessWidget {
   final Widget? trailing;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(bottom: 6.h),
-        child: Row(children: [Expanded(child: Text(text.toUpperCase(), style: T.capsMuted)), ?trailing]),
-      );
+    padding: EdgeInsets.only(bottom: 6.h),
+    child: Row(
+      children: [
+        Expanded(child: Text(text.toUpperCase(), style: T.capsMuted)),
+        ?trailing,
+      ],
+    ),
+  );
 }

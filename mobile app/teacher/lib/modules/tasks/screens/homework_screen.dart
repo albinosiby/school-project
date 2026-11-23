@@ -21,8 +21,10 @@ class HomeworkScreen extends StatelessWidget {
   final String id;
   final bool graded;
   @override
-  Widget build(BuildContext context) =>
-      BlocProvider(create: (_) => getIt<HomeworkBloc>()..add(HomeworkLoadRequested(id)), child: _HomeworkView(graded: graded));
+  Widget build(BuildContext context) => BlocProvider(
+    create: (_) => getIt<HomeworkBloc>()..add(HomeworkLoadRequested(id)),
+    child: _HomeworkView(graded: graded),
+  );
 }
 
 class _HomeworkView extends StatefulWidget {
@@ -42,11 +44,17 @@ class _HomeworkViewState extends State<_HomeworkView> {
     final s = context.watch<HomeworkBloc>().state;
     if (s.status != HomeworkStatus.loaded) {
       return DetailScaffold(
-        title: 'Homework', fallbackRoute: RoutePaths.tasks,
+        title: 'Homework',
+        fallbackRoute: RoutePaths.tasks,
         body: switch (s.status) {
-          HomeworkStatus.notFound => const Center(child: AppEmptyState('Homework not found', hint: 'It may have been deleted.', icon: Icons.assignment_late_outlined)),
-          HomeworkStatus.failure => AppErrorWidget(message: s.error ?? 'Could not load homework', onRetry: () => context.read<HomeworkBloc>().add(HomeworkLoadRequested(s.id))),
-          _ => const Center(child: CircularProgressIndicator()),
+          HomeworkStatus.notFound => const Center(
+            child: AppEmptyState('Homework not found', hint: 'It may have been deleted.', icon: Icons.assignment_late_outlined),
+          ),
+          HomeworkStatus.failure => AppErrorWidget(
+            message: s.error ?? 'Could not load homework',
+            onRetry: () => context.read<HomeworkBloc>().add(HomeworkLoadRequested(s.id)),
+          ),
+          _ => const SchoolSkeletonList(),
         },
       );
     }
@@ -62,7 +70,8 @@ class _HomeworkViewState extends State<_HomeworkView> {
       fallbackRoute: RoutePaths.tasks,
       actions: [
         PopupMenuButton<String>(
-          tooltip: 'Homework options', icon: Icon(Icons.more_vert_rounded, color: C.ink, size: 24.r),
+          tooltip: 'Homework options',
+          icon: Icon(Icons.more_vert_rounded, color: C.ink, size: 24.r),
           onSelected: (v) {
             if (v == 'toggle') {
               context.read<HomeworkBloc>().add(const HomeworkStatusToggled());
@@ -76,75 +85,131 @@ class _HomeworkViewState extends State<_HomeworkView> {
           ],
         ),
       ],
-      body: ListView(padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, 32.h), children: [
-        PanelCard(
-          padding: EdgeInsets.all(16.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
-                child: Wrap(spacing: 8.w, runSpacing: 6.h, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                  if (s.classGrade.isNotEmpty) Pill(s.classGrade, tone: Tone.purple, icon: Icons.school_outlined),
-                  Text('$max Max Pts', style: T.smallStrong),
-                  Text('${s.teacher?.term ?? 'Term 2'}${due == null ? '' : ' • Due ${fmtShort(due)}'}', style: T.small),
-                  if (s.closed) const Pill('Closed', tone: Tone.neutral),
-                ]),
-              ),
-              SizedBox(width: 8.w),
-              Container(
-                padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
-                decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.lg), border: Border.all(color: C.border)),
-                child: Column(children: [
-                  Text('Cohort Avg', style: T.small),
-                  Text.rich(TextSpan(children: [
-                    TextSpan(text: st.graded == 0 ? '—' : st.avg.toStringAsFixed(1), style: T.stat.copyWith(color: C.primary, fontSize: 24.sp)),
-                    TextSpan(text: '/$max', style: T.small),
-                  ])),
-                ]),
-              ),
-            ]),
-            SizedBox(height: 12.h),
-            Text(h.title, style: T.title),
-            SizedBox(height: 4.h),
-            Text('${h.description}${h.subject.isEmpty ? '' : ' • ${h.subject}'}', style: T.body),
-            SizedBox(height: 14.h),
-            AppCard(
-              radius: R.lg, padding: EdgeInsets.all(12.w),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Icon(Icons.fact_check_outlined, size: 18.r, color: C.primary), SizedBox(width: 6.w),
-                  Expanded(child: Text('${st.graded}/${st.turnedIn} Evaluated (${st.evaluatedPct}%)', style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  Pill('${st.toGrade} PENDING', tone: st.toGrade == 0 ? Tone.success : Tone.danger),
-                ]),
-                SizedBox(height: 10.h),
-                AppProgress(st.turnedIn == 0 ? 0 : st.graded / st.turnedIn),
-                SizedBox(height: 4.h),
-                Row(children: [
-                  Icon(Icons.inbox_outlined, size: 14.r, color: C.slate), SizedBox(width: 4.w),
-                  Expanded(child: Text('${st.turnedIn}/${st.total} submitted', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  if (next != null)
-                    Flexible(
-                      flex: 2,
-                      child: TextButton(
-                        onPressed: () => openGradeEditor(context, next.id),
-                        style: TextButton.styleFrom(minimumSize: Size(0, 44.h), padding: EdgeInsets.zero),
-                        child: Text('Next: Roll #${next.roll} ${next.name.split(' ').first} →',
-                            style: T.smallStrong.copyWith(color: C.primary), maxLines: 1, overflow: TextOverflow.ellipsis),
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, 32.h),
+        children: [
+          PanelCard(
+            padding: EdgeInsets.all(16.w),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Wrap(
+                        spacing: 8.w,
+                        runSpacing: 6.h,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          if (s.classGrade.isNotEmpty) Pill(s.classGrade, tone: Tone.purple, icon: Icons.school_outlined),
+                          Text('$max Max Pts', style: T.smallStrong),
+                          Text('${s.teacher?.term ?? 'Term 2'}${due == null ? '' : ' • Due ${fmtShort(due)}'}', style: T.small),
+                          if (s.closed) const Pill('Closed', tone: Tone.neutral),
+                        ],
                       ),
                     ),
-                ]),
-              ]),
+                    SizedBox(width: 8.w),
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                      decoration: BoxDecoration(
+                        color: C.surface,
+                        borderRadius: BorderRadius.circular(R.lg),
+                        border: Border.all(color: C.border),
+                      ),
+                      child: Column(
+                        children: [
+                          Text('Cohort Avg', style: T.small),
+                          Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text: st.graded == 0 ? '—' : st.avg.toStringAsFixed(1),
+                                  style: T.stat.copyWith(color: C.primary, fontSize: 24.sp),
+                                ),
+                                TextSpan(text: '/$max', style: T.small),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12.h),
+                Text(h.title, style: T.title),
+                SizedBox(height: 4.h),
+                Text('${h.description}${h.subject.isEmpty ? '' : ' • ${h.subject}'}', style: T.body),
+                SizedBox(height: 14.h),
+                AppCard(
+                  radius: R.lg,
+                  padding: EdgeInsets.all(12.w),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.fact_check_outlined, size: 18.r, color: C.primary),
+                          SizedBox(width: 6.w),
+                          Expanded(
+                            child: Text(
+                              '${st.graded}/${st.turnedIn} Evaluated (${st.evaluatedPct}%)',
+                              style: T.bodyStrong,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Pill('${st.toGrade} PENDING', tone: st.toGrade == 0 ? Tone.success : Tone.danger),
+                        ],
+                      ),
+                      SizedBox(height: 10.h),
+                      AppProgress(st.turnedIn == 0 ? 0 : st.graded / st.turnedIn),
+                      SizedBox(height: 4.h),
+                      Row(
+                        children: [
+                          Icon(Icons.inbox_outlined, size: 14.r, color: C.slate),
+                          SizedBox(width: 4.w),
+                          Expanded(
+                            child: Text(
+                              '${st.turnedIn}/${st.total} submitted',
+                              style: T.small,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (next != null)
+                            Flexible(
+                              flex: 2,
+                              child: TextButton(
+                                onPressed: () => openGradeEditor(context, next.id),
+                                style: TextButton.styleFrom(minimumSize: Size(0, 44.h), padding: EdgeInsets.zero),
+                                child: Text(
+                                  'Next: Roll #${next.roll} ${next.name.split(' ').first} →',
+                                  style: T.smallStrong.copyWith(color: C.primary),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 14.h),
+                AppSegmented(
+                  items: ['${_tabs[0]} (${kRubric.length})', '${_tabs[1]} (${st.graded})'],
+                  track: true,
+                  value: _tab == 0 ? '${_tabs[0]} (${kRubric.length})' : '${_tabs[1]} (${st.graded})',
+                  onChanged: (v) => setState(() => _tab = v.startsWith(_tabs[0]) ? 0 : 1),
+                ),
+              ],
             ),
-            SizedBox(height: 14.h),
-            AppSegmented(
-              items: ['${_tabs[0]} (${kRubric.length})', '${_tabs[1]} (${st.graded})'], track: true,
-              value: _tab == 0 ? '${_tabs[0]} (${kRubric.length})' : '${_tabs[1]} (${st.graded})',
-              onChanged: (v) => setState(() => _tab = v.startsWith(_tabs[0]) ? 0 : 1),
-            ),
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        if (_tab == 0) ..._rubricCards(st) else ..._gradedList(context, st),
-      ]),
+          ),
+          SizedBox(height: 14.h),
+          if (_tab == 0) ..._rubricCards(st) else ..._gradedList(context, st),
+        ],
+      ),
     );
   }
 
@@ -156,8 +221,11 @@ class _HomeworkViewState extends State<_HomeworkView> {
 
   List<Widget> _gradedList(BuildContext context, HomeworkStats st) {
     final labels = {
-      'all': 'All (${st.total})', 'graded': 'Graded (${st.graded})', 'pending': 'To Grade (${st.toGrade})',
-      'missing': 'Not Submitted (${st.notSubmitted})', 'remedial': 'Needs Remedial (${st.remedial})',
+      'all': 'All (${st.total})',
+      'graded': 'Graded (${st.graded})',
+      'pending': 'To Grade (${st.toGrade})',
+      'missing': 'Not Submitted (${st.notSubmitted})',
+      'remedial': 'Needs Remedial (${st.remedial})',
     };
     final keys = labels.keys.toList();
     final q = _query.trim().toLowerCase();
@@ -176,22 +244,39 @@ class _HomeworkViewState extends State<_HomeworkView> {
     return [
       AppSearchField(hint: 'Search student by name or roll number...', onChanged: (v) => setState(() => _query = v)),
       SizedBox(height: 12.h),
-      FilterChips(items: labels.values.toList(), value: labels[_filter]!, onChanged: (v) => setState(() => _filter = keys[labels.values.toList().indexOf(v)])),
+      FilterChips(
+        items: labels.values.toList(),
+        value: labels[_filter]!,
+        onChanged: (v) => setState(() => _filter = keys[labels.values.toList().indexOf(v)]),
+      ),
       SizedBox(height: 10.h),
-      Row(children: [
-        Expanded(
-          child: Text('SHOWING ${rows.length} ${_filter == 'all' ? 'STUDENTS' : labels[_filter]!.split(' (').first.toUpperCase()}',
-              style: T.capsMuted, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ),
-        TextButton.icon(
-          onPressed: () => setState(() => _byMarks = !_byMarks), icon: Icon(Icons.swap_vert_rounded, size: 18.r),
-          label: Text('Sort: ${_byMarks ? 'Marks' : 'Roll No'}', style: T.bodyStrong.copyWith(color: C.primary, fontSize: 13.sp)),
-        ),
-      ]),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              'SHOWING ${rows.length} ${_filter == 'all' ? 'STUDENTS' : labels[_filter]!.split(' (').first.toUpperCase()}',
+              style: T.capsMuted,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => setState(() => _byMarks = !_byMarks),
+            icon: Icon(Icons.swap_vert_rounded, size: 18.r),
+            label: Text(
+              'Sort: ${_byMarks ? 'Marks' : 'Roll No'}',
+              style: T.bodyStrong.copyWith(color: C.primary, fontSize: 13.sp),
+            ),
+          ),
+        ],
+      ),
       if (rows.isEmpty) const AppEmptyState('No students found', hint: 'Try another filter or search.', icon: Icons.search_off_rounded),
       for (final r in rows)
         StudentGradeCard(
-          key: ValueKey(r.id), row: r, max: st.max, remedial: st.isRemedial(r),
+          key: ValueKey(r.id),
+          row: r,
+          max: st.max,
+          remedial: st.isRemedial(r),
           onGrade: () => openGradeEditor(context, r.id),
           onMarkSubmitted: () {
             bloc.add(HomeworkSubmissionMarked(r.id));

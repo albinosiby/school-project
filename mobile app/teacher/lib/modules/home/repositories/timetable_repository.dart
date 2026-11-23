@@ -8,7 +8,10 @@ class LocalTimetableRepository implements ITimetableRepository {
   static const _periods = 'tt_periods', _subs = 'tt_subs';
 
   @override
-  Future<List<Period>> getPeriods() async => [for (final r in _db.list(_periods)) Period.fromJson(r)];
+  Future<List<Period>> getPeriods() async => [
+    for (final r in _db.list(_periods))
+      if (kSlots.any((slot) => slot.id == r['slot']) && schoolWorkingDays.contains(r['day'])) Period.fromJson(r),
+  ];
 
   @override
   Future<List<Substitution>> getSubstitutions() async => [for (final r in _db.list(_subs)) Substitution.fromJson(r)];
@@ -27,9 +30,11 @@ class LocalTimetableRepository implements ITimetableRepository {
     final sub = await getSubstitution(id);
     if (sub == null || index < 0 || index >= sub.tasks.length) return;
     final tasks = [for (var i = 0; i < sub.tasks.length; i++) i == index ? sub.tasks[i].copyWith(done: !sub.tasks[i].done) : sub.tasks[i]];
-    _db.update(_subs, id, {'tasks': [for (final t in tasks) t.toJson()]});
+    _db.update(_subs, id, {
+      'tasks': [for (final t in tasks) t.toJson()],
+    });
   }
 
   @override
-  Stream<void> watch() => _db.watch({_periods, _subs});
+  Stream<void> watch() => _db.watch({_periods, _subs, 'school'});
 }

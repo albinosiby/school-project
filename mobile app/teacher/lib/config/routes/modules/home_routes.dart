@@ -1,3 +1,5 @@
+import 'package:school_sync/school_sync.dart';
+import '../../../di/injection.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/settings/application_setting.dart';
 import '../../../core/walk_through/walkthrough_1.dart';
@@ -12,12 +14,22 @@ import '../routes.dart';
 /// Full-screen (pushed) routes of the home module. Paths come from RoutePaths.
 /// (Home and Timetable tabs are shell branches in routes_config.dart.)
 final List<RouteBase> homeRoutes = [
+  GoRoute(
+    path: RoutePaths.myCertificates,
+    builder: (_, _) => StaffCertificatesScreen(repository: getIt<IStaffCertificatesRepository>()),
+  ),
   GoRoute(path: RoutePaths.onboarding, builder: (_, _) => const OnboardingScreen()),
   GoRoute(path: RoutePaths.notifications, builder: (_, _) => const NotificationsScreen()),
-  GoRoute(path: RoutePaths.notificationDetail, builder: (_, s) => NotificationDetailScreen(id: s.pathParameters['id']!)),
+  GoRoute(
+    path: RoutePaths.notificationDetail,
+    builder: (_, s) => NotificationDetailScreen(id: s.pathParameters['id']!),
+  ),
   GoRoute(path: RoutePaths.profile, builder: (_, _) => const ProfileScreen()),
   GoRoute(path: RoutePaths.settings, builder: (_, _) => const ApplicationSettingsScreen()),
   GoRoute(path: RoutePaths.facultyId, builder: (_, _) => const FacultyIdScreen()),
   GoRoute(path: RoutePaths.weeklyGrid, builder: (_, _) => const WeeklyGridScreen()),
-  GoRoute(path: RoutePaths.substitutionDetail, builder: (_, s) => SubstitutionScreen(id: s.pathParameters['id']!)),
+  GoRoute(
+    path: RoutePaths.substitutionDetail,
+    builder: (_, s) => SubstitutionScreen(id: s.pathParameters['id']!),
+  ),
 ];

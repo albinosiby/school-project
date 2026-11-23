@@ -31,9 +31,11 @@ class TrendsBloc extends Bloc<TrendsEvent, TrendsState> {
 
   Future<void> _load(Emitter<TrendsState> emit, String classId) async {
     final roster = (await _school.getStudents(classId: classId))..sort((a, b) => a.roll.compareTo(b.roll));
+    final records = await _repo.getRecords(classId: classId);
     emit(state.copyWith(
       status: LoadStatus.loaded, classId: classId, roster: roster,
-      history: dailyRecords(await _repo.getRecords(classId: classId), classId),
+      history: dailyRecords(records, classId),
+      outsideYear: recordsOutsideYear(records, classId),
       pendingMedical: {for (final m in await _repo.getMedicalSlips()) if (m.status == 'Pending') m.studentId},
     ));
   }

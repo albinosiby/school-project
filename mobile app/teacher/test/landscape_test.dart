@@ -44,8 +44,8 @@ void main() {
     await _pumpLandscape(t, RoutePaths.home);
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(AppDock), findsNothing);
-    expectSideBySide(t, find.text("Today's Schedule"), find.text('Pending Action Tasks'));
-    expectSideBySide(t, find.text("Today's Schedule"), find.text('My Assigned Classes'));
+    expectSideBySide(t, find.text("Today's Schedule"), find.text('Needs your attention'));
+    expectSideBySide(t, find.text("Today's Schedule"), find.text('My Classes'));
   });
 
   testWidgets('timetable: day strip left, timeline right', (t) async {

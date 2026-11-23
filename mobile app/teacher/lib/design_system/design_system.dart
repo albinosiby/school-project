@@ -57,3 +57,5 @@ export 'components/app_settings_group.dart';
 export 'components/app_info_tile.dart';
 export 'components/app_file_chip.dart';
 export 'components/app_icon_segmented.dart';
+
+export 'package:school_sync/school_sync.dart' show SchoolSkeletonList;

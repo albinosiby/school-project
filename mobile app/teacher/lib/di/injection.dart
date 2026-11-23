@@ -1,6 +1,10 @@
+import 'package:school_sync/school_sync.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_it/get_it.dart';
 import '../config/app_config.dart';
+import '../utils/services/app_messenger.dart';
 import '../utils/services/firebase/firebase_auth_service.dart';
 import '../utils/services/firebase/push_notification_service.dart';
 import '../utils/services/firebase/firebase_storage_service.dart';
@@ -37,7 +41,11 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
   await storage.init();
   getIt.registerSingleton<LocalStorageService>(storage);
   if (AppConfig.isFirebase && db == null) {
-    final store = FirestoreDataStore(FirestoreGateway(), adapters: firebaseAdapters(), onError: (e, s) => debugPrint('Firestore: $e'));
+    // a refused write is undone locally by the store and told to the teacher here, never swallowed
+    final store = FirestoreDataStore(FirestoreGateway(), adapters: firebaseAdapters(), onError: (e, s) {
+      debugPrint('Firestore: $e');
+      reportSyncError(e);
+    });
     getIt.registerSingleton<FirestoreDataStore>(store);
     getIt.registerSingleton<DataStore>(store);
   } else {
@@ -57,6 +65,22 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
     getIt.registerLazySingleton<FirebaseStorageService>(() => FirebaseStorageService());
   }
 
+  if (AppConfig.isFirebase) {
+    getIt.registerLazySingleton<IStaffCertificatesRepository>(
+      () => FirebaseStaffCertificatesRepository(
+        MobileSchoolClient(
+          auth: FirebaseAuth.instance,
+          db: FirebaseFirestore.instance,
+          emulator: AppConfig.useEmulator,
+          emulatorHost: AppConfig.emulatorHost,
+          emulatorUsb: AppConfig.emulatorUsb,
+        ),
+      ),
+    );
+  } else {
+    getIt.registerLazySingleton<IStaffCertificatesRepository>(() => EmptyStaffCertificatesRepository());
+  }
+
   // === Modules: repositories (interface -> implementation) + BLoCs ===
   registerAuthModule(getIt);
   registerSchoolModule(getIt);
@@ -71,7 +95,7 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
 /// The Firestore adapters plus the built-in catalogues a new school starts with (behaviour badges, certificate templates);
 /// the teacher's own additions are stored privately and merged over them.
 List<StoreAdapter> firebaseAdapters() => [
-      ...defaultAdapters(),
-      CatalogueAdapter('cl_badges', classesSeed['cl_badges'] ?? const []),
-      CatalogueAdapter('cr_templates', lessonsSeed['cr_templates'] ?? const []),
-    ];
+  ...defaultAdapters(),
+  CatalogueAdapter('cl_badges', classesSeed['cl_badges'] ?? const []),
+  CatalogueAdapter('cr_templates', lessonsSeed['cr_templates'] ?? const []),
+];

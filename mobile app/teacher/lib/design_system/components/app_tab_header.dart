@@ -8,8 +8,9 @@ import '../layouts/adaptive_scaffold.dart' show AppNavScope, kTwoPaneMinWidth, k
 /// Top header of the five tab screens: logo tile (the app logo, or [icon] when given), title, bell (with unread dot) and avatar.
 /// Presentational: the data comes from the caller (see modules/home/screens/widgets/teacher_tab_header.dart).
 class AppTabHeader extends StatelessWidget {
-  const AppTabHeader({super.key, required this.title, this.subtitle, this.eyebrow, this.icon, required this.userName, this.hasUnread = false, this.onBell, this.onAvatar});
+  const AppTabHeader({super.key, required this.title, this.subtitle, this.eyebrow, this.icon, required this.userName, this.userPhoto, this.hasUnread = false, this.onBell, this.onAvatar});
   final String title, userName;
+  final String? userPhoto;
   final String? subtitle, eyebrow;
   final IconData? icon;
   final bool hasUnread;
@@ -56,7 +57,7 @@ class AppTabHeader extends StatelessWidget {
             ),
           ),
           SizedBox(width: 10.w),
-          Semantics(button: true, label: 'Profile', child: InkResponse(onTap: onAvatar, child: Avatar(userName, size: 44, online: true))),
+          Semantics(button: true, label: 'Profile', child: InkResponse(onTap: onAvatar, child: Avatar(userName, size: 44, online: true, image: userPhoto))),
         ]),
       );
 }

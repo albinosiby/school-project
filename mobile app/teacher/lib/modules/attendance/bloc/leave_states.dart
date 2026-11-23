@@ -1,9 +1,18 @@
+import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
 import '../models/leave_models.dart';
 import 'load_status.dart';
 
 class LeaveState extends Equatable {
-  const LeaveState({this.status = LoadStatus.initial, this.quota = const [], this.applications = const [], this.periods = const [], this.faculty = const []});
+  const LeaveState({
+    this.policyVersion = '',
+    this.status = LoadStatus.initial,
+    this.quota = const [],
+    this.applications = const [],
+    this.periods = const [],
+    this.faculty = const [],
+  });
+  final String policyVersion;
   final LoadStatus status;
   final List<LeaveQuota> quota;
   final List<LeaveApplication> applications;
@@ -12,12 +21,21 @@ class LeaveState extends Equatable {
 
   LeaveQuota? quotaFor(String code) => quota.where((q) => q.id == code).firstOrNull;
 
-  LeaveState copyWith({LoadStatus? status, List<LeaveQuota>? quota, List<LeaveApplication>? applications, List<HandoverPeriod>? periods, List<Faculty>? faculty}) =>
-      LeaveState(
-        status: status ?? this.status, quota: quota ?? this.quota, applications: applications ?? this.applications,
-        periods: periods ?? this.periods, faculty: faculty ?? this.faculty,
-      );
+  LeaveState copyWith({
+    LoadStatus? status,
+    List<LeaveQuota>? quota,
+    List<LeaveApplication>? applications,
+    List<HandoverPeriod>? periods,
+    List<Faculty>? faculty,
+  }) => LeaveState(
+    policyVersion: SchoolPolicyRuntime.current.version,
+    status: status ?? this.status,
+    quota: quota ?? this.quota,
+    applications: applications ?? this.applications,
+    periods: periods ?? this.periods,
+    faculty: faculty ?? this.faculty,
+  );
 
   @override
-  List<Object?> get props => [status, quota, applications, periods, faculty];
+  List<Object?> get props => [policyVersion, status, quota, applications, periods, faculty];
 }

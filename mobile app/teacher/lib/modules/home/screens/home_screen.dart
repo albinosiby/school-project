@@ -10,13 +10,15 @@ import '../../school/models/school_models.dart';
 import '../bloc/home_bloc.dart';
 import '../bloc/home_events.dart';
 import '../bloc/home_states.dart';
-import '../../attendance/models/attendance_models.dart';
+import '../../attendance/models/attendance_models.dart' show AttCounts;
 import '../models/home_models.dart';
 import '../models/timetable_models.dart';
+import 'widgets/home_checkin_card.dart';
 import 'widgets/home_now_card.dart';
 import 'widgets/teacher_tab_header.dart';
 
-/// Home tab (Figma 1153:2 "1. Home").
+/// Home tab. Top to bottom: who and when, the teacher's own check-in, what is happening now, the four things a teacher does most, today's
+/// periods, one list of everything that needs a reply or an action, the teacher's classes, then duties and reminders.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
   @override
@@ -62,170 +64,219 @@ class _HomeViewState extends State<_HomeView> {
     final school = context.watch<SchoolBloc>().state;
     final now = schoolNow();
     final today = state.periodsOf(now.day);
-    final pending = state.open;
+    final items = attentionItems(state, school.classes, now);
     final top = <Widget>[
-      _GreetingCard(teacher: school.teacher),
-      SizedBox(height: 16.h),
+      _GreetingBar(teacher: school.teacher, now: now),
+      SizedBox(height: 14.h),
+      const HomeCheckInCard(),
+      SizedBox(height: 14.h),
       NowCard(now: now, today: today, classOf: (id) => id == null ? null : school.classById(id)),
+      SizedBox(height: 16.h),
+      const _QuickActions(),
       SectionHeader("Today's Schedule", icon: Icons.calendar_today_outlined, action: 'View Timetable', onAction: () => context.go(RoutePaths.timetable)),
       ScheduleStrip(now: now, today: today, onTap: () => context.go(RoutePaths.timetable)),
     ];
-    final tasks = <Widget>[
-      SectionHeader('Pending Action Tasks', icon: Icons.assignment_late_outlined, action: 'View All', onAction: () => context.go(RoutePaths.tasks)),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: Padding(padding: EdgeInsets.only(bottom: 8.h, left: 2.w), child: Pill('${pending.length} Pending', tone: Tone.danger)),
-      ),
-      if (pending.isEmpty && state.status == HomeStatus.loaded) AppCard(child: Center(child: Text('All caught up!', style: T.bodyStrong))),
-      for (final p in pending) _PendingCard(p),
+    final attention = <Widget>[
+      SectionHeader('Needs your attention', icon: Icons.assignment_late_outlined, action: 'All tasks', onAction: () => context.go(RoutePaths.tasks)),
+      if (state.status == HomeStatus.loaded && items.isEmpty)
+        AppCard(
+          radius: R.lg,
+          child: Row(children: [
+            const IconTile(Icons.check_circle_outline_rounded, tone: Tone.success),
+            SizedBox(width: 12.w),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('All caught up', style: T.h3), Text('Nothing is waiting for you right now.', style: T.small),
+            ])),
+          ]),
+        )
+      else
+        AppCard(
+          radius: R.lg, padding: EdgeInsets.zero,
+          child: Column(children: [
+            for (var i = 0; i < items.length; i++) ...[
+              if (i > 0) Divider(height: 1, color: C.border),
+              _AttentionRow(items[i]),
+            ],
+          ]),
+        ),
     ];
     final classes = <Widget>[
-      SectionHeader('My Assigned Classes', icon: Icons.groups_outlined, action: '${school.classes.length} Classes', onAction: () => context.go(RoutePaths.classes)),
-      for (final c in school.classes) _ClassCard(c, today: state.today[c.id]),
+      SectionHeader('My Classes', icon: Icons.groups_outlined, action: 'View all', onAction: () => context.go(RoutePaths.classes)),
+      _ClassStrip(classes: school.classes, today: state.today, drafts: state.drafts),
     ];
-    final actions = <Widget>[const SectionHeader('Quick Actions'), const _QuickActions()];
     final reminders = <Widget>[
-      SectionHeader('Duties & Reminders', icon: Icons.notifications_active_outlined, action: 'View All', onAction: () => context.push(RoutePaths.duties)),
-      for (final r in state.reminders) _ReminderCard(r),
-    ];
-    final quote = <Widget>[
-      SizedBox(height: 14.h),
-      PanelCard(
-        child: Column(children: [
-          Text('“Teaching is the greatest act of optimism.”', textAlign: TextAlign.center, style: T.h3.copyWith(fontStyle: FontStyle.italic)),
-          SizedBox(height: 6.h),
-          Text('DAILY INSPIRATION • HAVE A WONDERFUL DAY!', textAlign: TextAlign.center, style: T.caps.copyWith(fontSize: 10.sp)),
-        ]),
-      ),
+      if (state.reminders.isNotEmpty) ...[
+        SectionHeader('Duties & Reminders', icon: Icons.event_outlined, action: 'View all', onAction: () => context.push(RoutePaths.duties)),
+        for (final r in state.reminders.take(3)) _ReminderCard(r),
+      ],
     ];
     return Column(children: [
         const TeacherTabHeader(title: 'Edvio Teacher', eyebrow: 'EDUADMIN'),
         Expanded(
           child: AppTabBody(
             onRefresh: _refresh,
-            // phones: the original order; wide screens: today on the left, work lists on the right
-            narrow: [...top, ...tasks, ...classes, ...actions, ...reminders, ...quote],
-            side: [...tasks, ...classes, ...reminders],
-            children: [...top, ...actions, ...quote],
+            // phones: one column; wide screens: today on the left, the work lists on the right
+            narrow: [...top, ...attention, ...classes, ...reminders],
+            side: [...attention, ...classes, ...reminders],
+            children: top,
           ),
         ),
       ]);
   }
 }
 
-class _GreetingCard extends StatelessWidget {
-  const _GreetingCard({required this.teacher});
+/// One row of the "Needs your attention" list.
+class AttentionItem {
+  const AttentionItem({required this.id, required this.icon, required this.tone, required this.title, required this.sub, required this.route, this.taskId});
+  final String id, title, sub, route;
+  final IconData icon;
+  final Tone tone;
+  /// Set for pending action tasks (`hm_pending`), which can be ticked off from the list.
+  final String? taskId;
+}
+
+/// Substitutions waiting for a reply, class-teacher classes not yet marked once the school day has started, then the
+/// pending action tasks. Pure, so it is unit-testable.
+List<AttentionItem> attentionItems(HomeState state, List<SchoolClass> classes, SchoolNow now) {
+  final items = <AttentionItem>[];
+  for (final s in state.subs.where((s) => s.status == SubStatus.pending)) {
+    final when = s.day == now.day ? 'Today' : (s.day > now.day ? kDayShort[s.day - 1] : 'Earlier this week');
+    items.add(AttentionItem(
+      id: 'sub_${s.id}', icon: Icons.swap_horiz_rounded, tone: Tone.warning, title: 'Substitution: ${s.classLabel} ${s.subject}',
+      sub: '$when • Period ${s.slot.replaceFirst('P', '')} ${t12(slotOf(s.slot).start)} • Accept or decline', route: RoutePaths.substitution(s.id),
+    ));
+  }
+  final started = kSlots.isNotEmpty && now.minute >= kSlots.first.startMin && schoolWorkingDays.contains(now.day);
+  if (started) {
+    for (final c in classes.where((c) => c.classTeacher && !state.today.containsKey(c.id))) {
+      final draft = state.drafts.contains(c.id);
+      items.add(AttentionItem(
+        id: 'att_${c.id}', icon: Icons.how_to_reg_outlined, tone: draft ? Tone.warning : Tone.danger,
+        title: '${draft ? 'Finish attendance' : 'Mark attendance'} • Class ${c.grade}-${c.section}',
+        sub: draft ? 'Draft saved • Submit to finish' : '${c.students} students • Not marked today', route: RoutePaths.markAttendance(classId: c.id),
+      ));
+    }
+  }
+  for (final p in state.open) {
+    final tone = Tone.values.asNameMap()[p.tone] ?? Tone.brand;
+    items.add(AttentionItem(id: 'task_${p.id}', icon: Icons.task_alt_rounded, tone: tone, title: p.title, sub: [p.tag, p.due].where((s) => s.isNotEmpty).join(' • '), route: p.route, taskId: p.id));
+  }
+  return items;
+}
+
+class _GreetingBar extends StatelessWidget {
+  const _GreetingBar({required this.teacher, required this.now});
   final Teacher? teacher;
+  final SchoolNow now;
 
   String _greeting() {
-    final h = DateTime.now().hour;
-    return h < 12 ? 'Good Morning' : (h < 17 ? 'Good Afternoon' : 'Good Evening');
+    final h = now.at.hour;
+    return h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : 'Good evening');
   }
 
   @override
   Widget build(BuildContext context) {
     final t = teacher;
-    final name = t?.name ?? 'Teacher';
-    final shortName = name.split(' ').take(2).join(' ');
-    return AppCard(
-      onTap: () => context.push(RoutePaths.profile), radius: R.xl, padding: EdgeInsets.all(16.r),
-      child: Row(children: [
-        Avatar(name, size: 56, online: true),
-        SizedBox(width: 12.w),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 4.h),
-              decoration: BoxDecoration(color: C.primarySoft, borderRadius: BorderRadius.circular(R.pill), border: Border.all(color: C.panelBorder)),
-              child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text('${t?.school ?? ''} • ${t?.year ?? ''} (${t?.term ?? ''})', style: T.small.copyWith(fontSize: 10.5.sp, color: C.primary), maxLines: 1)),
+    final shortName = (t?.name ?? 'Teacher').split(' ').take(2).join(' ');
+    final date = '${kDayLong[now.at.weekday - 1]}, ${dayMonth(now.at)} • ${termWeekLabel(now.at)}';
+    return Semantics(
+      button: true, label: 'Profile',
+      child: InkWell(
+        onTap: () => context.push(RoutePaths.profile), borderRadius: BorderRadius.circular(R.lg),
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 4.h, horizontal: 2.w),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${_greeting()}, $shortName', style: T.h1, maxLines: 1, overflow: TextOverflow.ellipsis),
+                SizedBox(height: 2.h),
+                Text(date, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+                if ((t?.title ?? '').isNotEmpty) Text(t!.title, style: T.small.copyWith(color: C.primary), maxLines: 1, overflow: TextOverflow.ellipsis),
+              ]),
             ),
-            SizedBox(height: 6.h),
-            Text('${_greeting()}, $shortName', style: T.h1.copyWith(fontSize: 17.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text('${t?.title ?? ''} • ${t?.subjects ?? ''}', style: T.body.copyWith(fontSize: 12.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
           ]),
         ),
-      ]),
-    );
-  }
-}
-
-class _PendingCard extends StatelessWidget {
-  const _PendingCard(this.p);
-  final PendingTask p;
-  @override
-  Widget build(BuildContext context) {
-    final tone = Tone.values.asNameMap()[p.tone] ?? Tone.brand;
-    return Padding(
-      padding: EdgeInsets.only(bottom: 10.h),
-      child: AppCard(
-        radius: R.lg, onTap: () => openRoute(context, p.route),
-        padding: EdgeInsets.fromLTRB(16.w, 14.h, 4.w, 14.h),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Flexible(child: Pill(p.tag, tone: tone)), SizedBox(width: 8.w),
-                Expanded(child: Text(p.due, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              ]),
-              SizedBox(height: 8.h),
-              Text(p.title, style: T.h3.copyWith(fontSize: 14.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
-              SizedBox(height: 2.h),
-              Text(p.desc, style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
-            ]),
-          ),
-          IconButton(
-            tooltip: 'Mark done', icon: Icon(Icons.check_circle_outline_rounded, color: C.success, size: 24.r),
-            onPressed: () {
-              context.read<HomeBloc>().add(HomeTaskCompleted(p.id));
-              AppDialogs.showSnackBar(context, message: 'Task marked as done');
-            },
-          ),
-        ]),
       ),
     );
   }
 }
 
-class _ClassCard extends StatelessWidget {
-  const _ClassCard(this.c, {this.today});
-  /// Today's submitted attendance; null when the class has not been marked yet.
-  final AttCounts? today;
-  final SchoolClass c;
+class _AttentionRow extends StatelessWidget {
+  const _AttentionRow(this.item);
+  final AttentionItem item;
   @override
-  Widget build(BuildContext context) {
-    final t = today;
-    Widget stat(String v, String l) => Expanded(child: Column(children: [Text(v, style: T.stat.copyWith(fontSize: 18.sp)), Text(l, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis)]));
-    return Padding(
-      padding: EdgeInsets.only(bottom: 10.h),
-      child: AppCard(
-        radius: R.lg, onTap: () => context.go(RoutePaths.classes),
-        child: Column(children: [
-          Row(children: [
-            Container(
-              width: 44.r, height: 44.r, alignment: Alignment.center,
-              decoration: BoxDecoration(color: C.primarySoft, borderRadius: BorderRadius.circular(R.md)),
-              child: Text('${c.grade}${c.section}', style: T.h3.copyWith(color: C.primary)),
-            ),
+  Widget build(BuildContext context) => InkWell(
+        onTap: () => openRoute(context, item.route),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(14.w, 12.h, 6.w, 12.h),
+          child: Row(children: [
+            IconTile(item.icon, tone: item.tone, size: 36),
             SizedBox(width: 12.w),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Flexible(child: Text('Class ${c.grade} – Section ${c.section}', style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  if (c.classTeacher) ...[SizedBox(width: 8.w), const Flexible(child: Pill('Class Incharge', tone: Tone.success))],
-                ]),
-                Text('${c.students} Students • ${c.subject}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(item.title, style: T.h3.copyWith(fontSize: 14.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
+                SizedBox(height: 2.h),
+                Text(item.sub, style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
               ]),
             ),
+            if (item.taskId != null)
+              IconButton(
+                tooltip: 'Mark done', icon: Icon(Icons.check_circle_outline_rounded, color: C.success, size: 24.r),
+                onPressed: () {
+                  context.read<HomeBloc>().add(HomeTaskCompleted(item.taskId!));
+                  AppDialogs.showSnackBar(context, message: 'Task marked as done');
+                },
+              )
+            else
+              Icon(Icons.chevron_right_rounded, color: C.muted, size: 24.r),
           ]),
-          if (c.classTeacher) ...[
-            SizedBox(height: 12.h),
-            Row(children: [
-              stat(t == null ? '—' : '${t.present + t.late}', t == null ? 'Not marked' : 'Present Today'),
-              stat(t == null ? '—' : '${t.absent}', 'Absent'),
-              stat('${c.attendance.round()}%', 'Term Avg'),
-            ]),
-          ],
-        ]),
+        ),
+      );
+}
+
+/// Horizontal cards: one per class, with today's attendance state for the classes the teacher is in charge of.
+class _ClassStrip extends StatelessWidget {
+  const _ClassStrip({required this.classes, required this.today, required this.drafts});
+  final List<SchoolClass> classes;
+  final Map<String, AttCounts> today;
+  final Set<String> drafts;
+  @override
+  Widget build(BuildContext context) {
+    if (classes.isEmpty) return const AppCard(child: AppEmptyState('No classes assigned yet', hint: 'Your classes appear here once the office assigns them.'));
+    return SizedBox(
+      height: 124.h,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.only(right: 4.w),
+        itemCount: classes.length,
+        separatorBuilder: (_, _) => SizedBox(width: 10.w),
+        itemBuilder: (_, i) {
+          final c = classes[i];
+          final t = today[c.id];
+          final marked = t != null;
+          return SizedBox(
+            width: 168.w,
+            child: AppCard(
+              radius: R.lg, padding: EdgeInsets.all(12.r), onTap: () => context.go(RoutePaths.classes),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                Row(children: [
+                  Container(
+                    width: 36.r, height: 36.r, alignment: Alignment.center,
+                    decoration: BoxDecoration(color: C.primarySoft, borderRadius: BorderRadius.circular(R.md)),
+                    child: Text('${c.grade}${c.section}', style: T.smallStrong.copyWith(color: C.primary)),
+                  ),
+                  SizedBox(width: 8.w),
+                  Expanded(child: Text(c.subject, style: T.smallStrong, maxLines: 2, overflow: TextOverflow.ellipsis)),
+                ]),
+                Text('${c.students} students', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+                if (c.classTeacher)
+                  Pill(marked ? '${t.present + t.late}/${c.students} present' : drafts.contains(c.id) ? 'Draft saved • submit' : 'Not marked today', tone: marked ? Tone.success : drafts.contains(c.id) ? Tone.warning : Tone.danger)
+                else
+                  const Pill('Subject teacher', tone: Tone.neutral),
+              ]),
+            ),
+          );
+        },
       ),
     );
   }

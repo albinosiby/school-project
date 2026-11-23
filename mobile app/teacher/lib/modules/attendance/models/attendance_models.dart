@@ -1,3 +1,5 @@
+import 'package:school_sync/school_sync.dart';
+import '../../../config/app_config.dart';
 import 'package:equatable/equatable.dart';
 import 'package:intl/intl.dart';
 
@@ -14,7 +16,7 @@ enum AttCode {
 }
 
 /// Period timetable (number -> start/end, 24h).
-const Map<int, (String, String)> periodTimes = {
+const Map<int, (String, String)> _demoPeriodTimes = {
   1: ('08:30', '09:15'),
   2: ('09:15', '10:00'),
   3: ('10:15', '11:00'),
@@ -24,9 +26,18 @@ const Map<int, (String, String)> periodTimes = {
   7: ('15:00', '15:45'),
 };
 
+double get minimumAttendance => SchoolPolicyRuntime.current.minimumAttendance;
+String get attendanceThresholdLabel => SchoolPolicyRuntime.current.thresholdLabel;
+Map<int, (String, String)> get periodTimes => AppConfig.isFirebase
+    ? {
+        for (final row in SchoolPolicyRuntime.current.slots)
+          if (!row.isBreak && !row.isGap) int.parse(row.id.substring(1)): (row.start, row.end),
+      }
+    : _demoPeriodTimes;
+
 String dkey(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
 DateTime todayDate() {
-  final n = DateTime.now();
+  final n = AppConfig.isFirebase ? SchoolPolicyRuntime.current.schoolTime() : DateTime.now();
   return DateTime(n.year, n.month, n.day);
 }
 
@@ -52,21 +63,31 @@ int mins(String hhmm) {
 String two(num n) => n.toString().padLeft(2, '0');
 String hm(int m) => '${two(m ~/ 60)}:${two(m % 60)}';
 String nowHm() {
-  final n = DateTime.now();
+  final n = AppConfig.isFirebase ? SchoolPolicyRuntime.current.schoolTime() : DateTime.now();
   return '${two(n.hour)}:${two(n.minute)}';
 }
 
-String periodRange(int p) => '${t12(periodTimes[p]!.$1)} – ${t12(periodTimes[p]!.$2)}';
+String periodRange(int p) => periodTimes.containsKey(p) ? '${t12(periodTimes[p]!.$1)} – ${t12(periodTimes[p]!.$2)}' : 'Timing unavailable';
 
 typedef AttCounts = ({int total, int present, int absent, int late, int excused});
 
 /// One attendance sheet (class + date + period). [marks] only lists non-present students.
 class AttendanceRecord extends Equatable {
-  const AttendanceRecord({required this.id, required this.classId, required this.date, required this.period, required this.total, this.marks = const {}, this.submitted = false, this.updatedAt = ''});
+  const AttendanceRecord({
+    required this.id,
+    required this.classId,
+    required this.date,
+    required this.period,
+    required this.total,
+    this.marks = const {},
+    this.submitted = false,
+    this.readOnly = false,
+    this.updatedAt = '',
+  });
   final String id, classId, date, updatedAt;
   final int period, total;
   final Map<String, String> marks;
-  final bool submitted;
+  final bool submitted, readOnly;
 
   AttCode codeOf(String studentId) => AttCode.of(marks[studentId]);
 
@@ -86,17 +107,38 @@ class AttendanceRecord extends Equatable {
   factory AttendanceRecord.fromJson(Map<String, dynamic> j) {
     final m = {for (final e in (j['marks'] as Map? ?? const {}).entries) '${e.key}': '${e.value}'};
     return AttendanceRecord(
-      id: j['id'] as String? ?? '', classId: j['classId'] as String? ?? '', date: j['date'] as String? ?? '', period: (j['period'] as num?)?.toInt() ?? 1,
-      total: (j['total'] as num?)?.toInt() ?? m.length, marks: m, submitted: j['submitted'] == true, updatedAt: j['updatedAt'] as String? ?? '',
+      id: j['id'] as String? ?? '',
+      classId: j['classId'] as String? ?? '',
+      date: j['date'] as String? ?? '',
+      period: (j['period'] as num?)?.toInt() ?? 1,
+      total: (j['total'] as num?)?.toInt() ?? m.length,
+      marks: m,
+      submitted: j['submitted'] == true, readOnly: j['readOnly'] == true,
+      updatedAt: j['updatedAt'] as String? ?? '',
     );
   }
-  Map<String, dynamic> toJson() => {'id': id, 'classId': classId, 'date': date, 'period': period, 'total': total, 'marks': marks, 'submitted': submitted, 'updatedAt': updatedAt};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'classId': classId,
+    'date': date,
+    'period': period,
+    'total': total,
+    'marks': marks,
+    'submitted': submitted, 'readOnly': readOnly,
+    'updatedAt': updatedAt,
+  };
   AttendanceRecord copyWith({int? total, Map<String, String>? marks, bool? submitted, String? updatedAt}) => AttendanceRecord(
-        id: id, classId: classId, date: date, period: period, total: total ?? this.total, marks: marks ?? this.marks,
-        submitted: submitted ?? this.submitted, updatedAt: updatedAt ?? this.updatedAt,
-      );
+    id: id,
+    classId: classId,
+    date: date,
+    period: period,
+    total: total ?? this.total,
+    marks: marks ?? this.marks,
+    submitted: submitted ?? this.submitted,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
   @override
-  List<Object?> get props => [id, classId, date, period, total, marks, submitted, updatedAt];
+  List<Object?> get props => [id, classId, date, period, total, marks, submitted, readOnly, updatedAt];
 }
 
 /// Submitted records of [classId] (the latest one per day), optionally within [from]..[to], oldest first.
@@ -104,17 +146,42 @@ List<AttendanceRecord> dailyRecords(Iterable<AttendanceRecord> all, String class
   final byDay = <String, AttendanceRecord>{};
   for (final r in all) {
     if (r.classId != classId || !r.submitted) continue;
+    final date = DateTime.tryParse(r.date);
+    if (date == null || (AppConfig.isFirebase && !SchoolPolicyRuntime.current.includes(date))) continue;
     if (from != null && r.date.compareTo(from) < 0) continue;
     if (to != null && r.date.compareTo(to) > 0) continue;
     final cur = byDay[r.date];
-    if (cur == null || r.updatedAt.compareTo(cur.updatedAt) > 0) byDay[r.date] = r;
+    if (cur == null || (r.updatedAt.compareTo(cur.updatedAt) > 0 || r.updatedAt == cur.updatedAt && r.period > cur.period)) {
+      byDay[r.date] = r;
+    }
   }
   return byDay.values.toList()..sort((a, b) => a.date.compareTo(b.date));
 }
 
+/// Submitted records of [classId] whose date the published academic year does not include; `dailyRecords` drops them,
+/// so the screens can say why a marked day is missing (the office sets the term dates on the dashboard).
+int recordsOutsideYear(Iterable<AttendanceRecord> all, String classId) {
+  if (!AppConfig.isFirebase) return 0;
+  var n = 0;
+  for (final r in all) {
+    if (r.classId != classId || !r.submitted) continue;
+    final date = DateTime.tryParse(r.date);
+    if (date != null && !SchoolPolicyRuntime.current.includes(date)) n++;
+  }
+  return n;
+}
+
 /// Per-student attendance % (present or late) over [records].
-double studentRate(List<AttendanceRecord> records, String studentId) {
-  if (records.isEmpty) return 100;
+double studentRate(List<AttendanceRecord> records, String studentId, {String? admissionDate}) {
+  records = records
+      .where(
+        (r) =>
+            r.submitted &&
+            (admissionDate == null || admissionDate.isEmpty || r.date.compareTo(admissionDate) >= 0) &&
+            (!AppConfig.isFirebase || SchoolPolicyRuntime.current.includes(DateTime.tryParse(r.date) ?? DateTime(1900))),
+      )
+      .toList();
+  if (records.isEmpty) return 0;
   var ok = 0;
   for (final r in records) {
     final c = r.codeOf(studentId);
@@ -123,14 +190,16 @@ double studentRate(List<AttendanceRecord> records, String studentId) {
   return ok * 100 / records.length;
 }
 
-double averageRate(List<AttendanceRecord> records) => records.isEmpty ? 0 : records.map((r) => r.rate).reduce((a, b) => a + b) / records.length;
+double averageRate(List<AttendanceRecord> records) =>
+    records.isEmpty ? 0 : records.map((r) => r.rate).reduce((a, b) => a + b) / records.length;
 
 /// A period the teacher takes today (Attendance overview).
 class ScheduleSlot extends Equatable {
   const ScheduleSlot({required this.id, required this.classId, required this.period});
   final String id, classId;
   final int period;
-  factory ScheduleSlot.fromJson(Map<String, dynamic> j) => ScheduleSlot(id: j['id'] as String, classId: j['classId'] as String? ?? '', period: (j['period'] as num?)?.toInt() ?? 1);
+  factory ScheduleSlot.fromJson(Map<String, dynamic> j) =>
+      ScheduleSlot(id: j['id'] as String, classId: j['classId'] as String? ?? '', period: (j['period'] as num?)?.toInt() ?? 1);
   Map<String, dynamic> toJson() => {'id': id, 'classId': classId, 'period': period};
   @override
   List<Object?> get props => [id, classId, period];
@@ -142,50 +211,104 @@ class StaffLog extends Equatable {
   final String id, date, status, note;
   final String? inTime, outTime;
   factory StaffLog.fromJson(Map<String, dynamic> j) => StaffLog(
-        id: j['id'] as String? ?? '', date: j['date'] as String? ?? '', inTime: j['in'] as String?, outTime: j['out'] as String?,
-        status: j['status'] as String? ?? 'Present', note: j['note'] as String? ?? '',
-      );
+    id: j['id'] as String? ?? '',
+    date: j['date'] as String? ?? '',
+    inTime: j['in'] as String?,
+    outTime: j['out'] as String?,
+    status: j['status'] as String? ?? 'Present',
+    note: j['note'] as String? ?? '',
+  );
   Map<String, dynamic> toJson() => {'id': id, 'date': date, 'in': inTime, 'out': outTime, 'status': status, 'note': note};
-  StaffLog copyWith({String? outTime}) => StaffLog(id: id, date: date, inTime: inTime, outTime: outTime ?? this.outTime, status: status, note: note);
+  StaffLog copyWith({String? outTime}) =>
+      StaffLog(id: id, date: date, inTime: inTime, outTime: outTime ?? this.outTime, status: status, note: note);
   @override
   List<Object?> get props => [id, date, inTime, outTime, status, note];
 }
 
 class Regularization extends Equatable {
-  const Regularization({this.id = '', required this.date, required this.type, required this.time, required this.reason, this.note = '', this.status = 'Pending', this.at = '', this.decisionNote = ''});
+  const Regularization({
+    this.id = '',
+    required this.date,
+    required this.type,
+    required this.time,
+    required this.reason,
+    this.note = '',
+    this.status = 'Pending',
+    this.at = '',
+    this.decisionNote = '',
+  });
   final String id, date, type, time, reason, note, status, at;
 
   /// The admin's note when approving / rejecting (read only).
   final String decisionNote;
   factory Regularization.fromJson(Map<String, dynamic> j) => Regularization(
-        id: j['id'] as String? ?? '', date: j['date'] as String? ?? '', type: j['type'] as String? ?? '', time: j['time'] as String? ?? '',
-        reason: j['reason'] as String? ?? '', note: j['note'] as String? ?? '', status: j['status'] as String? ?? 'Pending', at: j['at'] as String? ?? '',
-        decisionNote: j['decisionNote'] as String? ?? '',
-      );
+    id: j['id'] as String? ?? '',
+    date: j['date'] as String? ?? '',
+    type: j['type'] as String? ?? '',
+    time: j['time'] as String? ?? '',
+    reason: j['reason'] as String? ?? '',
+    note: j['note'] as String? ?? '',
+    status: j['status'] as String? ?? 'Pending',
+    at: j['at'] as String? ?? '',
+    decisionNote: j['decisionNote'] as String? ?? '',
+  );
   Map<String, dynamic> toJson() => {
-        if (id.isNotEmpty) 'id': id, 'date': date, 'type': type, 'time': time, 'reason': reason, 'note': note, 'status': status, 'at': at,
-        if (decisionNote.isNotEmpty) 'decisionNote': decisionNote,
-      };
+    if (id.isNotEmpty) 'id': id,
+    'date': date,
+    'type': type,
+    'time': time,
+    'reason': reason,
+    'note': note,
+    'status': status,
+    'at': at,
+    if (decisionNote.isNotEmpty) 'decisionNote': decisionNote,
+  };
   @override
   List<Object?> get props => [id, date, type, time, reason, note, status, at, decisionNote];
 }
 
 /// A message/call to a parent about attendance.
 class ParentNotice extends Equatable {
-  const ParentNotice({this.id = '', required this.studentId, required this.classId, required this.channels, required this.message, this.template, this.auto = false, this.ack = false, this.ackRequested = false, this.at = ''});
+  const ParentNotice({
+    this.id = '',
+    required this.studentId,
+    required this.classId,
+    required this.channels,
+    required this.message,
+    this.template,
+    this.auto = false,
+    this.ack = false,
+    this.ackRequested = false,
+    this.at = '',
+  });
   final String id, studentId, classId, message, at;
   final String? template;
   final List<String> channels;
   final bool auto, ack, ackRequested;
   factory ParentNotice.fromJson(Map<String, dynamic> j) => ParentNotice(
-        id: j['id'] as String? ?? '', studentId: j['studentId'] as String? ?? '', classId: j['classId'] as String? ?? '',
-        channels: [for (final c in j['channels'] as List? ?? const []) '$c'], message: j['message'] as String? ?? '', template: j['template'] as String?,
-        auto: j['auto'] == true, ack: j['ack'] == true, ackRequested: j['ackRequested'] == true, at: j['at'] as String? ?? '',
-      );
+    id: j['id'] as String? ?? '',
+    studentId: j['studentId'] as String? ?? '',
+    classId: j['classId'] as String? ?? '',
+    channels: [for (final c in j['channels'] as List? ?? const []) '$c'],
+    message: j['message'] as String? ?? '',
+    template: j['template'] as String?,
+    auto: j['auto'] == true,
+    ack: j['ack'] == true,
+    ackRequested: j['ackRequested'] == true,
+    at: j['at'] as String? ?? '',
+  );
   Map<String, dynamic> toJson() => {
-        if (id.isNotEmpty) 'id': id, 'studentId': studentId, 'classId': classId, 'channels': channels, 'message': message, 'template': ?template,
-        'auto': auto, 'ack': ack, 'ackRequested': ackRequested, 'at': at,
-      };
+    if (id.isNotEmpty) 'id': id,
+    'studentId': studentId,
+    'classId': classId,
+    'channels': channels,
+    'message': message,
+    'template': ?template,
+    'auto': auto,
+    'ack': ack,
+    'ackRequested': ackRequested,
+    'at': at,
+  };
   @override
   List<Object?> get props => [id, studentId, classId, channels, message, template, auto, ack, ackRequested, at];
 }
@@ -201,43 +324,108 @@ class SlipFile extends Equatable {
 
 /// Student leave slip sent by a parent. status: Pending | Approved | Rejected | Clarify.
 class LeaveSlip extends Equatable {
-  const LeaveSlip({required this.id, required this.studentId, required this.type, required this.from, required this.to, required this.reason, this.parent = '', this.note = '', this.files = const [], this.status = 'Pending', this.decisionNote, this.decidedAt});
+  const LeaveSlip({
+    required this.id,
+    required this.studentId,
+    required this.type,
+    required this.from,
+    required this.to,
+    required this.reason,
+    this.parent = '',
+    this.note = '',
+    this.files = const [],
+    this.status = 'Pending',
+    this.decisionNote,
+    this.decidedAt,
+  });
   final String id, studentId, type, from, to, reason, parent, note, status;
   final List<SlipFile> files;
   final String? decisionNote, decidedAt;
   bool get decided => status == 'Approved' || status == 'Rejected';
   bool covers(String date) => from.compareTo(date) <= 0 && to.compareTo(date) >= 0;
   factory LeaveSlip.fromJson(Map<String, dynamic> j) => LeaveSlip(
-        id: j['id'] as String, studentId: j['studentId'] as String? ?? '', type: j['type'] as String? ?? '', from: j['from'] as String? ?? '',
-        to: j['to'] as String? ?? '', reason: j['reason'] as String? ?? '', parent: j['parent'] as String? ?? '', note: j['note'] as String? ?? '',
-        files: [for (final f in j['files'] as List? ?? const []) SlipFile.fromJson(Map<String, dynamic>.from(f as Map))],
-        status: j['status'] as String? ?? 'Pending', decisionNote: j['decisionNote'] as String?, decidedAt: j['decidedAt'] as String?,
-      );
+    id: j['id'] as String,
+    studentId: j['studentId'] as String? ?? '',
+    type: j['type'] as String? ?? '',
+    from: j['from'] as String? ?? '',
+    to: j['to'] as String? ?? '',
+    reason: j['reason'] as String? ?? '',
+    parent: j['parent'] as String? ?? '',
+    note: j['note'] as String? ?? '',
+    files: [for (final f in j['files'] as List? ?? const []) SlipFile.fromJson(Map<String, dynamic>.from(f as Map))],
+    status: j['status'] as String? ?? 'Pending',
+    decisionNote: j['decisionNote'] as String?,
+    decidedAt: j['decidedAt'] as String?,
+  );
   Map<String, dynamic> toJson() => {
-        'id': id, 'studentId': studentId, 'type': type, 'from': from, 'to': to, 'reason': reason, 'parent': parent, 'note': note,
-        'files': [for (final f in files) f.toJson()], 'status': status, 'decisionNote': ?decisionNote, 'decidedAt': ?decidedAt,
-      };
+    'id': id,
+    'studentId': studentId,
+    'type': type,
+    'from': from,
+    'to': to,
+    'reason': reason,
+    'parent': parent,
+    'note': note,
+    'files': [for (final f in files) f.toJson()],
+    'status': status,
+    'decisionNote': ?decisionNote,
+    'decidedAt': ?decidedAt,
+  };
   @override
   List<Object?> get props => [id, studentId, type, from, to, reason, parent, note, files, status, decisionNote, decidedAt];
 }
 
 /// Medical slip uploaded by a parent. status: Pending | Approved | Rejected.
 class MedicalSlip extends Equatable {
-  const MedicalSlip({required this.id, required this.studentId, required this.title, required this.clinic, required this.from, required this.to, required this.days, this.file = '', this.uploader = '', this.uploadedAt = '', this.status = 'Pending', this.by = '', this.reason});
+  const MedicalSlip({
+    required this.id,
+    required this.studentId,
+    required this.title,
+    required this.clinic,
+    required this.from,
+    required this.to,
+    required this.days,
+    this.file = '',
+    this.uploader = '',
+    this.uploadedAt = '',
+    this.status = 'Pending',
+    this.by = '',
+    this.reason,
+  });
   final String id, studentId, title, clinic, from, to, file, uploader, uploadedAt, status, by;
   final int days;
   final String? reason;
   bool covers(String date) => from.compareTo(date) <= 0 && to.compareTo(date) >= 0;
   factory MedicalSlip.fromJson(Map<String, dynamic> j) => MedicalSlip(
-        id: j['id'] as String, studentId: j['studentId'] as String? ?? '', title: j['title'] as String? ?? '', clinic: j['clinic'] as String? ?? '',
-        from: j['from'] as String? ?? '', to: j['to'] as String? ?? '', days: (j['days'] as num?)?.toInt() ?? 1, file: j['file'] as String? ?? '',
-        uploader: j['uploader'] as String? ?? '', uploadedAt: j['uploadedAt'] as String? ?? '', status: j['status'] as String? ?? 'Pending',
-        by: j['by'] as String? ?? '', reason: j['reason'] as String?,
-      );
+    id: j['id'] as String,
+    studentId: j['studentId'] as String? ?? '',
+    title: j['title'] as String? ?? '',
+    clinic: j['clinic'] as String? ?? '',
+    from: j['from'] as String? ?? '',
+    to: j['to'] as String? ?? '',
+    days: (j['days'] as num?)?.toInt() ?? 1,
+    file: j['file'] as String? ?? '',
+    uploader: j['uploader'] as String? ?? '',
+    uploadedAt: j['uploadedAt'] as String? ?? '',
+    status: j['status'] as String? ?? 'Pending',
+    by: j['by'] as String? ?? '',
+    reason: j['reason'] as String?,
+  );
   Map<String, dynamic> toJson() => {
-        'id': id, 'studentId': studentId, 'title': title, 'clinic': clinic, 'from': from, 'to': to, 'days': days, 'file': file,
-        'uploader': uploader, 'uploadedAt': uploadedAt, 'status': status, 'by': by, 'reason': ?reason,
-      };
+    'id': id,
+    'studentId': studentId,
+    'title': title,
+    'clinic': clinic,
+    'from': from,
+    'to': to,
+    'days': days,
+    'file': file,
+    'uploader': uploader,
+    'uploadedAt': uploadedAt,
+    'status': status,
+    'by': by,
+    'reason': ?reason,
+  };
   @override
   List<Object?> get props => [id, studentId, title, from, to, days, status, by, reason];
 }
