@@ -3,6 +3,7 @@ const { createHash } = require("node:crypto");
 const { getFirestore } = require("firebase-admin/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { schoolDate } = require("./schoolTime");
+const { invoiceDisplayStatus, assertInvoiceStudentWritable } = require("./feeInvoiceState");
 
 const clean = (value) => typeof value === "string" ? value.trim() : "";
 const validId = (value) => typeof value === "string" && value.length > 0 && value.length <= 128 && !/[\/]/.test(value) && ![".", ".."].includes(value);
@@ -52,6 +53,8 @@ async function recordFeePayment(req) {
       return { payment: saved.data(), replayed: true };
     }
     if (!invoice.exists) throw new HttpsError("not-found", "The invoice was not found.");
+    if (invoice.get("deleted")) throw new HttpsError("not-found", "The invoice was not found.");
+    await assertInvoiceStudentWritable(tx, school, invoice);
     const claim = claimRef ? await tx.get(claimRef) : null;
     if (claimRef && (!claim.exists || claim.get("invoiceId") !== invoiceId || claim.get("grn") !== invoice.get("grn"))) {
       throw new HttpsError("failed-precondition", "This claim does not match the invoice.");
@@ -98,7 +101,9 @@ async function recordFeePayment(req) {
     const left = balance - amountCents;
     const status = !left ? "Paid" : invoice.get("due") && invoice.get("due") < today ? "Overdue" : "Partial";
     tx.create(paymentRef, payment);
-    tx.update(invoiceRef, { paid: (paid + amountCents) / 100, balance: left / 100, status, ...stamp });
+    tx.update(invoiceRef, { paid: (paid + amountCents) / 100, balance: left / 100, status, statusOverride: null, statusRevision: (invoice.get("statusRevision") || 0) + 1, ...stamp });
+    tx.create(school.collection("fee_invoice_status_history").doc(`pay_${requestId}`), { invoiceId, invoiceNo: invoice.get("no") || "", from: invoiceDisplayStatus(invoice.data(), today), to: status,
+      mode: "Payment", reason: `Payment recorded · ${receiptNo}`, at: now, by, byUid: uid, _o: Date.parse(now) });
     tx.set(counterRef, { last: sequence, ...stamp });
     tx.create(requestRef, { fingerprint, paymentId: paymentRef.id, ...stamp });
     if (referenceRef) tx.create(referenceRef, { paymentId: paymentRef.id, ...stamp });

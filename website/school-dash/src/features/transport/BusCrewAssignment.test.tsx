@@ -19,7 +19,7 @@ it("keeps assignment controls only in the bottom Crew section and excludes inact
   renderUI(<BusDetailsView busId={bus.id} />);
   expect(screen.getAllByRole("combobox")).toHaveLength(2);
   for (const [title, name, phone] of [["Assigned driver", "Ravi Kumar", "9000000014"], ["Assigned attendant", "Sita Kumar", "9000000015"]]) {
-    const summary = within(screen.getByRole("heading", { name: title }).closest("div")!);
+    const summary = within(screen.getByRole("heading", { name: title }).closest("div")!.parentElement!);
     expect(summary.queryByRole("combobox")).not.toBeInTheDocument();
     expect(summary.getAllByRole("term").map((item) => item.textContent)).toEqual(["Name", "Mobile number"]);
     expect(summary.getByText(name)).toBeInTheDocument();

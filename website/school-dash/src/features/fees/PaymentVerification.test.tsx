@@ -51,13 +51,13 @@ describe("Payment verification", () => {
     await user.clear(field("Amount received (₹)", d));
     await user.type(field("Amount received (₹)", d), "4500");
     await user.click(within(d).getByRole("button", { name: "Verify & issue receipt" }));
+    expect(await screen.findByText("Verified · receipt RCP-20411 issued")).toBeInTheDocument();
     const p = rowsOf<Record<string, unknown>>("fee_payments").find((x) => x.id !== "rcp_1")!;
     expect(p).toMatchObject({ receiptNo: "RCP-20411", invoiceId: "inv_1", invoiceNo: "INV-2026-0901", student: "Aarav Sharma", grade: "10", grn: "GIS-9200", amount: 4500, mode: "UPI · UTR998877", reference: "UTR998877", claimId: "clm_1", date: "2026-11-02", by: "School Admin" });
     expect(getRow("fee_invoices", "inv_1")).toMatchObject({ paid: 16500, balance: 25500, status: "Partial" });
     const c = getRow<Record<string, unknown>>("fee_claims", "clm_1")!;
     expect(c).toMatchObject({ status: "Verified", amount: 4500, receiptNo: "RCP-20411", paymentId: p.id, verifiedBy: "School Admin", verifiedByUid: "admin_uid" });
     expect(typeof c.verifiedAt).toBe("string");
-    expect(await screen.findByText("Verified · receipt RCP-20411 issued")).toBeInTheDocument();
   });
 
   it("writes nothing when the batch fails", async () => {

@@ -9,7 +9,7 @@ import { fmtDate } from "@/lib/format";
 import { admissionChecklist, documentKeys, documentTypes, downloadAdmissionDocument, missingDocuments,
   reviewAdmissionDocument, setDocumentExpected, uploadAdmissionDocument, type AdmissionChecklist, type DocumentType } from "./admissionDocuments";
 
-export function AdmissionDocumentsPanel({ id, checklist }: { id: string; checklist?: AdmissionChecklist }) {
+export function AdmissionDocumentsPanel({ id, checklist, readOnly = false }: { id: string; checklist?: AdmissionChecklist; readOnly?: boolean }) {
   const row = checklist ?? admissionChecklist(id);
   const [busy, setBusy] = useState<DocumentType>();
   const [previewType, setPreviewType] = useState<DocumentType>();
@@ -30,7 +30,7 @@ export function AdmissionDocumentsPanel({ id, checklist }: { id: string; checkli
       <h2 id={`admission-documents-${id}`} className="t-headline-md">Admission documents</h2>
       <Badge tone={missing ? "warning" : "success"}>{missing ? `${missing} missing` : "Checklist complete"}</Badge>
     </div>
-    <p className="text-sm text-on-surface-variant">Preview uploads before verification. Mark any documents the school does not require as not applicable.</p>
+    <p className="text-sm text-on-surface-variant">{readOnly ? "Saved documents are available for viewing and download." : "Preview uploads before verification. Mark any documents the school does not require as not applicable."}</p>
     <DocumentList>
       {documentKeys.map((type) => {
         const upload = row.uploads[type];
@@ -52,13 +52,13 @@ export function AdmissionDocumentsPanel({ id, checklist }: { id: string; checkli
                 <Download size={14} aria-hidden="true" />Download
               </Button>
             </>}
-            <DocumentFilePicker label={upload ? "Replace" : "Upload"} name={`Upload ${documentTypes[type]}`}
+            {!readOnly && <DocumentFilePicker label={upload ? "Replace" : "Upload"} name={`Upload ${documentTypes[type]}`}
               accept={type === "photo" ? "image/png,image/jpeg" : "application/pdf,image/png,image/jpeg"}
-              disabled={!!busy} onSelect={(file) => void run(type, () => uploadAdmissionDocument(id, type, file), "Document uploaded")} />
-            {!upload && <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void run(type, () => setDocumentExpected(id, type, !expected))}>
+              disabled={!!busy} onSelect={(file) => void run(type, () => uploadAdmissionDocument(id, type, file), "Document uploaded")} />}
+            {!readOnly && !upload && <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void run(type, () => setDocumentExpected(id, type, !expected))}>
               {expected ? "Mark not applicable" : "Mark expected"}
             </Button>}
-            {upload?.status === "pending" && <>
+            {!readOnly && upload?.status === "pending" && <>
               <Button variant="outline" size="sm" disabled={!!busy} onClick={() => void run(type, () => reviewAdmissionDocument(id, type, upload, "verified"))}>Verify</Button>
               <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => void run(type, () => reviewAdmissionDocument(id, type, upload, "rejected"))}>Reject</Button>
             </>}

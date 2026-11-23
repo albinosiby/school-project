@@ -183,3 +183,66 @@ rejections and printing. It replaces the former Certificates tab in Students & G
 `/students?tab=certificates` redirects to the new page. The existing `/certificate?id=…` print links still work.
 
 Loading feedback uses the shared `LoadingSkeleton` components for route transitions, data panels, forms and previews. Use `LoadingField` when options load inside an existing form so its control, label and value remain mounted. Shimmer is CSS-only, has an accessible loading status, and becomes static with reduced motion. Keep failed reads and retry actions explicit; save/upload buttons retain their operation labels.
+
+Student details includes **Fees** and **Payment history** for school administrators and owners. It shows the configured
+fees for the recorded grade/stream and current academic year, plus the student's transport amount with the collection
+frequency from Settings → Payments. Billed, paid and outstanding totals come from saved invoices; concessions appear
+separately and are not subtracted again. Receipts open the existing view/print dialog. Records match by invoice/student
+ID first, with unique GRN matching for legacy records; names are never used to assign financial history. The panels
+reuse the existing school-scoped stores, paginate invoices/receipts, show skeletons while loading and provide retry
+controls on failure. Opening them creates no invoices or payments, including for removed students viewed read-only.
+
+**Total amount to pay** covers the full configured academic year: required fee collections (Monthly ×12,
+Quarterly ×4, Half-yearly ×2, Term-wise × configured term count, Annual/One-time ×1), applicable admission
+charges and the student's transport amount at the school's collection frequency, less approved annual concessions
+and payments against that year's invoices. Optional items enter the total when invoiced. A previously invoiced
+one-time item is not billed again in a later year. Missing calendar, admission eligibility or transport configuration
+is called out instead of showing an incomplete payable amount. Existing invoice balances remain separate.
+
+Active students have **Generate invoice** with selected fees, remaining collection counts, billing period, due date
+and concession preview. Saving rechecks the student and configuration in a transaction and commits the invoice,
+number, collection ledger and concession applications together. Repeating the same request returns its invoice;
+changed requests for the same student/year/period are rejected. Only unused approved concession amounts apply.
+Saved invoices offer **View / download → Download PDF / Print**. PDFs are created locally with bundled licensed
+Noto fonts; no invoice data is sent to an export service. Creating an invoice uses the existing parent-notification
+trigger. Removed students retain invoice and receipt viewing/download access, with no invoice creation.
+
+The Fees page opens **Student dues**, listing students with a remaining full-year balance even before invoices
+exist. It includes class, guardian/contact, net annual fee, paid amount and remaining balance, with search and grade
+filters (including kindergarten). Settled, All and Needs setup views distinguish paid accounts from incomplete fee
+configuration. Removed identities remain available for safe GRN matching but stay out of this directory; inactive
+enrolments show existing billed debt without estimating new annual charges. The summary counts students with balances.
+Financial records are indexed by student/invoice identity before calculating the list and reuse existing listeners.
+
+Click a student to open `/fees/students/{studentId}` for their contact/class information, annual dues, invoices and
+payment history. **Create invoice for remaining fees** bills only uninvoiced collections. Existing invoice balances
+can be downloaded or shared without another charge. **Share** prepares the PDF and then offers the device share
+menu where supported; other browsers offer PDF download for attaching in another app. Nothing is shared automatically.
+Issued invoices and their reminders remain in a separate view. Counter Collection and Settlements & Gateway Health
+have been removed from this page; the payment verification and historical receipts workflows remain available.
+
+**Collect payment** on student fee details and the profile's Fees section records full or partial collections
+against an existing invoice. Enter amount, method, payment date and a transaction reference for non-cash payments.
+The `recordFeePayment` callable atomically saves the receipt and updates paid/balance/status. Uncertain requests
+are retained in the current tab's session storage, scoped by school, administrator and student; retry confirms the
+same receipt rather than submitting another cash collection. Uninvoiced annual fees must be invoiced first.
+
+Each invoice also has **Change status**. Pending/Overdue labels require a reason; Partial/Paid continue to collection,
+and Automatic removes the manual label. Settled invoices cannot be made unpaid by changing status. Reasons and
+editor details appear in admin-only status history, never in the parent-readable invoice override. A subsequent
+payment clears the override; editing the billed amount or due date invalidates it. Web previews, PDFs and the parent
+app use the same effective status. Removed students retain read-only financial history.
+
+Deploy `functions:changeFeeInvoiceStatus`, the updated `functions:recordFeePayment`, and Firestore rules together
+before using these controls with the hosted backend. No data migration is required. The parent app needs its next
+normal release to display manual overrides. Test with synthetic data using
+`FIRESTORE_EMULATOR_HOST=127.0.0.1:8873 node tools/rules_test/feeCollections.mjs` from the website root while a local
+Firestore emulator is running. This verifies receipt retries, concurrent payments, status audit history, MFA,
+tenant restrictions, immutable audit records and protected financial writes without touching live school records.
+
+Invoices use the school logo from **Settings → School Profile** in the paper preview, print view, downloaded PDF
+and shared PDF. The A4 template includes the school header, invoice status/number, student and billing details,
+quantity/rate columns, concessions, paid amount and a prominent balance due. Long descriptions wrap, and PDF pages
+repeat the branded header, table headings and page numbering. PNG/JPEG logos retain their aspect ratio; a failed
+logo download gives an explicit retry error instead of exporting a broken image. No configured logo uses a clean
+school-name header. Rendering and layout changes do not alter saved invoice amounts or payment records.

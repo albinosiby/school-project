@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { ToastProvider } from "@/components/ui";
 import { Activity } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -274,6 +274,50 @@ describe("Add / edit student validation", () => {
     setUrl("/students?student=stu_102");
     renderUI(<StudentsPage />);
     expect(router.replace).toHaveBeenCalledWith("/students/stu_102");
+  });
+
+  it.each(["admin", "owner"] as const)("shows removed students as read-only historical records for %s", (role) => {
+    authState.user = { ...authState.user!, role };
+    seed({ students: [{ ...aarav, deleted: true }],
+      adm_student_details: [{ id: aarav.id, ...blankAdmission("2026-04-12", { firstName: "Aarav", gender: "Male" }), previousSchool: "Saved school" }],
+      adm_documents: [{ id: aarav.id, expected: ["birth"], uploads: {
+        birth: { path: `schools/sch_test/admission-documents/${aarav.id}/birth/file`, name: "birth.pdf", status: "pending", uploadedAt: "2026-10-05" },
+      } }],
+    });
+    renderUI(<StudentDetailsView studentId={aarav.id} />);
+    expect(screen.getByRole("heading", { name: aarav.name })).toBeInTheDocument();
+    expect(screen.getByText("Removed student")).toBeInTheDocument();
+    expect(screen.getByText("Saved school")).toBeInTheDocument();
+    expect(screen.getByText(aarav.guardian)).toBeInTheDocument();
+    expect(screen.getByText(aarav.bus)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview Birth certificate" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Download Birth certificate" })).toBeEnabled();
+    for (const name of ["Edit", "Delete", "Edit transport", "Assign Bus", "Assign division", "Change division", "Verify", "Reject", "Mark not applicable", "Mark expected", "Show password"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Upload /)).not.toBeInTheDocument();
+    expect(getRow<Row>("students", aarav.id)).toMatchObject({ deleted: true });
+    expect(writes).toHaveLength(0);
+  });
+
+  it("closes editing if a student is removed in another session", async () => {
+    seed({ students: [aarav] });
+    const { user } = renderUI(<StudentDetailsView studentId={aarav.id} />);
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Save Changes" })).toBeInTheDocument();
+    act(() => seed({ students: [{ ...aarav, deleted: true }] }));
+    expect(screen.getByText("Removed student")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save Changes" })).not.toBeInTheDocument();
+    expect(writesTo("students")).toHaveLength(0);
+  });
+
+  it("does not show removed student profiles to non-administrator accounts", () => {
+    authState.user = { ...authState.user!, role: "staff" };
+    seed({ students: [{ ...aarav, deleted: true }] });
+    renderUI(<StudentDetailsView studentId={aarav.id} />);
+    expect(screen.getByText("Student record unavailable")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: aarav.name })).not.toBeInTheDocument();
   });
 
   it("hides soft-deleted students", () => {

@@ -17,11 +17,16 @@ import { selectedSchool } from "@edvio/shared/sites";
  * users/{uid} (data contract section 1) maps a school admin to their school. A product owner (contract 16,
  * platform_admins/{uid}) has no school of their own: schoolId is "" in the owner console, and the id of the school they
  * opened while they work inside one (`actAs`), so the whole admin console runs on that school.
+ * School staff (teacher, staff, driver, attendant: the mobile app accounts) sign in here too and get the staff portal
+ * (docs/STAFF_PORTAL_CONTRACT.md); `staffId` / `crewId` identify their staff record.
  */
-export interface User { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" | "staff"; staffRole?: string; mfaVersion?: string }
+export type Role = "admin" | "owner" | "staff" | "teacher" | "driver" | "attendant";
+export const STAFF_ROLES: readonly Role[] = ["staff", "teacher", "driver", "attendant"];
+export interface User { id: string; email: string; organizationName: string; schoolId: string; role: Role; staffRole?: string; staffId?: string; crewId?: string; name?: string; mfaVersion?: string }
+export const isStaffUser = (u: Pick<User, "role"> | null | undefined) => !!u && STAFF_ROLES.includes(u.role);
 
-/** Where a signed-in user starts: the owner console for product owners (unless inside a school), the dashboard for admins. */
-export const homeFor = (u: Pick<User, "role"> & { schoolId?: string } | null) => (u?.role === "staff" ? "/staff-access" : u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard");
+/** Where a signed-in user starts: the owner console for product owners (unless inside a school), the staff portal for school staff, the dashboard for admins. */
+export const homeFor = (u: Pick<User, "role"> & { schoolId?: string } | null) => (isStaffUser(u) ? "/me" : u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard");
 
 /** sessionStorage key of the school an owner is working inside (survives a reload, not a new tab). */
 const ACT_AS_KEY = "edvio.owner.actAs";
@@ -52,7 +57,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const NOT_ADMIN = "This account is not an administrator account. Teachers and parents must use the mobile app.";
+export const NOT_ADMIN = "This account is not a school account. Parents must use the parent app.";
 export const NO_SCHOOL = "No school is linked to this account. Contact your school administrator.";
 export const SUSPENDED = "This school's account is suspended. Contact Edvio support to restore access.";
 
@@ -76,8 +81,8 @@ async function loadProfile(u: FbUser): Promise<User> {
   if (owner) return { id: u.uid, email: u.email ?? "", organizationName: "Edvio", schoolId: "", role: "owner" };
   const snap = await getDoc(doc(db, "users", u.uid));
   if (!snap.exists()) throw new Blocked(NO_SCHOOL);
-  const p = snap.data() as { schoolId?: string; role?: string; staffRole?: string; mfaVersion?: string };
-  if (p.role !== "admin" && p.role !== "staff") throw new Blocked(NOT_ADMIN);
+  const p = snap.data() as { schoolId?: string; role?: string; staffRole?: string; staffId?: string; crewId?: string; name?: string; mfaVersion?: string };
+  if (p.role !== "admin" && !STAFF_ROLES.includes(p.role as Role)) throw new Blocked(NOT_ADMIN);
   if (!p.schoolId) throw new Blocked(NO_SCHOOL);
   if (p.role === "admin" && p.mfaVersion && !(await validMfa(u, p.mfaVersion))) throw new MfaNeeded();
   if (await isSuspended(p.schoolId)) throw new Blocked(SUSPENDED);
@@ -86,7 +91,7 @@ async function loadProfile(u: FbUser): Promise<User> {
     const hasSchool = await getDoc(doc(db, "schools", u.uid, "school", "school")).then((d) => d.exists(), () => true);
     if (!hasSchool) await bootstrapSchool(u.uid, u.displayName || (u.email ?? "").split("@")[0] || "My School", u.email ?? "").catch(() => {});
   }
-  return { id: u.uid, email: u.email ?? "", organizationName: u.displayName ?? "", schoolId: p.schoolId, role: p.role, staffRole: p.staffRole, mfaVersion: p.mfaVersion };
+  return { id: u.uid, email: u.email ?? "", organizationName: u.displayName ?? "", schoolId: p.schoolId, role: p.role as Role, staffRole: p.staffRole, staffId: p.staffId, crewId: p.crewId, name: p.name, mfaVersion: p.mfaVersion };
 }
 const profiles = new Map<string, Promise<User>>();
 const profileFor = (u: FbUser) => { let p = profiles.get(u.uid); if (!p) { p = loadProfile(u); profiles.set(u.uid, p); p.catch(() => profiles.delete(u.uid)); } return p; };

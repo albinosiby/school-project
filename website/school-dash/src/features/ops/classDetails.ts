@@ -21,6 +21,12 @@ export function classRoster(students: ClassStudent[], classId: string) {
   return students.filter((student) => activeStudent(student) && studentClassId(student) === classId)
     .sort((a, b) => (Number(a.roll) || Infinity) - (Number(b.roll) || Infinity) || a.name.localeCompare(b.name));
 }
+/** Roll numbers 1..N for a division in name order (case-insensitive, stable for equal names by id). Every student is
+ * renumbered so the order is consistent; the class teacher's app refuses to move a number another student holds. */
+export function rollPlan(roster: ClassStudent[]) {
+  const byName = [...roster].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.id.localeCompare(b.id));
+  return byName.map((student, index) => ({ id: student.id, name: student.name, roll: index + 1, previous: Number(student.roll) || 0 }));
+}
 export function genderCounts(students: ClassStudent[]) {
   const boys = students.filter((student) => /^(male|boy)$/i.test(student.gender?.trim() ?? "")).length;
   const girls = students.filter((student) => /^(female|girl)$/i.test(student.gender?.trim() ?? "")).length;

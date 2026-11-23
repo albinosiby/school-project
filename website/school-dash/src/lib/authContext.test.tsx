@@ -1,5 +1,5 @@
 // authContext is mocked for every other test; here the real module is loaded to test its error mapping and the
-// admin-only login guard (data contract sections 1 and 7: teacher / parent accounts are refused by the admin web).
+// login guard (data contract sections 1 and 7: parent accounts are refused; school staff land in the staff portal).
 import { describe, expect, it, vi } from "vitest";
 import { act, render, waitFor, screen } from "@testing-library/react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signInWithCustomToken, getIdTokenResult, signOut } from "firebase/auth";
@@ -69,13 +69,16 @@ describe("school selection from the independent owner app", () => {
 });
 
 describe("login guard", () => {
-  it("refuses a teacher account and signs it out", async () => {
-    const { NOT_ADMIN } = await real();
-    seed({ users: [{ id: "uid_teacher", schoolId: "sch_test", role: "teacher", staffId: "stf_001" }] });
+  it("admits a teacher account into the staff portal with its staff id", async () => {
+    const { homeFor } = await real();
+    seed({ users: [{ id: "uid_teacher", schoolId: "sch_test", role: "teacher", staffId: "stf_001", staffRole: "teacher", name: "Anita" }] });
+    let observer: (user: unknown) => void = () => {};
+    vi.mocked(onAuthStateChanged).mockImplementationOnce((_auth, callback) => { observer = callback as typeof observer; return () => {}; });
     const box = await mount();
-    signInAs("uid_teacher");
-    await expect(box.ctx!.login("t@s.in", "pw")).rejects.toThrow(NOT_ADMIN);
-    expect(signOut).toHaveBeenCalled();
+    await act(async () => observer({ uid: "uid_teacher", email: "t@s.in" }));
+    expect(box.ctx!.user).toMatchObject({ role: "teacher", staffId: "stf_001", staffRole: "teacher", name: "Anita", schoolId: "sch_test" });
+    expect(homeFor(box.ctx!.user)).toBe("/me");
+    expect(signOut).not.toHaveBeenCalled();
   });
   it("refuses a parent account", async () => {
     const { NOT_ADMIN } = await real();
@@ -103,7 +106,7 @@ describe("login guard", () => {
     vi.mocked(signInWithEmailAndPassword).mockRejectedValueOnce(Object.assign(new Error("Firebase: Error (auth/invalid-credential)."), { code: "auth/invalid-credential" }));
     await expect(box.ctx!.login("a@s.in", "nope")).rejects.toThrow("Incorrect email or password.");
   });
-  it("loads a delegated staff role and directs it to staff access", async () => {
+  it("loads a delegated staff role and directs it to the staff portal", async () => {
     const { homeFor } = await real();
     seed({ users: [{ id: "uid_principal", schoolId: "sch_test", role: "staff", staffRole: "principal" }] });
     let observer: (user: unknown) => void = () => {};
@@ -114,7 +117,7 @@ describe("login guard", () => {
     const box = await mount();
     await act(async () => observer({ uid: "uid_principal", email: "principal@s.in" }));
     expect(box.ctx!.user).toMatchObject({ role: "staff", staffRole: "principal", schoolId: "sch_test" });
-    expect(homeFor(box.ctx!.user)).toBe("/staff-access");
+    expect(homeFor(box.ctx!.user)).toBe("/me");
   });
 });
 

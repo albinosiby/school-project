@@ -30,6 +30,29 @@ function setup(classOverrides: Partial<ClassRow> = {}) {
 const stat = (label: string) => screen.getByText(label, { exact: true }).parentElement!.parentElement!;
 
 describe("Class details", () => {
+  it("assigns roll numbers 1..N in name order from the Students tab and bumps the class roll revision", async () => {
+    vi.spyOn(time, "useNow").mockReturnValue(Date.parse("2026-11-11T09:55:00+05:30"));
+    seed({ classes: [{ ...cls, rollRevision: 3 }], school: [{ id: "school", academicYear: "2026-27" }], students: [
+      { id: "zara", name: "Zara Khan", grn: "GRN-3", grade: "10", section: "B", classId: cls.id, roll: 0 },
+      { id: "girl", name: "Ananya", grn: "GRN-2", grade: "10", section: "B", classId: cls.id, roll: 1 },
+      { id: "boy", name: "aarav", grn: "GRN-1", grade: "10", section: "B", classId: cls.id },
+      { id: "other", name: "Other class student", classId: "cls_10A", grade: "10", section: "A" },
+    ] });
+    const { user } = renderUI(<ClassDetailsView classId={cls.id} />);
+    await user.click(await screen.findByRole("tab", { name: /^Students/ }));
+    await user.click(screen.getByRole("button", { name: "Assign roll numbers" }));
+    const dlg = dialog("Assign roll numbers");
+    expect(within(dlg).getAllByRole("row").slice(1).map((row) => row.textContent)).toEqual(["1aaravNot assigned", "2Ananya1", "3Zara KhanNot assigned"]);
+    await user.click(within(dlg).getByRole("button", { name: "Assign 3 roll numbers" }));
+    expect(await screen.findByText("Roll numbers assigned to 3 students")).toBeInTheDocument();
+    expect(getRow("students", "boy")).toMatchObject({ roll: 1, rollAcademicYear: "2026-27" });
+    expect(getRow("students", "girl")).toMatchObject({ roll: 2, rollAcademicYear: "2026-27" });
+    expect(getRow("students", "zara")).toMatchObject({ roll: 3 });
+    expect(getRow("students", "other")).not.toHaveProperty("roll");
+    expect(getRow("classes", cls.id)).toMatchObject({ rollRevision: 4 });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("loads the protected class-teacher phone and includes them in Teachers before any lessons are configured", async () => {
     const load = vi.spyOn(staffProfiles, "loadStaffProfile").mockResolvedValue({ profile: { phone: "9000000999" }, photo: null });
     seed({ classes: [{ ...cls, classTeacher: "Old teacher name" }], staff: [{ id: "anita", name: "Anita Sharma", category: "Teaching", profileVersion: 1 }] });

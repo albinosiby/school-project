@@ -68,7 +68,7 @@ export function SchoolLogoEditor({ logoUrl, disabled }: { logoUrl?: string; disa
         </span>
         <div className="min-w-36 flex-1">
           <p className="font-semibold">School logo</p>
-          <p id="school-logo-hint" className="text-xs text-on-surface-variant">Shown in the dashboard sidebar. PNG or JPEG, up to 2 MB.</p>
+          <p id="school-logo-hint" className="text-xs text-on-surface-variant">Shown in the dashboard sidebar and on invoices. PNG or JPEG, up to 2 MB.</p>
         </div>
         <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border border-outline-variant px-3 text-sm font-semibold hover:bg-surface-container-low focus-within:ring-2 focus-within:ring-secondary has-[:disabled]:cursor-default has-[:disabled]:opacity-60">
           <Upload size={16} />

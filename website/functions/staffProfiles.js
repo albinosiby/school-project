@@ -11,6 +11,7 @@ const { normalizeSubjects, subjectCatalogId, subjectForSelection } = require("./
 const { employeeRef, reserveEmployeeId } = require("./staffNumbering");
 const { staffDocuments, deleteStaffDocuments } = require("./staffDocuments");
 const { staffPayroll } = require("./staffPayroll");
+const { refreshStaffSelf } = require("./staffSelf");
 const { designationAppRoles } = require("./staffProfileOptions.json");
 
 const isHodDesignation = (value) => /^(?:head of department|hod)$/i.test(clean(value));
@@ -236,7 +237,12 @@ module.exports = function staffProfileFunctions(staffScope, rolesFor) {
     }
 
     if (!(await staff.get()).exists) throw absent();
-    return staffDocuments(staff, req.data);
+    const result = await staffDocuments(staff, req.data);
+    if (action === "save") {
+      // the staff member's own view of the document list (staff_self) follows an upload
+      await refreshStaffSelf(scope.sid, staff.id).catch((error) => logger.warn("staff_self refresh failed after a document upload", { schoolId: scope.sid, staffId: staff.id, error: String(error) }));
+    }
+    return result;
   });
 
   const manageStaffPayroll = onCall(async (req) => {
@@ -259,8 +265,8 @@ module.exports = function staffProfileFunctions(staffScope, rolesFor) {
   const cleanupStaffFiles = onDocumentDeleted({ document: "schools/{schoolId}/staff/{staffId}", retry: true }, async (event) => {
     const staff = event.data?.ref;
     if (!staff || (await staff.get()).exists) return;
-    const photo = staff.parent.parent.collection("staff_hr_photos").doc(staff.id);
-    await Promise.all([photo.delete(), deleteStaffDocuments(staff)]);
+    const school = staff.parent.parent;
+    await Promise.all([school.collection("staff_hr_photos").doc(staff.id).delete(), school.collection("staff_self").doc(staff.id).delete(), deleteStaffDocuments(staff)]);
   });
 
   function allowedRole(profile, role) {

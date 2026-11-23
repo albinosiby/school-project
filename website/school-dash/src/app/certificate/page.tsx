@@ -6,6 +6,7 @@ import { AuthGuard } from "@/components/AuthGuard";
 import type { Cert } from "@/features/people/CertificatesPanel";
 import { fmtDate } from "@/lib/format";
 import { useCollection } from "@/lib/useCollection";
+import { SavedCertificatePdf } from "@/features/certificates/CertificateDetails";
 
 type School = { id: string; name?: string; address?: string; city?: string; board?: string; affiliation?: string; phone?: string; email?: string };
 /** Settings > School Profile (set_config/profile) holds the address and affiliation number; school/school (contract 3) may not */
@@ -15,8 +16,8 @@ type Stu = { id: string; name: string; grade?: string; section?: string; dob?: s
 const BODY: Record<string, (s: string, cls: string, purpose: string) => string> = {
   bonafide: (s, cls, p) => `This is to certify that ${s} is a bonafide student of this school, studying in Grade ${cls} during the current academic year.${p ? ` This certificate is issued for ${p}.` : ""}`,
   character: (s, cls, p) => `This is to certify that ${s}, a student of Grade ${cls}, is known to us and bears a good moral character. To the best of our knowledge, nothing adverse has been noted.${p ? ` Issued for ${p}.` : ""}`,
-  transfer: (s, cls, p) => `This is to certify that ${s} was a student of this school in Grade ${cls}. All dues have been cleared and the school has no objection to the student joining another institution.${p ? ` Issued for ${p}.` : ""}`,
-  feeReceipt: (s, cls, p) => `This is to certify that the fees for ${s} of Grade ${cls} for the current academic year have been paid to the school as per the fee records.${p ? ` Issued for ${p}.` : ""}`,
+  transfer: (s, cls, p) => `This certificate records that ${s} was a student of this school in Grade ${cls}.${p ? ` Issued for ${p}.` : ""} Refer to the school's signed original for the reviewed leaving and clearance particulars.`,
+  feeReceipt: (s, cls, p) => `This certificate concerns the fee records for ${s} of Grade ${cls}.${p ? ` Issued for ${p}.` : ""} Refer to the school's signed original for confirmed payment particulars.`,
   other: (s, cls, p) => `This certificate is issued to ${s} of Grade ${cls}${p ? ` for ${p}` : ""}.`,
 };
 
@@ -32,6 +33,7 @@ function Certificate() {
   const c = certs.rows.find((x) => x.id === id);
   if (!certs.ready) return <LoadingSkeleton variant="page" label="Loading…" className="p-10 text-on-surface-variant" />;
   if (!c || c.status !== "Issued") return <p className="p-10 text-on-surface-variant">This certificate was not found or has not been issued.</p>;
+  if (c.schemaVersion === 2) return <div className="mx-auto max-w-5xl p-5"><SavedCertificatePdf key={c.id} certificateId={c.id} /></div>;
   const s = students.find((x) => x.id === c.studentId);
   const cls = s?.grade ? `${s.grade}-${s.section ?? ""}` : (c.classId ?? "").replace(/^cls_(\d+)(\w)$/, "$1-$2");
   const text = (BODY[c.type] ?? BODY.other)(c.studentName || s?.name || "", cls, c.purpose ?? "");

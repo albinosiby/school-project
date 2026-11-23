@@ -55,15 +55,18 @@ function documentData(input) {
   return bytes;
 }
 
+/** The staff member's uploaded documents (metadata only), newest first. */
+async function listStaffDocuments(staff) {
+  const [files] = await getStorage().bucket().getFiles({ prefix: prefix(staff) });
+  return files.map(documentSummary).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+}
+
 async function staffDocuments(staff, input) {
   const { action, id, generation, uploadId } = input;
   const bucket = getStorage().bucket();
   const folder = prefix(staff);
 
-  if (action === "list") {
-    const [files] = await bucket.getFiles({ prefix: folder });
-    return { documents: files.map(documentSummary).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)) };
-  }
+  if (action === "list") return { documents: await listStaffDocuments(staff) };
 
   const existing = action === "read" || id !== undefined;
   if (existing && (typeof id !== "string" || !uuid.test(id) ||
@@ -122,4 +125,4 @@ async function deleteStaffDocuments(staff) {
   await getStorage().bucket().deleteFiles({ prefix: prefix(staff), force: true });
 }
 
-module.exports = { staffDocuments, deleteStaffDocuments };
+module.exports = { staffDocuments, listStaffDocuments, deleteStaffDocuments };

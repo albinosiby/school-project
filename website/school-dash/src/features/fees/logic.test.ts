@@ -11,6 +11,14 @@ const inv = (p: Partial<Invoice> = {}): Invoice => ({
 });
 
 describe("balance and status", () => {
+  it("honours an unpaid manual label only for the reviewed financial state", () => {
+    const override = { status: "Pending" as const, reason: "Agreed extension", at: "2026-11-03", by: "Admin", byUid: "a", amount: 42000, paid: 0, due: "2026-11-01" };
+    const invoice = inv({ due: override.due, statusOverride: override });
+    expect(shownStatus(invoice, "2026-11-03")).toBe("Pending");
+    expect(shownStatus({ ...invoice, due: "2026-11-02" }, "2026-11-03")).toBe("Overdue");
+    expect(shownStatus({ ...invoice, paid: 100, balance: 41900 }, "2026-11-03")).toBe("Overdue");
+    expect(shownStatus({ ...invoice, paid: 42000, balance: 0 }, "2026-11-03")).toBe("Paid");
+  });
   it("rounds to paise", () => {
     expect(round2(0.1 + 0.2)).toBe(0.3);
     expect(round2(1.005)).toBe(1.01);

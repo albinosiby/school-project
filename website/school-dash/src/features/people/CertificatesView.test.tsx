@@ -16,12 +16,13 @@ it("opens certificates from primary navigation and offers only current student r
   expect(screen.getByRole("link", { name: "Certificates" })).toHaveAttribute("href", "/certificates");
   expect(screen.getByRole("link", { name: "Certificates" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("heading", { name: "Certificates" })).toBeInTheDocument();
-  expect(screen.getByRole("tab", { name: /Requested/ })).toHaveAttribute("aria-selected", "true");
-  expect(screen.getByRole("button", { name: "Issue" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: /Overview/ })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByRole("tab", { name: /Requests/ })).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Issue certificate" }));
   const form = dialog("Issue certificate");
-  expect(within(field("Student", form)).getByRole("option", { name: /Current student/ })).toBeInTheDocument();
-  expect(within(field("Student", form)).queryByRole("option", { name: /Removed student/ })).not.toBeInTheDocument();
+  await user.click(field("Student", form));
+  expect(within(form).getByRole("option", { name: /Current student/ })).toBeInTheDocument();
+  expect(within(form).queryByRole("option", { name: /Removed student/ })).not.toBeInTheDocument();
   await user.click(within(form).getByRole("button", { name: "Cancel" }));
   expect(writes).toHaveLength(0);
 });

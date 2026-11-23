@@ -61,6 +61,10 @@ export const functionsModule = {
       const { fakeRecordPayment } = await import("./fakePayments");
       return { data: fakeRecordPayment(data as Parameters<typeof fakeRecordPayment>[0]) };
     }
+    if (name === "changeFeeInvoiceStatus") {
+      const { fakeChangeInvoiceStatus } = await import("./fakePayments");
+      return { data: fakeChangeInvoiceStatus(data as Parameters<typeof fakeChangeInvoiceStatus>[0]) };
+    }
     if (name === "setClassTeacher") {
       guard();
       const input = data as { classId: string; teacherId: string; create?: Record<string, unknown> };
@@ -116,7 +120,7 @@ export const libFirebaseModule = {
 
 // ---- @/lib/authContext --------------------------------------------------------------------------------------
 export const authState = {
-  user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" | "staff"; staffRole?: string },
+  user: { id: ADMIN_UID, email: "admin@school.test", organizationName: "Test School", schoolId: SCHOOL_ID, role: "admin" as const } as null | { id: string; email: string; organizationName: string; schoolId: string; role: "admin" | "owner" | "staff" | "teacher" | "driver" | "attendant"; staffRole?: string; staffId?: string; crewId?: string; name?: string },
   isLoading: false,
   actAs: vi.fn<(sid: string | null) => void>(),
   blockedMessage: "",
@@ -134,6 +138,8 @@ export function resetAuthState() {
 }
 export const authContextModule = {
   useAuth: () => authState,
-  homeFor: (u: { role: string; schoolId?: string } | null) => (u?.role === "staff" ? "/staff-access" : u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard"),
+  homeFor: (u: { role: string; schoolId?: string } | null) => (u && ["staff", "teacher", "driver", "attendant"].includes(u.role) ? "/me" : u?.role === "owner" && !u.schoolId ? "/owner" : "/dashboard"),
+  isStaffUser: (u: { role: string } | null | undefined) => !!u && ["staff", "teacher", "driver", "attendant"].includes(u.role),
+  STAFF_ROLES: ["staff", "teacher", "driver", "attendant"],
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
 };

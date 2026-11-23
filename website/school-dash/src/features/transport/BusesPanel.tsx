@@ -14,7 +14,6 @@ import { isActiveStudent, nextBusId } from "./logic";
 import type { Bus, BusStatus } from "./types";
 import { busDetailsHref } from "./busRecords";
 import { VehicleForm } from "./VehicleForm";
-import { ExpiryReminderSettings } from "./ExpiryReminderSettings";
 
 const statusTone: Record<BusStatus, Tone> = { Active: "success", Maintenance: "warning", Inactive: "neutral" };
 
@@ -25,7 +24,6 @@ export function BusesPanel() {
   const roster = useCollection<Student>("students");
   const students = roster.rows.filter(isActiveStudent);
   const [adding, setAdding] = useState(false);
-  const [reminders, setReminders] = useState(false);
   const onBus = (busId: string) => students.filter((student) => student.busId === busId);
 
   const cols: Column<Bus>[] = [
@@ -45,12 +43,10 @@ export function BusesPanel() {
       <p className="px-5 pb-3 text-on-surface-variant">Click a bus to view its details, crew, students and stops.</p>
       {buses.ready && roster.ready ? <DataTable rows={buses.rows} columns={cols} pageSize={10} onRowClick={(bus) => router.push(busDetailsHref(bus.id))}
         searchText={(bus) => `${bus.number} ${bus.regNo} ${bus.displayName ?? ""} ${bus.endPoint ?? ""} ${bus.routeName} ${bus.driver ?? ""} ${bus.attendant ?? ""}`}
-        toolbarActions={<><Button variant="outline" onClick={() => setReminders(true)}>Expiry reminders</Button>
-          <Button onClick={() => setAdding(true)}><Plus size={16} />Add Bus</Button></>}
+        toolbarActions={<Button onClick={() => setAdding(true)}><Plus size={16} />Add Bus</Button>}
         empty={<EmptyState title="No buses yet" hint="Add a bus with its vehicle details and route end point." />} />
         : <LoadingSkeleton variant="table" label="Loading buses…" className="px-5 pb-5 text-on-surface-variant" />}
     </Card>
-    {reminders && <ExpiryReminderSettings onClose={() => setReminders(false)} />}
     {adding && <VehicleForm existing={buses.rows} assigned={0} onClose={() => setAdding(false)} onSave={async (values) => {
       const id = nextBusId(buses.rows.map((bus) => bus.id));
       const ref = schoolDoc("tr_buses", id);

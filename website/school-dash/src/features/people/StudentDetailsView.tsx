@@ -24,6 +24,7 @@ import { StudentDivisionAssignment } from "./StudentDivisionPicker";
 import { StudentForm } from "./StudentForm";
 import { studentClassId } from "./studentLogic";
 import { StudentAttendanceCard } from "./StudentAttendanceCard";
+import { StudentFeesPanel } from "./StudentFeesPanel";
 import type { Student } from "./StudentsView";
 
 const contactLabels: Record<ContactType, string> = { father: "Father", mother: "Mother", guardian: "Other guardian" };
@@ -45,7 +46,8 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
   const toast = useToast();
   const students = useCollection<Student>("students");
   const documents = useAdmissionDocuments();
-  const schoolId = useAuth().user?.schoolId;
+  const { user } = useAuth();
+  const schoolId = user?.schoolId;
   const [admissionRecord, setAdmissionRecord] = useState<{
     schoolId: string; studentId: string; details?: AdmissionDetails; failed?: boolean;
   }>();
@@ -68,13 +70,15 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
     return () => setConfirmingDelete(false);
   }, [schoolId, studentId]);
   const rows = students.rows.filter((row) => row.deleted !== true);
-  const student = rows.find((row) => row.id === studentId);
+  const canViewRemoved = user?.role === "admin" || user?.role === "owner";
+  const student = students.rows.find((row) => row.id === studentId && (row.deleted !== true || canViewRemoved));
+  const removed = student?.deleted === true;
   const currentAdmission = admissionRecord?.schoolId === schoolId && admissionRecord?.studentId === studentId
     ? admissionRecord : undefined;
   const details = currentAdmission?.details;
 
   async function deleteStudent() {
-    if (!student || deleting) return;
+    if (!student || removed || deleting) return;
     setDeleting(true);
     try {
       await students.remove(student.id);
@@ -133,16 +137,16 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
           <h1 className="t-headline-lg break-words">{student.name}</h1>
           <p className="mt-1 text-sm text-on-surface-variant">{subtitle}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge tone={statusTone}>{student.status}</Badge>
+            <Badge tone={removed ? "neutral" : statusTone}>{removed ? "Removed student" : student.status}</Badge>
             <span className="text-sm text-on-surface-variant">Date of birth: {student.dob || "—"}</span>
           </div>
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+      {!removed && <div className="flex flex-wrap gap-2">
         <StudentDivisionAssignment key={student.id} student={student} students={students.rows} />
         <Button variant="danger" onClick={() => setConfirmingDelete(true)}><Trash2 size={14} />Delete</Button>
         <Button onClick={() => setEditing(true)}><Pencil size={14} />Edit</Button>
-      </div>
+      </div>}
     </Card>
     <div className="grid items-start gap-4 xl:grid-cols-2">
       <div className="grid min-w-0 gap-4">
@@ -155,7 +159,7 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
         {!details && student.gender && <DetailsCard title="Student information" fields={[["Gender", student.gender]]} />}
         {address && <DetailsCard title="Student address" fields={[["Address", address]]} />}
         <DetailsCard title="Guardian" fields={guardianFields} />
-        <StudentTransportCard key={student.id} student={student} students={students.rows} />
+        <StudentTransportCard key={student.id} student={student} students={students.rows} readOnly={removed} />
         {(details || student.admissionNumber || student.admissionDate || student.academicYear) && <DetailsCard title="Admission" fields={[
           ["Admission number", student.admissionNumber], ["Admission date", student.admissionDate || details?.admissionDate],
           ["Academic year", student.academicYear || details?.academicYear], ["Student type", details?.studentType], ["Admission type", details?.admissionType],
@@ -169,9 +173,9 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
         {currentAdmission?.failed && <p role="status">Saved admission details could not be loaded.</p>}
       </div>
       <div className="grid min-w-0 gap-4">
-        <Card className="p-5">
+        {!removed && <Card className="p-5">
           <ParentLoginSection key={student.id} s={student} students={rows} users={users} consents={consentMap(consents.rows)} />
-        </Card>
+        </Card>}
         {(["father", "mother"] as const).map((key) => {
           const contact = details?.contacts?.[key];
           if (!contact || !(contact.name || contact.phone || contact.email || contact.occupation)) return null;
@@ -184,12 +188,13 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
           ["Blood group", details.bloodGroup], ["Existing medical conditions", details.conditions], ["Disabilities or special assistance", details.assistance],
         ]} />}
         <Card className="p-5">
-          {documents.ready ? <AdmissionDocumentsPanel id={student.id} checklist={checklist} />
+          {documents.ready ? <AdmissionDocumentsPanel id={student.id} checklist={checklist} readOnly={removed} />
             : <LoadingSkeleton variant="table" label="Loading admission documents…" />}
         </Card>
       </div>
     </div>
-    {editing && <StudentForm edit={student} existing={students.rows} users={users} onClose={() => setEditing(false)}
+    <StudentFeesPanel key={student.id} student={{ ...student, admissionDate: student.admissionDate || details?.admissionDate }} students={students.rows} />
+    {editing && !removed && <StudentForm edit={student} existing={students.rows} users={users} onClose={() => setEditing(false)}
       onSave={async (values) => {
         const ref = schoolDoc("students", student.id);
         await runTransaction(db, async (transaction) => {
@@ -204,7 +209,7 @@ export function StudentDetailsView({ studentId }: { studentId: string }) {
         toast("Student updated");
         setEditing(false);
       }} />}
-    <Modal open={confirmingDelete} onClose={() => { if (!deleting) setConfirmingDelete(false); }} title="Delete student?" subtitle={student.name}
+    <Modal open={confirmingDelete && !removed} onClose={() => { if (!deleting) setConfirmingDelete(false); }} title="Delete student?" subtitle={student.name}
       footer={<><Button variant="ghost" disabled={deleting} onClick={() => setConfirmingDelete(false)}>Cancel</Button>
         <Button variant="danger" disabled={deleting} onClick={deleteStudent}>{deleting ? "Deleting…" : "Delete"}</Button></>}>
       <p className="text-on-surface-variant">This permanently removes the student record. This cannot be undone.</p>

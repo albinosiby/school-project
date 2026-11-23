@@ -1,0 +1,14 @@
+export type RecipientKind = "student" | "staff";
+export type CertificateTemplate = { id: string; type: string; kind: RecipientKind; title: string; body: string; accent: string; signatory: string; designation: string; signatureImage: string; sealImage: string; version: number };
+export type CertificateForm = { kind: RecipientKind; recipientId: string; type: string; templateVersion: number; issuedOn: string; validTill: string; issuer: string; purpose: string; note: string; fields: Record<string, string> };
+export type Certificate = { id: string; studentId: string; classId: string; studentName: string; grn?: string; type: string; title: string; category?: string; purpose?: string;
+  status: string; requestedBy?: string; requestedAt?: string; parentUid?: string; refNo?: string; issuedOn?: string; validTill?: string; issuer?: string; note?: string;
+  fileUrl?: string; filePath?: string; fileName?: string; rejectReason?: string; downloadedAt?: string; schemaVersion?: number; recipientKind?: RecipientKind;
+  staffId?: string; recipientName?: string; recipientSnapshot?: { name: string; admissionNumber: string; employeeId: string; class: string; dob: string; designation: string; department: string; academicYear: string };
+  schoolSnapshot?: { name: string; address: string; city: string }; templateSnapshot?: CertificateTemplate; fields?: Record<string, string>; revision?: number; pdfPath?: string; signed?: boolean;
+  issueRequestId?: string; verifyToken?: string; revokeReason?: string; revokedAt?: string; replacesId?: string; replacementId?: string };
+export type CertificateHistory = { id: string; certificateId: string; action: string; detail: string; at: string; by: string; byUid: string; previousPdfPath?: string };
+export type CertificateResult = { id: string; refNo: string; status: string; revision: number };
+export type PdfResult = { content: string; filename: string };
+export type VerificationResult = { status: "Valid" | "Revoked" | "Expired" | "Not found" | "Not valid"; refNo?: string; title?: string; school?: string; issuedOn?: string; validTill?: string };
+export type Recipient = { id: string; name: string; grn?: string; empId?: string; grade?: string; section?: string; designation?: string; role?: string; department?: string; joined?: string; admissionDate?: string; dob?: string; deleted?: boolean; status?: string };

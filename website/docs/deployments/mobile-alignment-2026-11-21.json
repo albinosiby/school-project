@@ -1,0 +1,210 @@
+{
+  "project": "school-admin-tatos-2610",
+  "completedAt": "2026-11-21T09:12:09.181013+00:00",
+  "functions": [
+    {
+      "id": "certificateFile",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "downloadCertificate",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "downloadMobileFeeDocument",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "getMobileSchoolContext",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "getMobileStaffCertificates",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "getMobileStudentFees",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "getMobileStudentTimetable",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "mobileFeeFile",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileAdmissionChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileAttendanceChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileConcessionChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileFeePlanChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileSchoolChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileSettingsChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileSubstitutionChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileTermsChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    },
+    {
+      "id": "onMobileTransportFeeChanged",
+      "region": "asia-south1",
+      "runtime": "nodejs22",
+      "state": "ACTIVE",
+      "hash": "52c2094748c07f284f6afd51e2110d71a28b6429"
+    }
+  ],
+  "unrelatedFunctionsUnchanged": true,
+  "timetableIndex": "READY",
+  "documentTokenTtl": "ACTIVE",
+  "unauthenticatedChecks": [
+    {
+      "name": "getMobileSchoolContext",
+      "http": 401,
+      "status": "UNAUTHENTICATED"
+    },
+    {
+      "name": "getMobileStudentFees",
+      "http": 401,
+      "status": "UNAUTHENTICATED"
+    },
+    {
+      "name": "getMobileStudentTimetable",
+      "http": 401,
+      "status": "UNAUTHENTICATED"
+    },
+    {
+      "name": "getMobileStaffCertificates",
+      "http": 401,
+      "status": "UNAUTHENTICATED"
+    },
+    {
+      "name": "downloadMobileFeeDocument",
+      "http": 401,
+      "status": "UNAUTHENTICATED"
+    },
+    {
+      "name": "downloadCertificate",
+      "http": 401,
+      "status": "UNAUTHENTICATED"
+    }
+  ],
+  "targetedTests": {
+    "backendAndCertificates": 22,
+    "teacher": 7,
+    "parent": 29,
+    "driver": 17,
+    "shared": 3,
+    "total": 78
+  },
+  "androidBuilds": [
+    {
+      "app": "teacher",
+      "path": "mobile app/teacher/build/app/outputs/flutter-apk/app-debug.apk",
+      "buildType": "debug",
+      "backend": "firebase",
+      "version": "1.0.1+2",
+      "bytes": 169341864,
+      "sha256": "a2f3c88ab70806204a70b8a36f7c40929492e34bc2e40ca5e30460b6f6a4f07a",
+      "package": "tatos.tech.teacher_app"
+    },
+    {
+      "app": "parent",
+      "path": "mobile app/parent/build/app/outputs/flutter-apk/app-debug.apk",
+      "buildType": "debug",
+      "backend": "firebase",
+      "version": "1.0.1+2",
+      "bytes": 192166868,
+      "sha256": "a4f402b8175d2b3c806195b605e9cb3ac487f4c3f60983f7d6d84f79cbefe5cc",
+      "package": "tech.tatos.parent_app"
+    },
+    {
+      "app": "driver",
+      "path": "mobile app/driver/build/app/outputs/flutter-apk/app-debug.apk",
+      "buildType": "debug",
+      "backend": "firebase",
+      "version": "1.0.1+2",
+      "bytes": 190561875,
+      "sha256": "abdc0b3465cf3764cd17505c343141fd519930a35972ead8028aa97dd4806e85",
+      "package": "tatos.tech.school.driver_app"
+    }
+  ],
+  "functionSourceSha256": {
+    "index.js": "d8f28d701ba9cbb54f90e3f9a662d332842b5f14cb84f30e1e0867fbd9d2f132",
+    "mobileSync.js": "899e40006de82dfccd05334f03403b96ec6bbe0633a46fb2e98310f85a00b699",
+    "mobileSettings.js": "1e8be99f73c4e4134f5baec58f938127ac65904280d3e0c33e485acc887d127f",
+    "mobileFeeDomain.js": "8a86534623500e2dd1c6594038997b25e33db01e7013cb4fbbc17a9720bf03ac",
+    "mobileFeePdf.js": "320efc2d58aaaeac2988821e6a79001c210c7cc6cb17e3dda468bd9723028801",
+    "certificateManagement.js": "d74e53a077516e76677da17ee6e9537402d838ebcc9a53d0a33284e869c31dd9"
+  },
+  "businessRecordValidation": "No production payments or certificates created by validation.",
+  "notIncluded": "The standalone Staff folder remains the original Flutter starter."
+}

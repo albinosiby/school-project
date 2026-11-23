@@ -40,7 +40,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   const attendance = useCollection<StudentAttendanceMonth>("par_attendance");
   const terms = useCollection<{ id: string; start?: string; end?: string }>("set_terms");
   const attendancePolicy = useAttendancePolicy();
-  // soft-deleted rows (contract 2: `deleted: true`) are not shown anywhere
+  // Soft-deleted rows stay out of the directory; admins can view their read-only history by profile link.
   const rows = useMemo(() => all.rows.filter((s) => s.deleted !== true), [all.rows]);
   const [q, setQ] = useState(initialQ);
   const [grade, setGrade] = useState(""); const [section, setSection] = useState(""); const [status, setStatus] = useState("");

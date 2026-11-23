@@ -20,7 +20,7 @@ export const tsMs = (v: unknown): number => {
 // Classes and assignments (contract sections 3, 10, 13.1)
 // ---------------------------------------------------------------------------------------------------------------------
 
-export type ClassRow = { id: string; grade: string; section: string; streamId?: string; stream?: string; classTeacherId?: string; classTeacher?: string; room?: string; wing?: string; studentCount?: number; subjects?: string[]; capacity?: number };
+export type ClassRow = { id: string; grade: string; section: string; streamId?: string; stream?: string; classTeacherId?: string; classTeacher?: string; room?: string; wing?: string; studentCount?: number; subjects?: string[]; capacity?: number; rollRevision?: number };
 export type Assignment = { id: string; classId: string; subject: string; teacherId: string; topic?: string; periodsPerWeek?: number };
 
 /** the other class this teacher is already class teacher of (a teacher is class teacher of one class) */

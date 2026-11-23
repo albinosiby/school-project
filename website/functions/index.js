@@ -12,6 +12,16 @@ const { onDocumentCreated, onDocumentDeleted, onDocumentUpdated, onDocumentWritt
 initializeApp();
 setGlobalOptions({ region: "asia-south1", maxInstances: 5 });
 const db = getFirestore();
+Object.assign(exports, require('./mobileSync').mobileSync(db));
+const certificateManagement = require("./certificateManagement");
+for (const name of ["manageCertificate", "downloadCertificate", "certificateFile", "verifyCertificate"]) exports[name] = certificateManagement[name];
+// Revoke legacy bearer download tokens while retaining the archived signed file.
+exports.onCertificateRevoked = onDocumentWritten({ document: "schools/{sid}/certificates/{id}", retry: true }, async (event) => {
+  const before = event.data?.before?.data(), after = event.data?.after?.data();
+  if (after?.status !== "Revoked" || before?.status === "Revoked" || typeof after.filePath !== "string" || !after.filePath.startsWith(`schools/${event.params.sid}/certificates/${event.params.id}/`)) return;
+  const file = require("firebase-admin/storage").getStorage().bucket().file(after.filePath);
+  if ((await file.exists())[0]) await file.setMetadata({ metadata: { firebaseStorageDownloadTokens: null } });
+});
 
 const DEAD_TOKEN = new Set(["messaging/registration-token-not-registered", "messaging/invalid-registration-token", "messaging/invalid-argument"]);
 // the same audience test the teacher app uses for circulars
@@ -421,7 +431,12 @@ Object.assign(exports, require("./staff"));
 
 Object.assign(exports, require("./classRolls"));
 Object.assign(exports, require("./feePayments"));
+Object.assign(exports, require("./feeInvoiceStatus"));
 Object.assign(exports, require("./teachingAccess"));
+{
+  const { onStaffHrWritten, onStaffPayrollAccountWritten, onStaffPayrollPaymentWritten } = require("./staffSelf");
+  Object.assign(exports, { onStaffHrWritten, onStaffPayrollAccountWritten, onStaffPayrollPaymentWritten });
+}
 
 exports.onAppPushQueued = require("./appMessaging").onAppPushQueued;
 exports.sendCalendarAppReminders = require("./eventReminders").sendCalendarAppReminders;

@@ -94,6 +94,12 @@ await check("teacher cannot write students", assertFails(updateDoc(doc(as("t1"),
 await check("teacher cannot write exm_cycles", assertFails(updateDoc(doc(as("t1"), "schools/S1/exm_cycles/c1"), { title: "B" })));
 await check("teacher cannot read fee_*", assertFails(getDoc(doc(as("t1"), "schools/S1/fee_invoices/f1"))));
 await check("teacher cannot write set_*", assertFails(setDoc(doc(as("t1"), "schools/S1/set_roles/r"), { a: 1 })));
+await check("teacher reads their own profile photo", assertSucceeds(getDoc(doc(as("t1"), "schools/S1/staff_hr_photos/stf_025"))));
+await check("teacher cannot read another teacher's photo", assertFails(getDoc(doc(as("t1"), "schools/S1/staff_hr_photos/stf_023"))));
+await check("teacher cannot write their photo", assertFails(setDoc(doc(as("t1"), "schools/S1/staff_hr_photos/stf_025"), { image: "data:image/jpeg;base64,/9j/" })));
+await check("teacher reads their own HR card", assertSucceeds(getDoc(doc(as("t1"), "schools/S1/staff_self/stf_025"))));
+await check("teacher cannot read a colleague's HR card", assertFails(getDoc(doc(as("t1"), "schools/S1/staff_self/stf_023"))));
+await check("the HR card is server-owned: even the admin cannot write it", assertFails(setDoc(doc(as("a1"), "schools/S1/staff_self/stf_025"), { phone: "1" })));
 await check("teacher cannot read adm_*", assertFails(getDoc(doc(as("t1"), "schools/S1/adm_form/f"))));
 
 console.log("teacher: shared records");
@@ -328,7 +334,7 @@ await env.withSecurityRulesDisabled(async (ctx) => {
   await setDoc(doc(db, "schools/S1/ptm_slots/pts_old"), slotOf(past));
   await setDoc(doc(db, "schools/S1/ptm_slots/pts_inperson"), slotOf(future + 72e5, { modes: ["In-Person"] }));
   await setDoc(doc(db, "schools/S1/ptm_bookings/pts_c"), { slotId: "pts_c", studentId: "stu_102", teacherId: "stf_023", status: "Scheduled" });
-  await setDoc(doc(db, "schools/S1/certificates/c_issued"), { studentId: "stu_101", classId: "cls_10B", status: "Issued", refNo: "CERT/2026/0001" });
+  await setDoc(doc(db, "schools/S1/certificates/c_issued"), { studentId: "stu_101", studentName: "A", classId: "cls_10B", title: "Bonafide Certificate", status: "Issued", refNo: "CERT/2026/0001" });
   await setDoc(doc(db, "schools/S1/certificates/c_other"), { studentId: "stu_102", classId: "cls_10A", status: "Requested" });
 });
 const booking = (slotId, ms, extra = {}) => ({ slotId, teacherId: "stf_025", teacher: "T", studentId: "stu_101", classId: "cls_10B", studentName: "A", parentUid: "p1",
@@ -362,12 +368,12 @@ await check("parent cannot create an issued certificate", assertFails(setDoc(P("
 await check("parent cannot set a reference number", assertFails(setDoc(P("certificates/c_z"), certReq({ refNo: "CERT/1" }))));
 await check("parent reads own certificates", assertSucceeds(getDocs(query(collection(as("p1"), "schools/S1/certificates"), where("studentId", "==", "stu_101")))));
 await check("parent cannot read another family's certificate", assertFails(getDoc(P("certificates/c_other"))));
-await check("parent notes a download of an issued certificate", assertSucceeds(updateDoc(P("certificates/c_issued"), { downloadedAt: "now" })));
+await check("parent notes a download of an issued certificate", assertSucceeds(updateDoc(P("certificates/c_issued"), { downloadedAt: "now", updatedBy: "p1" })));
 await check("parent cannot change an issued certificate", assertFails(updateDoc(P("certificates/c_issued"), { refNo: "X" })));
 await check("parent withdraws a pending request", assertSucceeds(deleteDoc(P("certificates/c_new"))));
 await check("parent cannot delete an issued certificate", assertFails(deleteDoc(P("certificates/c_issued"))));
 await check("teacher cannot read certificates", assertFails(getDoc(doc(as("t1"), "schools/S1/certificates/c_issued"))));
-await check("admin issues a certificate", assertSucceeds(updateDoc(doc(as("a1"), "schools/S1/certificates/c_other"), { status: "Issued", refNo: "CERT/2026/0002" })));
+await check("admin certificate issuance must use the authorised server workflow", assertFails(updateDoc(doc(as("a1"), "schools/S1/certificates/c_other"), { status: "Issued", refNo: "CERT/2026/0002" })));
 
 console.log("parent: fee payments reported for verification (13.8)");
 const claim = (extra = {}) => ({ studentId: "stu_101", grn: "GIS-9201", studentName: "A", classId: "cls_10B", invoiceId: "f1", invoiceNo: "INV-1", amount: 5000,

@@ -17,9 +17,10 @@ import { useCollection } from "@/lib/useCollection";
 import type { Student } from "./StudentsView";
 import { StudentStopPicker } from "./StudentStopPicker";
 
-export function StudentTransportCard({ student, students }: { student: Student; students: Student[] }) {
+export function StudentTransportCard({ student, students, readOnly = false }: { student: Student; students: Student[]; readOnly?: boolean }) {
   const { user } = useAuth();
   const canManage = user?.role === "admin" || user?.role === "owner";
+  const canEdit = canManage && !readOnly && student.deleted !== true;
   const fees = useCollection<StudentTransportFee>("student_transport_fees", canManage, [["studentId", "==", student.id]]);
   const withFee = { ...student, transportFee: fees.rows.find((fee) => fee.id === student.id) };
   const amount = studentTransportFee(withFee);
@@ -27,7 +28,7 @@ export function StudentTransportCard({ student, students }: { student: Student; 
   return <Card className="p-5">
     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
       <h2 className="t-label-caps text-on-surface-variant">Transport</h2>
-      {canManage && <Button size="sm" variant="outline" disabled={!fees.ready} onClick={() => setEditing(true)}>
+      {canEdit && <Button size="sm" variant="outline" disabled={!fees.ready} onClick={() => setEditing(true)}>
         {student.busId ? <Pencil size={15} /> : <BusIcon size={15} />}{student.busId ? "Edit transport" : "Assign Bus"}
       </Button>}
     </div>
@@ -37,7 +38,7 @@ export function StudentTransportCard({ student, students }: { student: Student; 
       {canManage && <><dt className="text-on-surface-variant">Fee amount</dt><dd>{fees.error ? "Fee unavailable" : !fees.ready ? <LoadingSkeleton variant="inline" label="Loading fee…" /> : amount === null ? "Not configured" : inrFull(amount)}</dd></>}
     </dl> : <p className="text-sm">No bus</p>}
     {fees.error && <p role="alert" className="mt-2 text-sm text-error">Could not load the transport fee. <Button size="sm" variant="ghost" onClick={fees.reload}>Retry</Button></p>}
-    {editing && <StudentBusForm student={withFee} students={students} onClose={() => setEditing(false)} />}
+    {editing && canEdit && <StudentBusForm student={withFee} students={students} onClose={() => setEditing(false)} />}
   </Card>;
 }
 

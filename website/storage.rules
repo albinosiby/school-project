@@ -28,6 +28,13 @@ service firebase.storage {
         && request.resource.contentType.matches('image/(png|jpeg)');
     }
 
+    // v2 certificate PDFs and frozen branding are delivered by authorised server endpoints only.
+    match /schools/{sid}/certificate-files/{id}/{file} {
+      allow read, write: if false;
+    }
+    match /schools/{sid}/certificate-branding/{file} {
+      allow read, write: if false;
+    }
     match /schools/{sid}/certificates/{id}/{file} {
       // the admin, and the guardians of the certificate's student once it is issued
       allow read: if isAdmin(sid)

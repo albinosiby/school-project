@@ -4,13 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, BookOpen, Clock, MapPin, School, Users } from "lucide-react";
-import { LoadingSkeleton, Avatar, Badge, Card, DataTable, EmptyState, Stat, Tabs, type Column } from "@/components/ui";
+import { LoadingSkeleton, Avatar, Badge, Button, Card, DataTable, EmptyState, Modal, Stat, Tabs, useToast, type Column } from "@/components/ui";
 import type { Cycle, Mark as ExamMark, Paper } from "@/features/exams/types";
 import { useAuth } from "@/lib/authContext";
 import { useCollection } from "@/lib/useCollection";
 import { useNow } from "@/lib/useNow";
 import { currentLessons, currentPeriodAttendance, currentPeriodClock, type ClassActivityConfig } from "./classActivity";
-import { classExams, classResults, classRoster, classTeachers, classTitle, defaultClassExam, genderCounts, studentHref, teacherHref,
+import { classExams, classResults, classRoster, classTeachers, classTitle, defaultClassExam, genderCounts, rollPlan, studentHref, teacherHref,
   type ClassAttendanceRecord, type ClassStudent, type ClassTeacher } from "./classDetails";
 import { ClassAttendance } from "./ClassAttendance";
 import { ClassResults } from "./ClassResults";
@@ -31,6 +31,7 @@ export function ClassDetailsView({ classId }: { classId: string }) {
   const params = useSearchParams();
   const canView = Boolean(user?.schoolId && (user.role === "admin" || user.role === "owner"));
   const classes = useCollection<ClassRow>("classes", canView);
+  const school = useCollection<{ id: string; academicYear?: string }>("school", canView);
   const students = useCollection<ClassStudent>("students", canView);
   const staff = useCollection<ClassTeacher>("staff", canView);
   const assignments = useCollection<Assignment>("assignments", canView);
@@ -47,6 +48,8 @@ export function ClassDetailsView({ classId }: { classId: string }) {
   const bell = config.rows.find((row) => row.id === "bell"), regional = config.rows.find((row) => row.id === "regional");
   const clock = useMemo(() => currentPeriodClock(now, bell, regional), [now, bell, regional]);
   const roster = useMemo(() => classRoster(students.rows, classId), [students.rows, classId]);
+  const [rolls, setRolls] = useState(false);
+  const academicYear = school.rows.find((row) => row.id === "school")?.academicYear ?? "";
   const cls = classes.rows.find((row) => row.id === classId);
   const teachers = useMemo(() => cls ? classTeachers(cls, assignments.rows, periods.rows, staff.rows) : [], [cls, assignments.rows, periods.rows, staff.rows]);
   const lesson = useMemo(() => currentLessons(clock, periods.rows, substitutions.rows, staff.rows).get(classId), [clock, periods.rows, substitutions.rows, staff.rows, classId]);
@@ -116,7 +119,10 @@ export function ClassDetailsView({ classId }: { classId: string }) {
       </div>}
       {tab === "timetable" && <ClassTimetable data={schedule} cls={cls} initialDate={/^\d{4}-\d{2}-\d{2}$/.test(params.get("date") || "") ? params.get("date")! : undefined} />}
       {tab === "attendance" && <ClassAttendance data={schedule} roster={roster} />}
-      {tab === "students" && <Card className="min-w-0 overflow-hidden"><div className="p-5"><h2 className="text-lg font-semibold">Students</h2><p className="mt-1 text-sm text-on-surface-variant">{genders.total} total · {genders.boys} boys · {genders.girls} girls. Select a student to open their profile.</p></div>
+      {tab === "students" && <Card className="min-w-0 overflow-hidden"><div className="flex flex-wrap items-start justify-between gap-3 p-5"><div><h2 className="text-lg font-semibold">Students</h2><p className="mt-1 text-sm text-on-surface-variant">{genders.total} total · {genders.boys} boys · {genders.girls} girls. Select a student to open their profile.</p></div>
+          {roster.length > 0 && <Button variant="outline" size="sm" onClick={() => setRolls(true)}>Assign roll numbers</Button>}</div>
+        {rolls && <AssignRolls roster={roster} title={classTitle(cls)} academicYear={academicYear} onClose={() => setRolls(false)}
+          onAssign={async (plan) => { for (const row of plan) await students.update(row.id, { roll: row.roll, rollAcademicYear: academicYear } as Partial<ClassStudent>); await classes.update(cls.id, { rollRevision: (cls.rollRevision ?? 0) + 1 } as Partial<ClassRow>); }} />}
         <DataTable rows={roster} columns={studentColumns} pageSize={10} searchText={(student) => `${student.name} ${student.grn || ""} ${student.admissionNumber || ""}`} onRowClick={(student) => router.push(studentHref(student.id))} />
       </Card>}
       {tab === "teachers" && <Card className="min-w-0 overflow-hidden"><div className="p-5"><h2 className="text-lg font-semibold">Teachers</h2><p className="mt-1 text-sm text-on-surface-variant">The class teacher and teachers assigned through class subjects or the weekly timetable.</p></div>
@@ -125,4 +131,24 @@ export function ClassDetailsView({ classId }: { classId: string }) {
       {tab === "results" && <ClassResults cycles={examOptions} cycle={cycle} result={performance} ready={resultsReady} onSelect={setExam} />}
     </div>
   </div>;
+}
+
+/** Renumber every student of the division 1..N in name order, after a look at the plan. */
+function AssignRolls({ roster, title, academicYear, onClose, onAssign }: { roster: ClassStudent[]; title: string; academicYear: string; onClose: () => void; onAssign: (plan: ReturnType<typeof rollPlan>) => Promise<void> }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const plan = useMemo(() => rollPlan(roster), [roster]);
+  const changed = plan.filter((row) => row.previous !== row.roll).length;
+  return <Modal open onClose={() => { if (!busy) onClose(); }} title="Assign roll numbers" subtitle={`${title} · ${plan.length} students, numbered 1 to ${plan.length} in name order`}
+    footer={<><Button variant="outline" disabled={busy} onClick={onClose}>Cancel</Button><Button disabled={busy || !changed} onClick={async () => {
+      setBusy(true); setError("");
+      try { await onAssign(plan); toast(`Roll numbers assigned to ${plan.length} students`); onClose(); }
+      catch (cause) { setError("Could not assign roll numbers: " + (cause instanceof Error ? cause.message : "Unknown error")); setBusy(false); }
+    }}>{busy ? "Assigning…" : changed ? `Assign ${changed} roll number${changed === 1 ? "" : "s"}` : "Already in order"}</Button></>}>
+    <p className="mb-3 text-sm text-on-surface-variant">{changed ? `${changed} of ${plan.length} students get a new number${academicYear ? ` for ${academicYear}` : ""}. Attendance and marks already recorded keep their student links.` : "Every student already has the number this order gives."}</p>
+    <div className="max-h-72 overflow-y-auto rounded-lg border border-outline-variant/60"><table className="w-full text-left text-sm"><thead className="bg-surface-container-low text-xs text-on-surface-variant"><tr><th className="p-2">Roll</th><th className="p-2">Student</th><th className="p-2">Was</th></tr></thead>
+      <tbody>{plan.map((row) => <tr key={row.id} className="border-t border-outline-variant/40"><td className="p-2 font-mono">{row.roll}</td><td className="p-2">{row.name}</td><td className="p-2 text-on-surface-variant">{row.previous || "Not assigned"}</td></tr>)}</tbody></table></div>
+    {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}
+  </Modal>;
 }

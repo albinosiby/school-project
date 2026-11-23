@@ -1,0 +1,145 @@
+{
+  "project": "school-admin-tatos-2610",
+  "region": "asia-south1",
+  "deploymentDate": "2026-11-20",
+  "functions": [
+    {
+      "id": "certificateFile",
+      "region": "asia-south1",
+      "state": "ACTIVE",
+      "runtime": "nodejs22",
+      "platform": "gcfv2",
+      "uri": "https://asia-south1-school-admin-tatos-2610.cloudfunctions.net/certificateFile"
+    },
+    {
+      "id": "downloadCertificate",
+      "region": "asia-south1",
+      "state": "ACTIVE",
+      "runtime": "nodejs22",
+      "platform": "gcfv2",
+      "uri": "https://asia-south1-school-admin-tatos-2610.cloudfunctions.net/downloadCertificate"
+    },
+    {
+      "id": "manageCertificate",
+      "region": "asia-south1",
+      "state": "ACTIVE",
+      "runtime": "nodejs22",
+      "platform": "gcfv2",
+      "uri": "https://asia-south1-school-admin-tatos-2610.cloudfunctions.net/manageCertificate"
+    },
+    {
+      "id": "onCertificateRevoked",
+      "region": "asia-south1",
+      "state": "ACTIVE",
+      "runtime": "nodejs22",
+      "platform": "gcfv2",
+      "uri": "https://asia-south1-school-admin-tatos-2610.cloudfunctions.net/onCertificateRevoked"
+    },
+    {
+      "id": "onCertificateWritten",
+      "region": "asia-south1",
+      "state": "ACTIVE",
+      "runtime": "nodejs22",
+      "platform": "gcfv2",
+      "uri": "https://asia-south1-school-admin-tatos-2610.cloudfunctions.net/onCertificateWritten"
+    },
+    {
+      "id": "verifyCertificate",
+      "region": "asia-south1",
+      "state": "ACTIVE",
+      "runtime": "nodejs22",
+      "platform": "gcfv2",
+      "uri": "https://asia-south1-school-admin-tatos-2610.cloudfunctions.net/verifyCertificate"
+    }
+  ],
+  "hosting": {
+    "site": "school-admin-tatos-2610",
+    "channel": "projects/school-admin-tatos-2610/sites/school-admin-tatos-2610/channels/live",
+    "url": "https://school-admin-tatos-2610.web.app",
+    "release": "projects/school-admin-tatos-2610/sites/school-admin-tatos-2610/channels/live/releases/1795174626921000",
+    "releaseTime": "2026-11-20T11:37:06.921Z",
+    "version": "projects/school-admin-tatos-2610/sites/school-admin-tatos-2610/versions/6ba2758117c66c29"
+  },
+  "rulesBefore": [
+    {
+      "service": "cloud.firestore",
+      "ruleset": "projects/school-admin-tatos-2610/rulesets/ad2fcc38-25ec-4b49-aa4c-c072f69f6922",
+      "release": "projects/school-admin-tatos-2610/releases/cloud.firestore"
+    },
+    {
+      "service": "firebase.storage",
+      "ruleset": "projects/school-admin-tatos-2610/rulesets/e8379297-2861-462f-9f41-9afe466bd665",
+      "release": "projects/school-admin-tatos-2610/releases/firebase.storage/school-admin-tatos-2610.firebasestorage.app"
+    }
+  ],
+  "rulesAndTtlAfter": [
+    {
+      "service": "cloud.firestore",
+      "ruleset": "projects/school-admin-tatos-2610/rulesets/e4168342-b5ad-4089-9f05-920adbc4ebd5",
+      "sha256": "e47350787adc94625a717a0d8fa1fcc5d92855a24486b481fdf062a1437cfdf5"
+    },
+    {
+      "service": "firebase.storage",
+      "ruleset": "projects/school-admin-tatos-2610/rulesets/edbbb01d-274a-4de2-9ee8-2be528529909",
+      "sha256": "7fbf6ee35e945c56fdcbbcf4c8c5d620a815ee6a742da7cc7197da1457a332ac"
+    },
+    {
+      "collectionGroup": "certificate_download_tokens",
+      "field": "deleteAt",
+      "ttlState": "ACTIVE"
+    },
+    {
+      "collectionGroup": "certificate_verification_limits",
+      "field": "expiresAt",
+      "ttlState": "ACTIVE"
+    }
+  ],
+  "endpointChecks": [
+    {
+      "function": "manageCertificate",
+      "status": 401,
+      "expected": 401
+    },
+    {
+      "function": "downloadCertificate",
+      "status": 401,
+      "expected": 401
+    },
+    {
+      "function": "verifyCertificate",
+      "status": 400,
+      "expected": 400
+    },
+    {
+      "function": "certificateFile",
+      "status": 404,
+      "expected": 404
+    }
+  ],
+  "browserCheck": "Live verification page HTTP 200; desktop/mobile rendering passed; certificates page redirects signed-out users to login; no issuance request sent.",
+  "productionCertificateIssuancePerformed": false,
+  "validation": {
+    "certificateAccessIntegrationChecks": 16,
+    "targetedCertificateWebTests": 17,
+    "adminSuiteBeforeStaleSelectorFix": {
+      "passed": 1242,
+      "failed": 1
+    },
+    "affectedTransportTestsAfterSelectorFix": 30,
+    "webProductionBuild": "passed",
+    "typescript": "passed"
+  },
+  "ssrRuntime": "nodejs22",
+  "ssrSourceArchiveMB": 6.29,
+  "backendSourceSha256": {
+    "index.js": "ae6c20d8f45c1eb6e1aaa6e705a7d68fe304605ce284b19bdca3f7bbf8815e0b",
+    "parent.js": "f9bcbbca3b5ef6022200c65f12b884e7f39d9e9e9cd2100219e1bcefdd5c9e46",
+    "certificateManagement.js": "94a4ad6bb7326ecc8f036d59ab9c94e81491bc5af888d9b9cbd2f419dbc2cde7",
+    "certificateData.js": "7ad1ae023020ce4b2d4b5e232d2ae264d3d8a8dc8099283f0e279c7f349b1eed",
+    "certificatePdf.js": "c1c5dbed7209573cf4b210587b203a6d961a5be4cdb652681fa917328582ffcc",
+    "certificateCatalog.json": "4b6693873d521bdecb7f27560151b3e6ff8f7483792802bdca4330fc3c89166a",
+    "package.json": "6585b7744b768e4219389e57124741e4c31fb3f9ccc69d9b239fb5752f4a92aa",
+    "package-lock.json": "9a9346a1821efa2523ec7b16f7d678224373878f5ea43f82367f5abc91efffee"
+  },
+  "webBuildId": "jxa-VqYVv8WxmNudSbz6T"
+}

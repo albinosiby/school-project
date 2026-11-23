@@ -21,6 +21,10 @@ Demo tenant: **Greenfield International School**, AY 2026-27, Term 2.
 - Day names `Mon…Sat`; teacher app numbers them 1..6 locally. Period numbers 1..8; teacher app shows `P1..P8`.
 - Dates `YYYY-MM-DD`, times `HH:mm`.
 - Every doc written by an app carries `updatedAt` (ISO string or server timestamp), `updatedBy` (auth uid). Soft delete with `deleted: true` is allowed; hard delete only by admin.
+- School administrators and owners can open retained student records with `deleted: true` from historical links.
+  These profiles are labelled Removed student and are read-only: profile, division, transport, parent-account and
+  document changes are unavailable, while saved information and document preview/download remain accessible.
+  Opening the profile does not restore the student. Removed students stay out of the directory and new concession choices.
 - A person is referred to by id plus a denormalized display name (`teacher: "Mrs. Anita Sharma"`, `teacherId: "stf_025"`). Id wins; the name is for display and for old views.
 
 ## 3. Shared master collections (admin writes, teacher + parent read)
@@ -300,6 +304,47 @@ acknowledgement, consent) or nothing.
 | certificates | `certificates` (§13.7) | `studentId == X` |
 | reported fee payments, school account | `fee_claims`, `school/school.bank` (§13.8) | `studentId == X` / get |
 
+Student-profile invoice creation (admin/owner, existing school write authorization):
+- `fee_invoices/{sf_SHA256(studentId, academicYear, normalizedBillingPeriod)}` has the existing invoice shape plus
+  `academicYear`, `grossAmount`, `concessionAmount`, `concessionAllocations: [{concessionId,type,amount}]`,
+  and `generationFingerprint`. Positive lines may carry `feeItemId`, `quantity`, `unitAmount`; concessions are
+  negative lines, so the sum of all lines equals `amount`. Existing mobile invoice readers remain compatible.
+- `fee_invoice_sequences/student_{academicYear}`: `{id,last,updatedAt,updatedBy}` allocates the separate
+  `INV-ST-{academicYear}-{six-digit-sequence}` namespace. Legacy invoice numbering remains unchanged.
+- `fee_student_billing/{studentId}_{academicYear}`: `{id,studentId,academicYear,quantities:{feeItemId:count},updatedAt,updatedBy}`
+  serializes new profile-generated collections for a student/year and prevents rebilling exhausted quantities.
+- `fee_concessions/{id}.invoiceApplications`: `[{invoiceId,academicYear,amount}]`. Allocation uses the approved
+  amount minus all prior applications. Invoice, sequence, billed quantities and applications commit atomically.
+  Identical retries return the original invoice. Changed previews/configuration, removed/inactive students,
+  duplicate periods and quantities exceeding remaining collections are rejected. The existing general invoice and
+  batch routes retain their behavior; they do not use this new collection ledger.
+- Annual payable is a display calculation from current grade/stream fees, admission eligibility, transport policy,
+  configured term dates, approved current-year concessions and that year's invoice payments. It does not create
+  an invoice or alter recorded balances. Existing historical invoices and receipts remain readable/exportable.
+- `/fees` uses that same calculation for the student dues directory, joining `students`, `adm_student_details`
+  (admission-date fallback), `fee_structure`, `set_terms`, `school/school`, `student_transport_fees`,
+  `set_config/fee_policy`, invoices, payments and concessions. These remain admin/owner school-scoped reads;
+  no new collection or public sharing URL is introduced. Removed identities still disambiguate legacy GRNs.
+  `/fees/students/{studentId}` reuses the profile's invoice-generation transaction and payment history. PDF sharing
+  exports a local file, with the recipient chosen in the device's share menu; fallback download makes no database write.
+
+Student fee collection and invoice status (2026-11-17):
+- **Collect payment** calls `recordFeePayment` with `{requestId, invoiceId, amount, mode, date, reference}`. Receipt,
+  invoice paid/balance/status, unique transaction reference and replay marker commit atomically. The UI retains an
+  uncertain request across retries/reloads of the same tab and does not let edits silently submit it again.
+- **Change status** calls `changeFeeInvoiceStatus` with `{requestId, invoiceId, status, reason, expectedRevision,
+  expectedAmount, expectedPaid, expectedDue}`. Callable status is Automatic/Pending/Overdue; Partial/Paid use collection.
+  MFA-verified school admin/owner authorization, school lock checks, reason length and the reviewed financial snapshot
+  are rechecked in the transaction. Stale edits, settled-to-unpaid transitions and removed student mutations fail.
+- `fee_invoices.statusOverride` is null or `{status:"Pending"|"Overdue", amount, paid, due}`; `statusRevision` defaults
+  to 0 for old invoices. Overrides only apply while the reviewed amount, paid total and due date still match.
+  Recording a payment clears it and increments the revision. Parent-readable invoices contain no private status reason.
+- `fee_invoice_status_history/{requestId|pay_requestId}` is server-only written, school-admin/owner readable:
+  `{invoiceId,invoiceNo,from,to,mode:"Manual"|"Automatic"|"Payment",reason,at,by,byUid,_o}`. The reason/editor stay here.
+  `fee_invoice_status_requests/{requestId}` stores fingerprint/result for idempotent status retries. Client writes to
+  both collections and updates to invoice status/override/revision/paid/balance are denied. Retain audit and replay
+  records with financial history; existing school backup/retention policies apply. No new indexes are required.
+
 Projection shapes (written only by functions):
 - `par_attendance/{studentId}_{YYYY-MM}`: `{studentId, classId, month, days: {"YYYY-MM-DD": "P"|"A"|"L"|"E"}, updatedAt}`. A day's
   status is the student's mark in that class's newest record of the day (§9: newest `updatedAt`, ties higher period); no mark = `P`.
@@ -345,6 +390,8 @@ Functions append to `set_audit` (`{at, actor, action, detail, kind}`) when a par
 recorded or withdrawn, and a student record is created/deleted, so children's data changes are traceable in Settings > Audit.
 
 ### 13.7 Parent-teacher meetings and certificates (2026-10-27)
+
+Certificate Management v2 (student and staff formats, frozen PDF/snapshots, server numbering, template versions, revocation and private history) is specified in [CERTIFICATES.md](CERTIFICATES.md). Existing certificate fields below remain supported for legacy records. New student request types also include `study`, `dob` and `conduct`; staff certificate records use `recipientKind:"staff"`, `staffId`, and an empty `studentId`, so they never enter a parent's child query.
 **Meetings.** The school office publishes bookable time slots per teacher in the admin web (Students > Meetings); parents
 book one from the parent app (More > Parent-Teacher Meeting).
 - `ptm_slots/{id}` (admin writes; id `pts_{staffId}_{YYYYMMDDHHmm}`): `{teacherId, teacher, start (ISO, UTC), startMs, mins,
@@ -456,7 +503,7 @@ transport record. Everything is under `schools/{sid}`; ids and stamps follow §2
   order can be configured later in Edit bus. `capacity` is the number of seats available to students, and `totalSeats`
   is total vehicle seating. Vehicle identity, safety equipment, compliance dates and maintenance are edited through
   Transport > Buses > bus > Edit vehicle details.
-- Transport > Buses > Expiry reminders stores the designated school administrator's UID in
+- The bus expiry reminder recipient is stored as the designated school administrator's UID in
   `tr_settings/expiry_notifications.recipientUid`. The `transportExpiryReminders` function runs daily at 09:00 India
   time. It writes an in-app notification for each registration, fitness, insurance, permit, PUC or road tax date within
   30 days. A receipt in `tr_expiry_receipts` prevents repeat delivery for the same bus, document and expiry date.

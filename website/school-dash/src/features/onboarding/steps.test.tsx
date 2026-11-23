@@ -300,8 +300,9 @@ describe("5 · Fee structure", () => {
       { id: "cls_12_humanities_A", grade: "12", section: "A", streamId: "humanities" },
     ], fee_structure: [{ id: "fs_11", grade: "11", tuition: 0, lab: 0, library: 0, activity: 0, transport: 0 }] });
     for (const [scope, amount] of [["Grade 11 · Science", "3000"], ["Grade 11 · Commerce", "2200"], ["Grade 12 · Humanities", "2500"]]) {
-      await user.click(screen.getByRole("button", { name: "Tuition" }));
+      await user.click(screen.getByRole("button", { name: "Add fee item" }));
       const item = within(screen.getByRole("group", { name: "Fee item 1" }));
+      await user.type(item.getByLabelText("Fee name"), "Tuition");
       await user.type(item.getByLabelText("Amount per collection (₹)"), amount!);
       await user.click(item.getByText("Applicable classes"));
       await user.click(item.getByRole("button", { name: "Clear" }));
@@ -320,8 +321,9 @@ describe("5 · Fee structure", () => {
     const { user, unmount } = openStep(5, { classes });
     await user.click(save());
     expect(alertText()).toBe("Add at least one fee item.");
-    await user.click(screen.getByRole("button", { name: "Tuition" }));
+    await user.click(screen.getByRole("button", { name: "Add fee item" }));
     const item = within(screen.getByRole("group", { name: "Fee item 1" }));
+    await user.type(item.getByLabelText("Fee name"), "Tuition");
     await user.click(save());
     expect(alertText()).toContain("enter an amount above ₹0");
     await user.type(item.getByLabelText("Amount per collection (₹)"), "2000");
@@ -356,7 +358,10 @@ describe("5 · Fee structure", () => {
     await user.type(item.getByLabelText("First due date (optional)"), "2026-11-10");
     await user.selectOptions(item.getByLabelText("Collection type"), "optional");
     await user.selectOptions(item.getByLabelText("Student eligibility"), "new");
-    await user.click(screen.getByRole("button", { name: "Annual fee" }));
+    await user.click(screen.getByRole("button", { name: "Add fee item" }));
+    const annual = within(screen.getByRole("group", { name: "Fee item 1" }));
+    await user.type(annual.getByLabelText("Fee name"), "Annual fee");
+    await user.selectOptions(annual.getByLabelText("Collection frequency"), "Annual");
     expect(screen.getByRole("button", { name: /^Collapse fee item 1: Annual fee/ })).toHaveAttribute("aria-expanded", "true");
     expect(within(screen.getByRole("group", { name: "Fee item 2" })).getByLabelText("Fee name")).toHaveValue("School trip");
     expect(within(screen.getByRole("group", { name: "Fee item 2" })).getByLabelText("Amount per collection (₹)")).toHaveValue(1500);

@@ -2,14 +2,16 @@
 import { LoadingSkeleton } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
-import { homeFor, useAuth } from "@/lib/authContext";
+import { homeFor, isStaffUser, useAuth, type Role } from "@/lib/authContext";
 
-/** May this user open a page of this kind? A product owner opens the school console only while inside a school (contract 16). */
-export const allowed = (u: { role: "admin" | "owner" | "staff"; schoolId: string }, role: "admin" | "owner") =>
-  role === "owner" ? u.role === "owner" : u.role === "admin" || (u.role === "owner" && !!u.schoolId);
+export type PageKind = "admin" | "owner" | "staff";
+/** May this user open a page of this kind? A product owner opens the school console only while inside a school (contract 16);
+ * school staff (teacher, staff, driver, attendant) open only the staff portal. */
+export const allowed = (u: { role: Role; schoolId: string }, role: PageKind) =>
+  role === "owner" ? u.role === "owner" : role === "staff" ? isStaffUser(u) : u.role === "admin" || (u.role === "owner" && !!u.schoolId);
 
-/** Lets in the signed-in users of one kind: school admins (default) or product owners (`role="owner"`). */
-export function AuthGuard({ children, role = "admin" }: { children: React.ReactNode; role?: "admin" | "owner" }) {
+/** Lets in the signed-in users of one kind: school admins (default), product owners (`role="owner"`) or school staff (`role="staff"`). */
+export function AuthGuard({ children, role = "admin" }: { children: React.ReactNode; role?: PageKind }) {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const wrongRole = !!user && !allowed(user, role);

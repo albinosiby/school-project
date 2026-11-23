@@ -138,20 +138,6 @@ describe("Add / edit bus validation", () => {
     });
   });
 
-  it("can designate an existing administrator for expiry reminders", async () => {
-    seed({ users: [
-      { id: ADMIN_UID, schoolId: "sch_test", role: "admin", name: "Transport Lead" },
-      { id: "staff_01", schoolId: "sch_test", role: "staff", name: "Office Staff" },
-    ] });
-    const { user } = renderUI(<BusesPanel />);
-    await user.click(screen.getByRole("button", { name: "Expiry reminders" }));
-    const d = dialog("Bus expiry reminders");
-    expect(within(d).queryByRole("option", { name: "Office Staff" })).not.toBeInTheDocument();
-    await user.selectOptions(field("Transport administrator", d), ADMIN_UID);
-    await user.click(within(d).getByRole("button", { name: "Save settings" }));
-    expect(getRow("tr_settings", "expiry_notifications")).toMatchObject({ recipientUid: ADMIN_UID });
-  });
-
   it("on edit, blocks a capacity below the riders, then syncs riders' and crew's names in one batch", async () => {
     seed({ tr_buses: [bus14, bus15], tr_crew: crew, students: kids });
     const { user } = renderUI(<BusDetailsView busId="bus_01" />);

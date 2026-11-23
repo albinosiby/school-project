@@ -12,81 +12,12 @@ const student = { id: "stu_101", name: "Aarav Sharma", grn: "GIS-9200", grade: "
 beforeEach(() => { vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date(2026, 10, 3, 10, 0)); });
 afterEach(() => { vi.useRealTimers(); });
 
-async function pick(user: ReturnType<typeof renderUI>["user"], name = "Aarav Sharma") {
-  await user.click(screen.getAllByText(name)[0]);
-}
-
 describe("Invoice status", () => {
-  it("shows an unpaid invoice past its due date as Overdue even when stored as Pending", () => {
+  it("shows an unpaid invoice past its due date as Overdue even when stored as Pending", async () => {
     seed({ fee_invoices: [invoice({ due: "2026-10-31", paid: 0, balance: 42000, status: "Pending" })] });
-    renderUI(<FeesPage />);
-    expect(screen.getByText("Overdue Defaulters").parentElement).toHaveTextContent("1 Students");
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: "Issued invoices" }));
     expect(screen.getAllByText("Overdue").length).toBeGreaterThan(0);
-  });
-});
-
-describe("Counter payment", () => {
-  it("refuses an empty amount and a missing reference for a non-cash mode", async () => {
-    seed({ fee_invoices: [invoice()] });
-    const { user } = renderUI(<FeesPage />);
-    await pick(user);
-    await user.clear(field("Amount Received (₹)"));
-    await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    expect(fieldError("Amount Received (₹)")).toBe("Enter an amount above ₹0");
-    expect(fieldError("Reference no.")).toBe("Enter the transaction / cheque reference (at least 4 characters)");
-    expect(writes).toHaveLength(0);
-  });
-
-  it("refuses more than the balance", async () => {
-    seed({ fee_invoices: [invoice()] });
-    const { user } = renderUI(<FeesPage />);
-    await pick(user);
-    await user.clear(field("Amount Received (₹)"));
-    await user.type(field("Amount Received (₹)"), "30001");
-    expect(fieldError("Amount Received (₹)")).toBe("Amount exceeds the due balance of ₹30,000");
-    await user.type(field("Reference no."), "UTR12345");
-    await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    expect(writes).toHaveLength(0);
-  });
-
-  it("records a UPI part payment: receipt with {mode} · {reference}, invoice paid / balance / status in one batch", async () => {
-    seed({ fee_invoices: [invoice()], fee_payments: [{ id: "rcp_1", receiptNo: "RCP-20455", invoiceId: "inv_x", amount: 1, mode: "Cash", date: "2026-10-01" }] });
-    const { user } = renderUI(<FeesPage />);
-    await pick(user);
-    await user.clear(field("Amount Received (₹)"));
-    await user.type(field("Amount Received (₹)"), "10000");
-    await user.type(field("Reference no."), "utr 4417");
-    await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    expect(await screen.findByText("Payment of ₹10,000 recorded · RCP-20456")).toBeInTheDocument();
-    const p = rowsOf<Record<string, unknown>>("fee_payments").find((payment) => payment.invoiceId === "inv_1");
-    expect(p).toMatchObject({ receiptNo: "RCP-20456", invoiceId: "inv_1", invoiceNo: "INV-2026-0901", student: "Aarav Sharma", grade: "10", grn: "GIS-9200", amount: 10000, mode: "UPI QR · UTR4417", reference: "UTR4417", date: "2026-11-03" });
-    expect(getRow("fee_invoices", "inv_1")).toMatchObject({ paid: 22000, balance: 20000, status: "Partial" });
-    expect(await screen.findByText("Payment of ₹10,000 recorded · RCP-20456")).toBeInTheDocument();
-    expect(dialog("Fee Receipt")).toHaveTextContent("RCP-20456");
-  });
-
-  it("writes neither the receipt nor the invoice when the batch fails", async () => {
-    seed({ fee_invoices: [invoice()] });
-    const { user } = renderUI(<FeesPage />);
-    await pick(user);
-    await user.click(screen.getByRole("tab", { name: "Cash" }));
-    failNextWrite();
-    await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    expect(await screen.findByText("Could not confirm the payment. Retry to check its receipt without recording it twice.")).toBeInTheDocument();
-    expect(writes).toHaveLength(0);
-    expect(getRow("fee_invoices", "inv_1")).toMatchObject({ paid: 12000, balance: 30000 });
-  });
-
-  it("records cash without a reference and settles the invoice", async () => {
-    seed({ fee_invoices: [invoice()] });
-    const { user } = renderUI(<FeesPage />);
-    await pick(user);
-    await user.click(screen.getByRole("tab", { name: "Cash" }));
-    expect(screen.queryByText("Reference no.")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Collect & Print Receipt/ }));
-    expect(rowsOf("fee_payments")[0]).toMatchObject({ amount: 30000, mode: "Cash" });
-    expect(rowsOf("fee_payments")[0]).not.toHaveProperty("reference");
-    expect(getRow("fee_invoices", "inv_1")).toMatchObject({ paid: 42000, balance: 0, status: "Paid" });
   });
 });
 
@@ -143,6 +74,7 @@ describe("Reminders", () => {
   it("writes one fee_reminders row per outstanding invoice, once a day", async () => {
     seed({ fee_invoices: [invoice()] });
     const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: "Issued invoices" }));
     await user.click(screen.getByRole("button", { name: /Remind/ }));
     expect(writesTo("fee_reminders")).toHaveLength(1);
     expect(rowsOf("fee_reminders")[0]).toMatchObject({
@@ -156,6 +88,77 @@ describe("Reminders", () => {
   });
 });
 
+describe("Concession requests", () => {
+  it("links an existing concession to its student's record by GRN, including historical records", async () => {
+    seed({ students: [student, { ...student, id: "stu_102", grn: "GIS-9201", deleted: true }], fee_concessions: [{
+      id: "concession", student: student.name, grn: "gis-9201", grade: "10", type: "Other", amount: 5000, status: "Approved", requested: "2026-11-03", approvedBy: "Admin",
+    }] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: /^Concessions/ }));
+    const link = screen.getByRole("link", { name: /Aarav Sharma/ });
+    expect(link).toHaveAttribute("href", "/students/stu_102");
+    expect(link).toHaveTextContent("Grade 10 · gis-9201");
+  });
+
+  it("does not link missing or ambiguous student records to another child's profile", async () => {
+    seed({ students: [student, { ...student, id: "duplicate" }], fee_concessions: [
+      { id: "missing", student: "Former Student", grn: "MISSING", grade: "10", type: "Other", amount: 5000, status: "Approved" },
+      { id: "ambiguous", student: student.name, grn: student.grn, grade: "10", type: "Other", amount: 1000, status: "Pending" },
+    ] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: /^Concessions/ }));
+    expect(screen.getByText("Former Student")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Former Student|Aarav Sharma/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
+
+  it("finds the correct student by GRN and submits an Other concession with keyboard selection", async () => {
+    seed({ students: [student, { ...student, id: "stu_102", grn: "GIS-9201", grade: "8", section: "A" }, { ...student, id: "removed", name: "Removed student", grn: "GIS-9201", deleted: true }] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: /^Concessions/ }));
+    await user.click(screen.getByRole("button", { name: "New concession" }));
+    const modal = dialog("New concession request");
+    const input = within(modal).getByRole("combobox", { name: "Student" });
+    await user.type(input, "gis-9201");
+    expect(within(modal).getAllByRole("option")).toContain(within(modal).getByRole("option", { name: "Aarav Sharma · GIS-9201 · Grade 8-A" }));
+    expect(within(modal).queryByRole("option", { name: /GIS-9200/ })).not.toBeInTheDocument();
+    expect(within(modal).queryByRole("option", { name: /Removed student/ })).not.toBeInTheDocument();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(input).toHaveValue("Aarav Sharma · GIS-9201 · Grade 8-A");
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    await user.selectOptions(field("Type", modal), "Other");
+    await user.type(field("Concession amount (₹)", modal), "650");
+    await user.click(within(modal).getByRole("button", { name: "Submit" }));
+    expect(await screen.findByText("Concession request submitted")).toBeInTheDocument();
+    expect(rowsOf("fee_concessions")).toEqual([expect.objectContaining({ student: student.name, grn: "GIS-9201", grade: "8", type: "Other", amount: 650, status: "Pending" })]);
+  });
+
+  it("searches by name, keeps Escape inside the dropdown, and rejects unmatched text after changing a selection", async () => {
+    seed({ students: [student] });
+    const { user } = renderUI(<FeesPage />);
+    await user.click(screen.getByRole("tab", { name: /^Concessions/ }));
+    await user.click(screen.getByRole("button", { name: "New concession" }));
+    const modal = dialog("New concession request");
+    const input = within(modal).getByRole("combobox", { name: "Student" });
+    await user.type(input, "sHaRmA");
+    await user.keyboard("{Escape}");
+    expect(modal).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-expanded", "false");
+    await user.click(input);
+    await user.type(input, "Aarav");
+    await user.click(within(modal).getByRole("option", { name: /Aarav Sharma · GIS-9200/ }));
+    expect(input).toHaveValue("Aarav Sharma · GIS-9200 · Grade 10-B");
+    await user.click(input);
+    await user.type(input, "unknown student");
+    expect(within(modal).getByRole("status")).toHaveTextContent("No students match");
+    await user.type(field("Concession amount (₹)", modal), "100");
+    await user.click(within(modal).getByRole("button", { name: "Submit" }));
+    expect(within(modal).getByText("Choose a student")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(writesTo("fee_concessions")).toHaveLength(0);
+  });
+});
+
 describe("Fee structure", () => {
   it("adds a configured senior stream after setup without colliding with its sibling stream", async () => {
     seed({ classes: [{ id: "cls_11_science_A", grade: "11", section: "A", streamId: "science" }, { id: "cls_11_commerce_A", grade: "11", section: "A", streamId: "commerce" }], fee_structure: [{ id: "fs_11_science", grade: "11", streamId: "science", tuition: 3000, lab: 0, activity: 0, library: 0, transport: 0 }] });
@@ -166,7 +169,8 @@ describe("Fee structure", () => {
     await user.selectOptions(field("Grade"), "11:commerce");
     const modal = dialog("Add Grade 11 · Commerce fee structure");
     await user.type(field("Academic year", modal), "2026-27");
-    await user.click(within(modal).getByRole("button", { name: "Tuition" }));
+    await user.click(within(modal).getByRole("button", { name: "Add fee item" }));
+    await user.type(field("Fee name", modal), "Tuition");
     await user.type(field("Amount per collection (₹)", modal), "2200");
     await user.click(within(modal).getByRole("button", { name: "Save" }));
     expect(getRow("fee_structure", "fs_11_commerce")).toMatchObject({ grade: "11", streamId: "commerce", schemaVersion: 2, items: [expect.objectContaining({ amount: 2200, grades: ["11:commerce"] })] });

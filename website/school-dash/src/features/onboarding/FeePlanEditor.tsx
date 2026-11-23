@@ -7,12 +7,6 @@ import { inrFull } from "@/lib/format";
 import { annualFee, classLabel, FEE_FREQUENCIES, recurringTotal, type FeeFrequency, type FeeItem, type FeePlan } from "@/features/fees/feePlan";
 import { parseFeeScope } from "@/lib/academicStreams";
 
-const TEMPLATES = [
-  { name: "Tuition", frequency: "Monthly", mandatory: true, newStudentsOnly: false },
-  { name: "Annual fee", frequency: "Annual", mandatory: true, newStudentsOnly: false },
-  { name: "Admission fee", frequency: "One-time", mandatory: true, newStudentsOnly: true },
-] satisfies Partial<FeeItem>[];
-
 /** Fee configuration only: saving the plan never creates invoices or charges parents. */
 export function FeePlanEditor({ value, onChange, disabled = false, compact = false }: { value: FeePlan; onChange: (value: FeePlan) => void; disabled?: boolean; compact?: boolean }) {
   const [previewGrade, setPreviewGrade] = useState(value.grades[0] ?? "");
@@ -23,8 +17,8 @@ export function FeePlanEditor({ value, onChange, disabled = false, compact = fal
   const covered = new Set(value.items.flatMap((item) => item.grades));
   const hasStreams = value.grades.some((key) => !!parseFeeScope(key).streamId);
   const edit = (id: string, patch: Partial<FeeItem>) => onChange({ ...value, items: value.items.map((item) => item.id === id ? { ...item, ...patch } : item) });
-  const add = (template?: Partial<FeeItem>) => {
-    const item: FeeItem = { id: `fee_${crypto.randomUUID()}`, name: "", amount: 0, grades: [...value.grades], frequency: "Monthly", dueDate: "", mandatory: true, newStudentsOnly: false, ...template };
+  const add = () => {
+    const item: FeeItem = { id: `fee_${crypto.randomUUID()}`, name: "", amount: 0, grades: [...value.grades], frequency: "Monthly", dueDate: "", mandatory: true, newStudentsOnly: false };
     onChange({ ...value, items: [item, ...value.items] });
     setExpandedItems((previous) => ({ ...previous, [item.id]: true }));
   };
@@ -52,10 +46,6 @@ export function FeePlanEditor({ value, onChange, disabled = false, compact = fal
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h3 id="fee-items-heading" className="font-semibold">Fee items</h3><p className="mt-1 text-sm text-on-surface-variant">Use a separate item when the amount or schedule differs by class or stream.</p></div>
         <Button type="button" size="sm" onClick={() => add()}><Plus size={15} aria-hidden="true" />Add fee item</Button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-xs text-on-surface-variant">Quick add</span>
-        {TEMPLATES.map((template) => <button key={template.name} type="button" onClick={() => add(template)} className="inline-flex min-h-9 cursor-pointer items-center gap-1 rounded-full border border-outline-variant/60 px-3 text-xs text-on-surface-variant hover:border-secondary hover:text-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary"><Plus size={12} aria-hidden="true" />{template.name}</button>)}
       </div>
       <p className="flex items-start gap-2 rounded-lg bg-surface-container-low p-3 text-xs leading-5 text-on-surface-variant"><Bus size={16} className="mt-0.5 shrink-0" aria-hidden="true" />Set each student’s transport amount when assigning a bus or editing student details → Transport.</p>
       {hasStreams && <p className="text-xs leading-5 text-on-surface-variant">Grades 11–12 use the streams configured in Classes &amp; Sections. Select a class and stream below to give Science, Commerce, or Humanities its own fee amount.</p>}

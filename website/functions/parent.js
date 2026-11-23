@@ -610,16 +610,16 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   const onCertificateWritten = onDocumentWritten("schools/{sid}/certificates/{id}", safe("onCertificateWritten", async (e) => {
     const sid = e.params.sid, id = e.params.id;
     const before = e.data?.before?.data(), after = e.data?.after?.data();
-    if (!after || before?.status === after.status || !["Issued", "Rejected"].includes(after.status)) return;
+    if (!after || after.recipientKind === "staff" || !after.studentId || before?.status === after.status || !["Issued", "Rejected", "Revoked"].includes(after.status)) return;
     const student = await studentDoc(sid, after.studentId);
     const uids = uniq([after.parentUid, ...(student?.guardianUids ?? [])]);
     const issued = after.status === "Issued";
     await notifyParents(sid, uids.map((uid) => ({
       id: `cert_${id}_${after.status}_${uid}`, uid, studentId: after.studentId ?? "", type: "certificate",
-      title: issued ? `${after.title ?? "Certificate"} issued` : `${after.title ?? "Certificate"} request declined`,
+      title: issued ? `${after.title ?? "Certificate"} issued` : after.status === "Revoked" ? `${after.title ?? "Certificate"} revoked` : `${after.title ?? "Certificate"} request declined`,
       body: issued
-        ? [after.studentName ?? student?.name, after.refNo, after.fileUrl ? "Download it in the app" : "Collect the signed copy from the school office"].filter(Boolean).join(" · ")
-        : [after.studentName ?? student?.name, after.rejectReason].filter(Boolean).join(" · "),
+        ? [after.studentName ?? student?.name, after.refNo, after.fileUrl || after.pdfPath ? "Download it in the app" : "Collect the signed copy from the school office"].filter(Boolean).join(" · ")
+        : [after.studentName ?? student?.name, after.status === "Revoked" ? "This certificate is no longer valid. Contact the school office." : after.rejectReason].filter(Boolean).join(" · "),
       route: "/more/certificates",
     })));
   }));

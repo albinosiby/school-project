@@ -26,7 +26,12 @@ export function invoiceStatus(inv: Pick<Invoice, "amount" | "paid"> & { balance?
 }
 
 /** the status shown: derived from the due date when today is known (stored statuses go stale), else the stored one */
-export const shownStatus = (inv: Invoice, today: string): Invoice["status"] => (today ? invoiceStatus(inv, today) : inv.status ?? invoiceStatus(inv, ""));
+export function manualInvoiceStatus(inv: Invoice): "Pending" | "Overdue" | undefined {
+  const override = inv.statusOverride;
+  if (balanceOf(inv) > 0 && override && ["Pending", "Overdue"].includes(override.status)
+    && override.amount === inv.amount && override.paid === (inv.paid ?? 0) && override.due === (inv.due ?? "")) return override.status;
+}
+export const shownStatus = (inv: Invoice, today: string): Invoice["status"] => manualInvoiceStatus(inv) ?? (today ? invoiceStatus(inv, today) : inv.status ?? invoiceStatus(inv, ""));
 
 /** "" when `amount` can be recorded against `balance`, else the message to show */
 export function paymentAmountError(amount: number, balance: number) {

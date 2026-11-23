@@ -1,7 +1,8 @@
 "use client";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { writeBatch } from "firebase/firestore";
-import { CheckCircle2, Download, FileText, MessageCircle, Plus, Printer, Receipt, Send, X } from "lucide-react";
+import { CheckCircle2, Download, FileText, MessageCircle, Plus, Receipt, Send, X } from "lucide-react";
 import { LoadingSkeleton, Avatar, Badge, Button, Card, CardHeader, DataTable, EmptyState, Field, Input, Modal, PageHeader, Select, Tabs, useToast, type Column } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { fmtDate, inr, inrFull } from "@/lib/format";
@@ -10,67 +11,63 @@ import { useCollection } from "@/lib/useCollection";
 import { useSchoolClock } from "@/lib/useSchoolClock";
 import { isActiveStudent } from "@/features/exams/logic";
 import { downloadCsv } from "./csv";
-import { CASH, createStamp, balanceOf, invoiceErrors, invoiceStatus, newId, nextInvoiceNos, normRef, paymentAmountError, reminderDoc, remindable, schoolDoc, shownStatus, type InvoiceDraft } from "./logic";
+import { createStamp, balanceOf, invoiceErrors, invoiceStatus, newId, nextInvoiceNos, reminderDoc, remindable, schoolDoc, shownStatus, type InvoiceDraft } from "./logic";
 import { ReceiptModal } from "./ReceiptModal";
 import { PaymentVerification } from "./PaymentVerification";
-import { recordFeePayment } from "./paymentService";
 import { feeTotal, todayIso, type Concession, type Invoice, type Payment, type Reminder, type Structure } from "./types";
 import { useMyName } from "@/lib/useMe";
 import { BatchInvoiceDialog } from "./BatchInvoiceDialog";
 import { FeePlanEditor } from "@/features/onboarding/FeePlanEditor";
 import { classLabel, feePlanError, gradeFeeRecord, gradePlanScope, isTransportFee, normalizedFeePlan, type FeePlan } from "./feePlan";
 import { feeScopesForClasses, parseFeeScope, streamName, type AcademicClass } from "@/lib/academicStreams";
+import { StudentSearchSelect } from "@/features/people/StudentSearchSelect";
+import { studentProfileHref } from "@/features/people/studentLogic";
+import { useStudentDues } from "./useStudentDues";
+import { StudentDuesDirectory } from "./StudentDuesDirectory";
+import { InvoiceModal as SavedInvoiceModal } from "./InvoiceModal";
 
 type Student = { id: string; name: string; grn: string; grade: string; section: string; classId?: string; streamId?: string; stream?: string; guardian: string; phone: string; status?: string; deleted?: boolean };
 const tone = { Paid: "success", Pending: "info", Overdue: "danger", Partial: "warning" } as const;
-const MODES = ["Cash", "UPI QR", "Card", "Cheque", "NetBank"];
 
 export function FeesPage() {
   const toast = useToast();
   const me = useMyName();
-  const inv = useCollection<Invoice>("fee_invoices");
-  const pay = useCollection<Payment>("fee_payments");
-  const str = useCollection<Structure>("fee_structure");
-  const con = useCollection<Concession>("fee_concessions");
-  const rem = useCollection<Reminder>("fee_reminders");
-  const students = useCollection<Student>("students");
-  const classes = useCollection<AcademicClass>("classes");
-  const integ = useCollection<{ id: string; name: string; enabled: boolean }>("set_integrations");
-  const toVerify = useCollection<{ id: string; status: string }>("fee_claims").rows.filter((c) => c.status === "Pending").length;
+  const dues = useStudentDues();
+  const { invoices: inv, payments: pay, structures: str, concessions: con, students } = dues;
+  const rem = useCollection<Reminder>("fee_reminders", dues.allowed);
+  const studentIdsByGrn = useMemo(() => {
+    const ids = new Map<string, string | null>();
+    for (const student of students.rows) {
+      const grn = (student.grn ?? "").trim().toLowerCase();
+      if (!grn) continue;
+      ids.set(grn, ids.has(grn) ? null : student.id);
+    }
+    return ids;
+  }, [students.rows]);
+  const classes = useCollection<AcademicClass>("classes", dues.allowed);
+  const toVerify = useCollection<{ id: string; status: string }>("fee_claims", dues.allowed).rows.filter((c) => c.status === "Pending").length;
 
   const [main, setMain] = useState("invoices");
   const [tab, setTab] = useState("all");
   const [grade, setGrade] = useState("all");
   const [term, setTerm] = useState("all");
   const [sel, setSel] = useState<string[]>([]);
-  const [cur, setCur] = useState<string>("");
-  const [mode, setMode] = useState("UPI QR");
-  // null = default to the invoice balance; "" = user cleared the field
-  const [amt, setAmt] = useState<string | null>(null);
-  const [ref, setRef] = useState("");
-  const [payErr, setPayErr] = useState<{ amount?: string; ref?: string }>({});
-  const [busy, setBusy] = useState(false);
-  const [paymentRequestId, setPaymentRequestId] = useState(() => crypto.randomUUID());
+  const [ledgerView, setLedgerView] = useState("students");
+  const [viewedInvoice, setViewedInvoice] = useState<Invoice | null>(null);
   const [receipt, setReceipt] = useState<Payment | null>(null);
   const [newInv, setNewInv] = useState(false);
   const [batch, setBatch] = useState(false);
-  const [switchOpen, setSwitchOpen] = useState(false);
-  const [switchQ, setSwitchQ] = useState("");
   const [editFs, setEditFs] = useState<Structure | null>(null);
   const [newCon, setNewCon] = useState(false);
 
   // client-only "today" without setState-in-effect (server snapshot is empty)
   const { date: t } = useSchoolClock();
   const todayPays = pay.rows.filter((p) => p.date === t);
-  // mode is "Cash" or "{mode} · {reference}"; cash, cheques and cash deposits are not digital collections
-  const digital = (p: Payment) => !["Cash", "Cheque", "Cash deposit at bank"].includes((p.mode ?? "").split(" · ")[0]);
   const todaySum = todayPays.reduce((a, p) => a + p.amount, 0);
   const billed = inv.rows.reduce((a, i) => a + i.amount, 0);
   const collected = inv.rows.reduce((a, i) => a + i.paid, 0);
   // the status shown is derived from paid / balance / due date (a stored "Pending" goes stale once the due date passes)
   const stOf = (i: Invoice) => shownStatus(i, t);
-  const overdue = inv.rows.filter((i) => stOf(i) === "Overdue");
-  const overdueSum = overdue.reduce((a, i) => a + i.balance, 0);
   const concApproved = con.rows.filter((c) => c.status === "Approved").reduce((a, c) => a + c.amount, 0);
 
   const terms = [...new Set(inv.rows.map((i) => i.term))];
@@ -78,30 +75,6 @@ export function FeesPage() {
     (tab === "all" || (tab === "paid" ? shownStatus(i, t) === "Paid" : shownStatus(i, t) !== "Paid")) &&
     (grade === "all" || i.grade === grade) && (term === "all" || i.term === term)), [inv.rows, tab, grade, term, t]);
   const counts = { all: inv.rows.length, due: inv.rows.filter((i) => stOf(i) !== "Paid").length, paid: inv.rows.filter((i) => stOf(i) === "Paid").length };
-
-  const curInv = inv.rows.find((i) => i.id === cur) ?? null;
-  const pickInvoice = (i: Invoice) => { setCur(i.id); setAmt(null); setRef(""); setPayErr({}); setPaymentRequestId(crypto.randomUUID()); };
-  const curBal = curInv ? balanceOf(curInv) : 0;
-  const shownAmt = amt ?? (curInv ? String(curBal) : "");
-  const needsRef = mode !== CASH;
-  const liveAmtErr = curInv && shownAmt !== "" && Number(shownAmt) > curBal ? paymentAmountError(Number(shownAmt), curBal) : "";
-
-  /** Counter payment: the receipt and the invoice's paid / balance / status in one batch (all or nothing). */
-  const collect = async () => {
-    if (!curInv) return toast("Select an invoice first", "error");
-    if (busy) return;
-    const a = shownAmt.trim() === "" ? NaN : Number(shownAmt);
-    const e = { amount: paymentAmountError(a, curBal) || undefined, ref: needsRef && normRef(ref).length < 4 ? "Enter the transaction / cheque reference (at least 4 characters)" : undefined };
-    setPayErr(e);
-    if (e.amount || e.ref) return;
-    setBusy(true);
-    try {
-      const day = t || todayIso();
-      const p = await recordFeePayment({ requestId: paymentRequestId, invoiceId: curInv.id, amount: a, mode, reference: needsRef ? normRef(ref) : "", date: day });
-      setPaymentRequestId(crypto.randomUUID());
-      setAmt(null); setRef(""); setReceipt(p); toast(`Payment of ${inrFull(p.amount)} recorded · ${p.receiptNo}`);
-    } catch (error) { toast(error instanceof Error ? error.message : "Could not record payment", "error"); } finally { setBusy(false); }
-  };
 
   /** fee_reminders rows: each one pushes "Fee reminder" to the invoice's guardians in the parent app (contract 13.4) */
   const remind = async (rows: Invoice[]) => {
@@ -147,7 +120,7 @@ export function FeesPage() {
       <div className="flex items-center gap-3"><Avatar name={i.student} size={32} /><div><div className="font-semibold">{i.student}</div><div className="text-xs text-outline">Gr {i.grade}-{i.section} · {i.grn}</div></div></div>) },
     { key: "inv", header: "Invoice details", sortValue: (i) => i.no, render: (i) => <span><span className="font-mono">{i.no}</span>{i.issued ? `, ${fmtDate(i.issued)}` : ""}</span> },
     { key: "amount", header: "Billed", sortValue: (i) => i.amount, render: (i) => <span className="font-semibold">{inrFull(i.amount)}</span> },
-    { key: "balance", header: "Due", sortValue: (i) => i.balance, render: (i) => <span className={i.balance ? "font-semibold text-error" : "text-outline"}>{inrFull(i.balance)}</span> },
+    { key: "balance", header: "Due", sortValue: balanceOf, render: (i) => <span className={balanceOf(i) ? "font-semibold text-error" : "text-outline"}>{inrFull(balanceOf(i))}</span> },
     { key: "status", header: "Status", sortValue: (i) => stOf(i), render: (i) => <Badge tone={tone[stOf(i)] ?? "neutral"}>{stOf(i)}</Badge> },
     { key: "act", header: "", render: (i) => stOf(i) === "Paid"
       ? <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); const p = pay.rows.filter((x) => x.invoiceId === i.id).sort((a, b) => b.date.localeCompare(a.date) || b.receiptNo.localeCompare(a.receiptNo))[0]; if (p) setReceipt(p); else toast("No receipt on file", "error"); }}><Receipt size={14} />Receipt</Button>
@@ -155,24 +128,25 @@ export function FeesPage() {
   ];
 
   const selInv = inv.rows.filter((i) => sel.includes(i.id) && stOf(i) !== "Paid");
-  const selSum = selInv.reduce((a, i) => a + i.balance, 0);
+  const selSum = selInv.reduce((a, i) => a + balanceOf(i), 0);
 
-  const exportLedger = () => downloadCsv("fee-ledger.csv", [["Invoice", "Student", "GRN", "Grade", "Section", "Term", "Billed", "Paid", "Balance", "Status", "Due date"],
+  const exportInvoices = () => downloadCsv("fee-ledger.csv", [["Invoice", "Student", "GRN", "Grade", "Section", "Term", "Billed", "Paid", "Balance", "Status", "Due date"],
     ...inv.rows.map((i) => [i.no, i.student, i.grn, i.grade, i.section, i.term, i.amount, i.paid, i.balance, stOf(i), i.due])]);
 
+  if (!dues.allowed) return <EmptyState title="Administrator access required" />;
   return (
     <>
-      <PageHeader title="Fees & Payments Hub" subtitle="Real-time fee collections, counter POS terminal, aging defaulters ledger, and automated payment gateway reconciliations."
-        actions={<><Button variant="outline" onClick={() => { exportLedger(); toast("Ledger downloaded"); }}><Download size={16} />Download Ledger (.csv)</Button><Button variant="outline" onClick={() => setNewInv(true)}><Plus size={16} />New Invoice</Button><Button onClick={() => setBatch(true)}><Plus size={16} />Generate Batch Invoices</Button></>} />
+      <PageHeader title="Fees & Payments" subtitle="Track student dues, invoices, payment history and concessions."
+        actions={<><Button variant="outline" disabled={!dues.ready || dues.failed} onClick={() => { if (ledgerView === "issued") exportInvoices(); else downloadCsv("student-dues.csv", [["Student", "GRN", "Grade", "Division", "Guardian", "Phone", "Net annual fee", "Paid this year", "Remaining to pay", "Status"], ...dues.rows.map((row) => [row.student.name, row.student.grn, row.student.grade, row.student.section, row.student.guardian, row.student.phone, row.annual.complete ? row.annual.net : "Not configured", row.annual.paid, row.complete || row.remaining > 0 ? row.remaining : "Needs setup", row.complete ? row.settled ? "Settled" : "Balance due" : "Needs setup"])]); toast("Ledger downloaded"); }}><Download size={16} />Download Ledger (.csv)</Button><Button variant="outline" onClick={() => setNewInv(true)}><Plus size={16} />New Invoice</Button><Button onClick={() => setBatch(true)}><Plus size={16} />Generate Batch Invoices</Button></>} />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { l: "Today's Collection", v: inr(todaySum), s: `${todayPays.length} receipts today`, c: "text-on-surface", b: "success" as const },
           { l: "Fee Realization", v: inr(collected), s: `of ${inr(billed)} billed · ${billed ? ((collected / billed) * 100).toFixed(1) : 0}%`, c: "text-on-surface", b: "info" as const },
-          { l: "Overdue Defaulters", v: `${overdue.length} Students`, s: `${inrFull(overdueSum)} outstanding`, c: "text-error", b: "danger" as const },
+          { l: "Students with balance", v: `${dues.rows.filter((row) => row.remaining > 0).length} Students`, s: `${inrFull(dues.rows.reduce((sum, row) => sum + row.remaining, 0))} remaining${dues.rows.some((row) => !row.complete) ? " · some fees need setup" : ""}`, c: "text-error", b: "danger" as const },
           { l: "Concessions & Waivers", v: inrFull(concApproved), s: `${con.rows.filter((c) => c.status === "Pending").length} pending approval`, c: "text-on-surface", b: "success" as const },
         ].map((k) => (
-          <Card key={k.l} className="p-5"><p className="text-on-surface-variant">{k.l}</p><p className={cn("mt-2 t-headline-lg", k.c)}>{k.v}</p><Badge tone={k.b} className="mt-2">{k.s}</Badge></Card>))}
+          <Card key={k.l} className="p-5"><p className="text-on-surface-variant">{k.l}</p><div className={cn("mt-2 t-headline-lg", k.c)}>{!dues.ready && !dues.failed ? <LoadingSkeleton variant="inline" label="Loading fee summary…" className="h-8" /> : dues.failed ? "Unavailable" : k.v}</div><Badge tone={k.b} className="mt-2">{dues.ready && !dues.failed ? k.s : "Fee records"}</Badge></Card>))}
       </div>
 
       <Tabs variant="underline" className="mt-6" value={main} onChange={setMain}
@@ -180,52 +154,17 @@ export function FeesPage() {
 
       {main === "verify" && <PaymentVerification invoices={inv.rows} payments={pay.rows} today={t || todayIso()} />}
 
-      {main === "invoices" && (
-        <div className="mt-5 grid items-start gap-6 xl:grid-cols-[1fr_380px]">
-          <Card>
-            <CardHeader title="Student Fee Invoices & Dues Ledger" subtitle="Real-time status across academic year 2026-27 invoices" />
-            <div className="px-5 pb-3"><Tabs value={tab} onChange={setTab} items={[{ id: "all", label: `All (${counts.all.toLocaleString("en-IN")})` }, { id: "due", label: `Unpaid / Overdue (${counts.due})` }, { id: "paid", label: `Paid (${counts.paid.toLocaleString("en-IN")})` }]} /></div>
-            <DataTable rows={filtered} columns={cols} pageSize={8} selectable selected={sel} onSelectedChange={setSel} onRowClick={pickInvoice}
-              searchText={(i) => `${i.student} ${i.grn} ${i.no} ${i.guardian}`} empty={!inv.ready ? <LoadingSkeleton variant="table" label="Loading invoices…" className="p-8 text-center text-on-surface-variant" /> : undefined}
-              toolbar={<>
-                <Select aria-label="Grade" value={grade} onChange={(e) => setGrade(e.target.value)} ><option value="all">All Grades</option>{Array.from({ length: 12 }, (_, g) => <option key={g} value={g + 1}>Grade {g + 1}</option>)}</Select>
-                <Select aria-label="Term" value={term} onChange={(e) => setTerm(e.target.value)} ><option value="all">All Terms</option>{terms.map((x) => <option key={x}>{x}</option>)}</Select>
-              </>} />
-          </Card>
-
-          <div className="space-y-6">
-            <Card>
-              <CardHeader title="Counter Collection" subtitle="Front-Desk Fast Checkout" actions={<Badge>Terminal #02</Badge>} />
-              <div className="space-y-4 p-5 pt-2">
-                {curInv ? (<>
-                  <div className="flex items-center gap-3 rounded-lg border border-outline-variant/60 bg-surface-container-low p-3">
-                    <Avatar name={curInv.student} size={36} />
-                    <div className="min-w-0 flex-1"><p className="truncate font-semibold">{curInv.student} <Badge>{curInv.grade}-{curInv.section}</Badge></p><p className="truncate text-xs text-outline">{curInv.grn} · {curInv.no}</p></div>
-                    <button className="cursor-pointer text-sm font-semibold text-secondary" onClick={() => setSwitchOpen(true)}>Switch</button>
-                  </div>
-                  <ul className="space-y-1.5 text-sm">{curInv.lines.map((l) => <li key={l.label} className="flex justify-between"><span>{l.label}</span><b className="font-mono">{inrFull(l.amount)}</b></li>)}</ul>
-                  <div className="flex items-center justify-between border-t border-outline-variant/50 pt-3"><span className="font-semibold">Total Payable Due</span><span className="t-headline-md text-secondary">{inrFull(curBal)}</span></div>
-                  <div><span className="mb-1.5 block text-xs font-semibold text-on-surface-variant">Payment Mode</span>
-                    <Tabs value={mode} onChange={(m) => { setMode(m); setPayErr((x) => ({ ...x, ref: undefined })); }} items={MODES.map((m) => ({ id: m, label: m }))} /></div>
-                  <Field label="Amount Received (₹)" error={payErr.amount || liveAmtErr || undefined}><Input inputMode="numeric" value={shownAmt} onChange={(e) => { setAmt(e.target.value.replace(/\D/g, "")); setPayErr((x) => ({ ...x, amount: undefined })); }} /></Field>
-                  {needsRef && <Field label="Reference no." required error={payErr.ref} hint={mode === "Cheque" ? "Cheque number" : "UPI / card / bank transaction ID"}><Input value={ref} className="font-mono" onChange={(e) => { setRef(e.target.value.toUpperCase()); setPayErr((x) => ({ ...x, ref: undefined })); }} /></Field>}
-                  <Button className="w-full" size="lg" onClick={collect} disabled={busy || curBal <= 0}><Printer size={16} />Collect & Print Receipt</Button>
-                </>) : <EmptyState title="No invoice selected" hint="Click an invoice row or choose Switch." action={<Button size="sm" onClick={() => setSwitchOpen(true)}>Find student</Button>} />}
-              </div>
-            </Card>
-            <Card>
-              <CardHeader title="Settlements & Gateway Health" subtitle="Integration status from Settings" />
-              <div className="space-y-3 p-5 pt-2">
-                {/* status comes from set_integrations; missing = not connected (no fake "Live") */}
-                {[{ id: "int_razorpay", n: "Razorpay Direct Gateway" }, { id: "int_pinelabs", n: "PineLabs Smart POS" }].map((g) => { const on = !!integ.rows.find((x) => x.id === g.id)?.enabled; return (
-                  <div key={g.id} className="flex items-center justify-between rounded-lg border border-outline-variant/60 p-3"><p className="font-semibold">{g.n}</p><Badge tone={on ? "success" : "neutral"}>{on ? "Enabled" : "Not connected"}</Badge></div>); })}
-                <div className="rounded-lg border border-outline-variant/60 p-3 text-sm"><div className="flex justify-between text-xs text-outline"><span>Today&apos;s digital collections</span><span>{todayPays.filter(digital).length} receipts</span></div><div className="mt-1 flex justify-between font-semibold"><span>UPI / Card / NetBank</span><span>{inrFull(todayPays.filter(digital).reduce((a, p) => a + p.amount, 0))}</span></div></div>
-                <Button variant="outline" className="w-full text-secondary" onClick={() => { if (!todayPays.length) return toast("No receipts recorded today", "error"); downloadCsv(`day-ledger-${t}.csv`, [["Receipt", "Invoice", "Student", "Mode", "Amount"], ...todayPays.map((p) => [p.receiptNo, p.invoiceNo, p.student, p.mode, p.amount]), ["", "", "", "Total", todaySum]]); toast(`Day ledger exported: ${todayPays.length} receipts, ${inrFull(todaySum)}`); }}>Export Day Ledger (.csv) →</Button>
-              </div>
-            </Card>
-          </div>
-        </div>
-      )}
+      {main === "invoices" && <div className="mt-5 space-y-4">
+        <Tabs value={ledgerView} onChange={setLedgerView} items={[{ id: "students", label: "Student dues" }, { id: "issued", label: "Issued invoices" }]} />
+        {ledgerView === "students" ? <StudentDuesDirectory data={dues} /> : <Card>
+          <CardHeader title="Issued invoices" subtitle="Saved invoices. Open one to download, print or share." />
+          <div className="px-5 pb-3"><Tabs value={tab} onChange={setTab} items={[{ id: "all", label: `All (${counts.all})` }, { id: "due", label: `Unpaid / Overdue (${counts.due})` }, { id: "paid", label: `Paid (${counts.paid})` }]} /></div>
+          <DataTable rows={filtered} columns={cols} pageSize={8} selectable selected={sel} onSelectedChange={setSel} onRowClick={setViewedInvoice}
+            searchText={(i) => `${i.student} ${i.grn} ${i.no} ${i.guardian}`} empty={!inv.ready ? <LoadingSkeleton variant="table" label="Loading invoices…" /> : undefined}
+            toolbar={<><Select aria-label="Grade" value={grade} onChange={(event) => setGrade(event.target.value)}><option value="all">All grades</option>{[...new Set(inv.rows.map((row) => row.grade))].map((value) => <option key={value} value={value}>Grade {value}</option>)}</Select>
+              <Select aria-label="Term" value={term} onChange={(event) => setTerm(event.target.value)}><option value="all">All periods</option>{terms.map((value) => <option key={value}>{value}</option>)}</Select></>} />
+        </Card>}
+      </div>}
 
       {main === "structure" && (
         <Card className="mt-5">
@@ -244,7 +183,11 @@ export function FeesPage() {
         <Card className="mt-5">
           <CardHeader title="Concessions & Waivers" subtitle={`${inrFull(concApproved)} approved this year`} actions={<Button size="sm" onClick={() => setNewCon(true)}><Plus size={14} />New concession</Button>} />
           <DataTable rows={con.rows} pageSize={8} searchText={(c) => `${c.student} ${c.grn} ${c.type}`} columns={[
-            { key: "s", header: "Student", sortValue: (c) => c.student, render: (c) => <div><b>{c.student}</b><div className="text-xs text-outline">Grade {c.grade} · {c.grn}</div></div> },
+            { key: "s", header: "Student", sortValue: (c) => c.student, render: (c) => {
+              const studentId = studentIdsByGrn.get((c.grn ?? "").trim().toLowerCase());
+              const tile = <><span className="block font-semibold">{c.student}</span><span className="block text-xs text-outline">Grade {c.grade} · {c.grn}</span></>;
+              return studentId ? <Link href={studentProfileHref(studentId)} className="block rounded text-secondary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">{tile}</Link> : <div>{tile}</div>;
+            } },
             { key: "t", header: "Type", render: (c) => c.type },
             { key: "a", header: "Amount", sortValue: (c) => c.amount, render: (c) => <b>{inrFull(c.amount)}</b> },
             { key: "r", header: "Requested", render: (c) => c.requested ? fmtDate(c.requested) : "—" },
@@ -276,13 +219,13 @@ export function FeesPage() {
         </div>
       )}
 
-      {main === "invoices" && selInv.length > 0 && (
+      {main === "invoices" && ledgerView === "issued" && selInv.length > 0 && (
         <div className="fixed inset-x-0 bottom-5 z-40 flex justify-center px-4 lg:pl-72">
           <div className="flex flex-wrap items-center gap-4 rounded-xl border border-outline-variant bg-surface-container-lowest p-4 shadow-pop">
             <span className="grid size-10 place-items-center rounded-lg bg-secondary text-on-secondary"><CheckCircle2 size={18} /></span>
             <div><p className="font-semibold">{selInv.length} Defaulters Selected</p><p className="text-xs text-on-surface-variant">Total Outstanding: <b className="text-error">{inrFull(selSum)}</b></p></div>
             <Button className="!bg-success" onClick={async () => { if (await remind(selInv)) setSel([]); }}><MessageCircle size={16} />Send Bulk Reminder</Button>
-            <Button variant="outline" onClick={() => { downloadCsv("defaulter-notice.csv", [["Invoice", "Student", "Guardian", "Phone", "Due"], ...selInv.map((i) => [i.no, i.student, i.guardian, i.phone, i.balance])]); toast("Notice list exported (PDF simulated)"); }}><FileText size={16} />Notice PDF</Button>
+            <Button variant="outline" onClick={() => { downloadCsv("defaulter-notice.csv", [["Invoice", "Student", "Guardian", "Phone", "Due"], ...selInv.map((i) => [i.no, i.student, i.guardian, i.phone, i.balance])]); toast("Notice list exported"); }}><FileText size={16} />Export notice CSV</Button>
             <button aria-label="Clear selection" className="cursor-pointer text-outline" onClick={() => setSel([])}><X size={16} /></button>
           </div>
         </div>
@@ -290,14 +233,7 @@ export function FeesPage() {
 
       <ReceiptModal payment={receipt} onClose={() => setReceipt(null)} />
 
-      <Modal open={switchOpen} onClose={() => setSwitchOpen(false)} title="Switch student" subtitle="Find an invoice to collect against">
-        <Input autoFocus placeholder="Search name, GRN or invoice no." value={switchQ} onChange={(e) => setSwitchQ(e.target.value)} aria-label="Search student" />
-        <ul className="mt-3 divide-y divide-outline-variant/50">
-          {(switchQ.length < 2 ? inv.rows.filter((i) => stOf(i) !== "Paid").slice(0, 8) : inv.rows.filter((i) => `${i.student} ${i.grn} ${i.no}`.toLowerCase().includes(switchQ.toLowerCase())).slice(0, 10)).map((i) => (
-            <li key={i.id}><button className="flex w-full cursor-pointer items-center justify-between gap-3 py-2.5 text-left hover:bg-surface-container-low" onClick={() => { pickInvoice(i); setSwitchOpen(false); setSwitchQ(""); }}>
-              <span><b>{i.student}</b> <span className="text-xs text-outline">{i.grn} · {i.no}</span></span><Badge tone={tone[stOf(i)] ?? "neutral"}>{stOf(i)} · {inrFull(balanceOf(i))}</Badge></button></li>))}
-        </ul>
-      </Modal>
+      {viewedInvoice && <SavedInvoiceModal key={viewedInvoice.id} invoice={inv.rows.find((row) => row.id === viewedInvoice.id) ?? viewedInvoice} school={dues.school.rows.find((row) => row.id === "school") ?? {}} onClose={() => setViewedInvoice(null)} />}
 
       <BatchInvoiceDialog open={batch} onClose={() => setBatch(false)} structure={str.rows} students={students.rows.filter(isActiveStudent)} classes={classes.rows} invoices={inv.rows} onCreate={generateInvoices} />
       <InvoiceModal open={newInv} onClose={() => setNewInv(false)} students={students.rows.filter(isActiveStudent)} invoices={inv.rows}
@@ -308,7 +244,7 @@ export function FeesPage() {
           else { await str.create({ ...s, id: `fs_${gradePlanScope(s).replace(":", "_")}` }); toast(`${classLabel(gradePlanScope(s))} fee structure added`); }
           setEditFs(null);
         } catch { toast("Could not save fee structure", "error"); } }} />
-      <ConcessionModal open={newCon} onClose={() => setNewCon(false)} students={students.rows} onSave={async (c) => { try { await con.create(c as Omit<Concession, "id">); toast("Concession request submitted"); setNewCon(false); } catch { toast("Could not submit concession", "error"); } }} />
+      <ConcessionModal open={newCon} onClose={() => setNewCon(false)} students={students.rows.filter((student) => student.deleted !== true)} onSave={async (c) => { try { await con.create(c as Omit<Concession, "id">); toast("Concession request submitted"); setNewCon(false); } catch { toast("Could not submit concession", "error"); } }} />
     </>
   );
 }
@@ -362,9 +298,9 @@ function ConcessionModal({ open, onClose, students, onSave }: { open: boolean; o
       onSave({ student: s.name, grn: s.grn, grade: s.grade, type, amount: Number(amount), status: "Pending", requested: todayIso(), approvedBy: "" }); setSid(""); setAmount("");
     }}>Submit</Button></>}>
       <div className="grid gap-4">
-        <Field label="Student" required error={err.s}><Select value={sid} onChange={(e) => setSid(e.target.value)}><option value="">Select student…</option>{students.map((x) => <option key={x.id} value={x.id}>{x.name} · Grade {x.grade}-{x.section}</option>)}</Select></Field>
-        <Field label="Type"><Select value={type} onChange={(e) => setType(e.target.value)}>{["Sibling Discount", "Merit Scholarship", "Staff Ward", "Need-based Waiver", "Sports Quota"].map((t) => <option key={t}>{t}</option>)}</Select></Field>
-        <Field label="Amount (₹)" required error={err.a}><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <StudentSearchSelect students={students} value={sid} error={err.s} onChange={(id) => { setSid(id); setErr((previous) => ({ ...previous, s: undefined })); }} />
+        <Field label="Type"><Select value={type} onChange={(e) => setType(e.target.value)}>{["Sibling Discount", "Merit Scholarship", "Staff Ward", "Need-based Waiver", "Sports Quota", "Other"].map((t) => <option key={t}>{t}</option>)}</Select></Field>
+        <Field label="Concession amount (₹)" required error={err.a}><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
       </div>
     </Modal>
   );
