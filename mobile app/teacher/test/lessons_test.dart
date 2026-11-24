@@ -99,15 +99,10 @@ void main() {
     });
   });
 
-  testWidgets('more hub searches and routes', (t) async {
+  testWidgets('more hub routes to tools', (t) async {
     await open(t, RoutePaths.more);
-    expect(find.text('Teaching'), findsOneWidget);
+    expect(find.text('TEACHING'), findsOneWidget);
     expect(find.text('3 active'), findsOneWidget); // lesson plans count
-    await t.enterText(find.byType(TextField).first, 'zzz');
-    await t.pumpAndSettle();
-    expect(find.text('No matching tools'), findsOneWidget);
-    await t.enterText(find.byType(TextField).first, '');
-    await t.pumpAndSettle();
     await t.tap(find.text('Lesson Plans'));
     await t.pumpAndSettle();
     expect(find.byTooltip('New lesson plan'), findsOneWidget);

@@ -345,30 +345,6 @@ void main() {
     });
   });
 
-  group('message compose', () {
-    testWidgets('recipient required, blank text rejected, 800 characters max', (t) async {
-      ignoreOverflow();
-      await open(t, RoutePaths.messageNew);
-      await tapText(t, 'Send Message');
-      expect(await seen(t, 'Select at least one recipient'), findsOneWidget);
-      await tapText(t, 'Mrs. Priya Sharma');
-      final body = hinted('Write your message...');
-      await t.scrollUntilVisible(body, 300, scrollable: find.byType(Scrollable).first);
-      await type(t, body, '    ');
-      await tapText(t, 'Send Message');
-      expect(await seen(t, 'Write a message before sending'), findsOneWidget);
-      await t.scrollUntilVisible(body, 300, scrollable: find.byType(Scrollable).first);
-      await type(t, body, 'x' * 801);
-      await tapText(t, 'Send Message');
-      expect(await seen(t, 'Message is longer than 800 characters'), findsOneWidget);
-      final msgs = (db.byId('ms_messages', 'ms_1')!['msgs'] as List).length;
-      await t.scrollUntilVisible(body, 300, scrollable: find.byType(Scrollable).first);
-      await type(t, body, 'y' * 800);
-      await tapText(t, 'Send Message');
-      expect((db.byId('ms_messages', 'ms_1')!['msgs'] as List).length, msgs + 1);
-    });
-  });
-
   group('profile / account', () {
     final v = _Rules();
     test('rules: email, phone, required', () {

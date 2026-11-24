@@ -148,7 +148,7 @@ class _ProfileView extends StatelessWidget {
                   icon: Icons.chat_bubble_outline_rounded,
                   kind: BtnKind.outline,
                   small: true,
-                  onPressed: () => context.push(RoutePaths.messageNew),
+                  onPressed: () => context.push(RoutePaths.message('g_$id')),
                 ),
               ),
               SizedBox(width: 8.w),

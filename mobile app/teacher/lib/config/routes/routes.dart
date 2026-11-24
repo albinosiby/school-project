@@ -115,7 +115,6 @@ class RoutePaths {
   static String examCandidate(String hall, String cid) => '/exam-duties/hall/$hall/candidate/$cid';
   static const String messages = '/messages';
   static const String messageNew = '/messages/new';
-  static const String messageDrafts = '/messages/drafts';
   static const String messageDetail = '/messages/:id';
   static String message(String id) => '/messages/$id';
 }

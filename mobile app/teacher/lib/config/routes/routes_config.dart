@@ -8,6 +8,8 @@ import '../../modules/auth/bloc/auth_states.dart';
 import '../../modules/classes/screens/classes_screen.dart';
 import '../../modules/home/screens/home_screen.dart';
 import '../../modules/home/screens/timetable_screen.dart';
+import '../../modules/engage/screens/messages_screen.dart';
+import '../../modules/engage/screens/widgets/chat_unread_badge.dart';
 import '../../modules/more/screens/more_screen.dart';
 import '../../modules/tasks/screens/tasks_screen.dart';
 import '../../utils/helpers/stream_listenable.dart';
@@ -21,11 +23,13 @@ import 'modules/lessons_routes.dart';
 import 'modules/tasks_routes.dart';
 import 'routes.dart';
 
+Widget _chatBadge(Widget icon) => ChatUnreadBadge(child: icon);
+
 const _tabs = [
   AppNavItem(Icons.home_outlined, Icons.home_rounded, 'Home'),
   AppNavItem(Icons.calendar_today_outlined, Icons.calendar_today_rounded, 'Timetable'),
   AppNavItem(Icons.menu_book_outlined, Icons.menu_book_rounded, 'Classes'),
-  AppNavItem(Icons.check_circle_outline_rounded, Icons.check_circle_rounded, 'Tasks'),
+  AppNavItem(Icons.chat_bubble_outline_rounded, Icons.chat_bubble_rounded, 'Chat', badge: _chatBadge),
   AppNavItem(Icons.format_list_bulleted_rounded, Icons.format_list_bulleted_rounded, 'More'),
 ];
 
@@ -60,10 +64,12 @@ final GoRouter router = GoRouter(
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.home, builder: (_, _) => const HomeScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.timetable, builder: (_, _) => const TimetableScreen())]),
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.classes, builder: (_, _) => const ClassesScreen())]),
-        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.tasks, builder: (_, _) => const TasksScreen())]),
+        StatefulShellBranch(routes: [GoRoute(path: RoutePaths.messages, builder: (_, _) => const MessagesScreen(tab: true))]),
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.more, builder: (_, _) => const MoreScreen())]),
       ],
     ),
+    // Tasks left the dock for Chat; it opens as a pushed page from Home, Classes and More.
+    GoRoute(path: RoutePaths.tasks, builder: (_, _) => const TasksScreen()),
     // Module routes. Order matters where paths overlap: /homework/new (classes) before /homework/:id (tasks).
     ...authRoutes,
     ...homeRoutes,

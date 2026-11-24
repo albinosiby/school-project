@@ -283,7 +283,7 @@ class _ClassCard extends StatelessWidget {
                 _Quick(
                   Icons.assignment_outlined,
                   'Homework',
-                  () => context.go(RoutePaths.tasks),
+                  () => context.push(RoutePaths.tasks),
                   badge: open.isEmpty ? null : '${open.length}',
                 ),
                 SizedBox(width: 8.w),

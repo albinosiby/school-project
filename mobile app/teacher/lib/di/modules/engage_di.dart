@@ -1,4 +1,8 @@
 import 'package:get_it/get_it.dart';
+import '../../config/app_config.dart';
+import '../../modules/engage/repositories/chat_media_repository.dart';
+import '../../utils/services/firebase/firebase_storage_service.dart';
+import '../../utils/services/firebase/firestore_data_store.dart';
 import '../../modules/engage/bloc/exam_duties_bloc.dart';
 import '../../modules/engage/bloc/hall_seating_bloc.dart';
 import '../../modules/engage/bloc/leave_bloc.dart';
@@ -32,6 +36,15 @@ void registerEngageModule(GetIt getIt) {
   getIt.registerLazySingleton<IMeetingRepository>(() => LocalMeetingRepository(getIt<DataStore>()));
   getIt.registerLazySingleton<IExamDutyRepository>(() => LocalExamDutyRepository(getIt<DataStore>()));
   getIt.registerLazySingleton<IMessageRepository>(() => LocalMessageRepository(getIt<DataStore>()));
+  // chat uploads (Storage) and presence (Firestore) for the signed-in teacher; local backend keeps files on the device
+  getIt.registerLazySingleton<IChatMediaRepository>(() {
+    if (!AppConfig.isFirebase) return LocalChatMediaRepository();
+    final store = getIt<DataStore>();
+    return FirebaseChatMediaRepository(getIt<FirebaseStorageService>(), () {
+      final ctx = store is FirestoreDataStore ? store.adapterContext : null;
+      return ctx == null ? null : (schoolId: ctx.schoolId, uid: ctx.authUid);
+    });
+  });
 
   // BLoCs (one instance per screen)
   getIt.registerFactory<LiveClassesBloc>(() => LiveClassesBloc(getIt<ILiveClassRepository>(), getIt<IMeetSchedulingRepository>()));
@@ -40,5 +53,5 @@ void registerEngageModule(GetIt getIt) {
   getIt.registerFactory<MeetingRoomBloc>(() => MeetingRoomBloc(getIt<IMeetingRepository>(), getIt<ISchoolRepository>()));
   getIt.registerFactory<ExamDutiesBloc>(() => ExamDutiesBloc(getIt<IExamDutyRepository>()));
   getIt.registerFactory<HallSeatingBloc>(() => HallSeatingBloc(getIt<IExamDutyRepository>()));
-  getIt.registerFactory<MessagesBloc>(() => MessagesBloc(getIt<IMessageRepository>()));
+  getIt.registerFactory<MessagesBloc>(() => MessagesBloc(getIt<IMessageRepository>(), getIt<IChatMediaRepository>()));
 }

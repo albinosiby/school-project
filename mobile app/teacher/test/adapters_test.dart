@@ -22,7 +22,9 @@ bool queryAllowed(RemoteQuery q, String staffId) {
   if (_openRead.contains(q.collection)) return true;
   if (q.collection == 'exm_sheets') return q.eq['ownerId'] == staffId; // EXAMS_SHEETS_RESULTS_CONTRACT §2 Rules
   if (const {'staff_leaves', 'staff_attendance', 'staff_regularizations'}.contains(q.collection)) return q.eq['staffId'] == staffId;
-  if (_private.hasMatch(q.collection) || const {'msg_threads', 'msg_messages', 'ptm_slots', 'ptm_bookings'}.contains(q.collection)) return q.eq['teacherId'] == staffId;
+  // own HR card and photo: read by document id only (rules: docId == staff)
+  if (const {'staff_self', 'staff_hr_photos'}.contains(q.collection)) return q.eq['__name__'] == staffId;
+  if (_private.hasMatch(q.collection) || const {'msg_threads', 'msg_messages', 'msg_meetings', 'ptm_slots', 'ptm_bookings'}.contains(q.collection)) return q.eq['teacherId'] == staffId;
   return false;
 }
 
@@ -53,6 +55,9 @@ bool writeAllowed(RemoteWrite w, String staffId) {
       return !w.delete && (d['teacherId'] == staffId || (d.keys.length == 1 && d['unreadTeacher'] == 0));
     case 'msg_messages':
       return !w.delete && d['teacherId'] == staffId && d['from'] == 'teacher' && !d.containsKey('counted');
+    case 'msg_meetings':
+      // own thread's meeting; `reminders` may only be cleared, never set
+      return !w.delete && d['teacherId'] == staffId && (!d.containsKey('reminders') || (d['reminders'] as Map).isEmpty) && const {'scheduled', 'cancelled'}.contains(d['status']);
     default:
       return _private.hasMatch(w.collection) && (w.delete || d['teacherId'] == staffId);
   }

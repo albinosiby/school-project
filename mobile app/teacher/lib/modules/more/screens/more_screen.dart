@@ -4,14 +4,14 @@ import 'package:go_router/go_router.dart';
 import '../../../config/routes/routes.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
-import '../../auth/screens/widgets/sign_out_tile.dart';
 import '../../home/screens/widgets/teacher_tab_header.dart';
 import '../../school/bloc/school_bloc.dart';
 import '../bloc/more_bloc.dart';
 import '../bloc/more_events.dart';
 import 'widgets/more_module_card.dart';
 
-/// Figma 1153:1319 "5. More": every secondary tool as a grid of tiles grouped by area, with live counts.
+/// Figma 1153:1319 "5. More": the teacher's profile strip, then every secondary tool as grouped rows
+/// with a colour per tool and live counts.
 class MoreScreen extends StatelessWidget {
   const MoreScreen({super.key});
   @override
@@ -21,22 +21,8 @@ class MoreScreen extends StatelessWidget {
       );
 }
 
-class _Section {
-  const _Section(this.title, this.icon, this.tone, this.modules);
-  final String title;
-  final IconData icon;
-  final Tone tone;
-  final List<MoreModule> modules;
-}
-
-class _MoreView extends StatefulWidget {
+class _MoreView extends StatelessWidget {
   const _MoreView();
-  @override
-  State<_MoreView> createState() => _MoreViewState();
-}
-
-class _MoreViewState extends State<_MoreView> {
-  String _q = '';
 
   @override
   Widget build(BuildContext context) {
@@ -44,69 +30,72 @@ class _MoreViewState extends State<_MoreView> {
     final me = school.teacher;
     final s = context.watch<MoreBloc>().state.summary;
     void push(String r) => context.push(r);
-    String? count(int n, String word, {String? zero}) => n > 0 ? '$n $word' : zero;
+    String? count(int n, String word) => n > 0 ? '$n $word' : null;
+    String? text(String v) => v.isEmpty ? null : v;
 
-    final sections = <_Section>[
-      _Section('Teaching', Icons.menu_book_rounded, Tone.brand, [
+    final groups = <(String, List<MoreModule>)>[
+      ('Teaching', [
         MoreModule('Lesson Plans', 'Plan and track lessons', Icons.menu_book_rounded, () => push(RoutePaths.lessonPlans),
-            badge: count(s.activePlans, 'active'), badgeTone: Tone.brand),
+            tone: Tone.brand, badge: count(s.activePlans, 'active'), badgeTone: Tone.brand),
         MoreModule('Online Tests', 'Quizzes and term exams', Icons.quiz_outlined, () => push(RoutePaths.tests),
-            badge: count(s.upcomingTests, 'upcoming'), badgeTone: Tone.brand),
+            tone: Tone.purple, badge: count(s.upcomingTests, 'upcoming'), badgeTone: Tone.purple),
         MoreModule('Live Classes', 'Virtual classrooms', Icons.videocam_outlined, () => push(RoutePaths.liveClasses),
-            badge: s.nextLive.isEmpty ? null : s.nextLive, badgeTone: Tone.success),
-        MoreModule('Enter Marks', 'Record exam and test marks', Icons.edit_note_rounded, () => push(RoutePaths.marksEnter)),
-        MoreModule('Assignments', 'Homework and grading', Icons.assignment_outlined, () => context.go(RoutePaths.tasks),
-            badge: count(s.openTasks, 'open'), badgeTone: Tone.warning),
+            tone: Tone.danger, badge: text(s.nextLive), badgeTone: Tone.success),
+        MoreModule('Enter Marks', 'Record exam and test marks', Icons.edit_note_rounded, () => push(RoutePaths.marksEnter), tone: Tone.warning),
+        MoreModule('Tasks & Assignments', 'Homework, grading and reminders', Icons.task_alt_rounded, () => push(RoutePaths.tasks),
+            tone: Tone.success, badge: count(s.openTasks, 'open'), badgeTone: Tone.warning),
       ]),
-      _Section('Communication', Icons.forum_outlined, Tone.purple, [
-        MoreModule('Messages', 'Parents, staff and groups', Icons.chat_bubble_outline_rounded, () => push(RoutePaths.messages),
-            badge: count(s.unreadMessages, 'unread'), badgeTone: Tone.danger),
-        MoreModule('Circulars', 'School notices', Icons.campaign_outlined, () => push(RoutePaths.circulars)),
-      ]),
-      _Section('Staff services', Icons.badge_outlined, Tone.success, [
-        MoreModule('Leave Management', 'Balance, history and requests', Icons.event_available_outlined, () => push(RoutePaths.leaveManagement),
-            badge: s.leaveBadge.isEmpty ? null : s.leaveBadge, badgeTone: Tone.success),
-        MoreModule('Student Certificates', 'Awards you issue to students', Icons.workspace_premium_outlined, () => push(RoutePaths.certificates),
-            badge: count(s.pendingCertificates, 'to sign'), badgeTone: Tone.warning),
-      ]),
-      _Section('Coordination', Icons.groups_2_outlined, Tone.warning, [
+      ('Communication', [
+        MoreModule('Circulars', 'School notices and announcements', Icons.campaign_outlined, () => push(RoutePaths.circulars), tone: Tone.warning),
         MoreModule('Parent–Teacher Meetings', 'Slots and appointments', Icons.groups_2_outlined, () => push(RoutePaths.meetings),
-            badge: s.meetingBadge.isEmpty ? null : s.meetingBadge, badgeTone: Tone.brand),
-        MoreModule('Exam Duties', 'Invigilation and halls', Icons.fact_check_outlined, () => push(RoutePaths.examDuties),
-            badge: s.dutyBadge.isEmpty ? null : s.dutyBadge, badgeTone: Tone.brand),
+            tone: Tone.brand, badge: text(s.meetingBadge), badgeTone: Tone.brand),
       ]),
-    ];
-    final q = _q.trim().toLowerCase();
-    bool hit(MoreModule m) => q.isEmpty || '${m.title} ${m.sub}'.toLowerCase().contains(q);
-    final visible = [
-      for (final sec in sections)
-        if (sec.modules.any(hit)) _Section(sec.title, sec.icon, sec.tone, sec.modules.where(hit).toList()),
+      ('Staff services', [
+        MoreModule('Leave Management', 'Balance, history and requests', Icons.event_available_outlined, () => push(RoutePaths.leaveManagement),
+            tone: Tone.success, badge: text(s.leaveBadge), badgeTone: Tone.success),
+        MoreModule('Exam Duties', 'Invigilation and halls', Icons.fact_check_outlined, () => push(RoutePaths.examDuties),
+            tone: Tone.purple, badge: text(s.dutyBadge), badgeTone: Tone.brand),
+        MoreModule('Student Certificates', 'Awards you issue to students', Icons.workspace_premium_outlined, () => push(RoutePaths.certificates),
+            tone: Tone.warning, badge: count(s.pendingCertificates, 'to sign'), badgeTone: Tone.warning),
+      ]),
     ];
 
     return Column(children: [
-      TeacherTabHeader(title: 'More', subtitle: '${me?.name ?? 'Teacher'} • ${me?.designation ?? ''}', icon: Icons.grid_view_rounded, avatar: true),
+      const TeacherTabHeader(title: 'More', subtitle: 'Tools and services', icon: Icons.grid_view_rounded),
       Expanded(
         child: AppTabBody(
           children: [
-            AppSearchField(hint: 'Search tools…', onChanged: (v) => setState(() => _q = v)),
-            if (visible.isEmpty)
-              AppEmptyState('No matching tools', hint: 'Try a different search term.', icon: Icons.search_off_rounded)
-            else
-              for (final sec in visible) ...[
-                Padding(
-                  padding: EdgeInsets.fromLTRB(2.w, 20.h, 2.w, 10.h),
-                  child: Row(children: [
-                    Icon(sec.icon, size: 16.r, color: toneColors(sec.tone).fg),
-                    SizedBox(width: 6.w),
-                    Expanded(child: Text(sec.title, style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  ]),
-                ),
-                MoreTileGrid(sec.modules, tone: sec.tone),
-              ],
-            const SignOutTile(),
+            _ProfileStrip(name: me?.name ?? 'Teacher', line: [if ((me?.designation ?? '').isNotEmpty) me!.designation, if ((me?.empId ?? '').isNotEmpty) me!.empId].join(' • '), photo: me?.photo ?? ''),
+            for (final (title, modules) in groups) MoreGroup(title: title, modules: modules),
+            SizedBox(height: 16.h),
+            Center(child: Text(me?.school ?? '', style: T.small.copyWith(color: C.muted), textAlign: TextAlign.center)),
           ],
         ),
       ),
     ]);
   }
+}
+
+/// Who is signed in, with a shortcut to the Profile page.
+class _ProfileStrip extends StatelessWidget {
+  const _ProfileStrip({required this.name, required this.line, required this.photo});
+  final String name, line, photo;
+  @override
+  Widget build(BuildContext context) => PanelCard(
+        padding: EdgeInsets.all(14.r),
+        onTap: () => context.push(RoutePaths.profile),
+        child: Row(children: [
+          Avatar(name, size: 52, online: true, image: photo.isEmpty ? null : photo),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name, style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (line.isNotEmpty) ...[SizedBox(height: 2.h), Text(line, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis)],
+              SizedBox(height: 6.h),
+              Text('View profile & settings', style: T.smallStrong.copyWith(color: C.primary)),
+            ]),
+          ),
+          Icon(Icons.chevron_right_rounded, color: C.primary, size: 24.r),
+        ]),
+      );
 }

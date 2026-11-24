@@ -1,6 +1,8 @@
 import 'package:equatable/equatable.dart';
 import '../models/attachment_models.dart';
 import '../models/message_models.dart';
+import '../screens/widgets/attachment_sheet.dart' show PickedAttachment;
+import '../screens/widgets/voice_recorder.dart' show VoiceClip;
 
 sealed class MessagesEvent extends Equatable {
   const MessagesEvent();
@@ -58,6 +60,56 @@ class FilesSent extends MessagesEvent {
   List<Object?> get props => [threadId, files];
 }
 
+/// Upload the picked photos / documents and send each as its own message.
+class AttachmentsSent extends MessagesEvent {
+  const AttachmentsSent(this.threadId, this.files);
+  final String threadId;
+  final List<PickedAttachment> files;
+  @override
+  List<Object?> get props => [threadId, files.map((f) => f.path).toList()];
+}
+
+/// Upload a recorded voice note and send it.
+class VoiceSent extends MessagesEvent {
+  const VoiceSent(this.threadId, this.clip);
+  final String threadId;
+  final VoiceClip clip;
+  @override
+  List<Object?> get props => [threadId, clip.path];
+}
+
+/// Schedule a Google Meet meeting from the conversation; a meeting card is posted to both sides.
+class MeetingScheduled extends MessagesEvent {
+  const MeetingScheduled(this.threadId, this.meeting);
+  final String threadId;
+  final ChatMeeting meeting;
+  @override
+  List<Object?> get props => [threadId, meeting];
+}
+
+class MeetingRescheduled extends MessagesEvent {
+  const MeetingRescheduled(this.meetingId, this.next);
+  final String meetingId;
+  final ChatMeeting next;
+  @override
+  List<Object?> get props => [meetingId, next];
+}
+
+class MeetingCancelled extends MessagesEvent {
+  const MeetingCancelled(this.meetingId);
+  final String meetingId;
+  @override
+  List<Object?> get props => [meetingId];
+}
+
+/// The teacher entered ([threadId]) or left (null) a conversation: presence for the push rules.
+class ChatPresenceChanged extends MessagesEvent {
+  const ChatPresenceChanged(this.threadId);
+  final String? threadId;
+  @override
+  List<Object?> get props => [threadId];
+}
+
 class CallRequested extends MessagesEvent {
   const CallRequested(this.threadId, this.slot);
   final String threadId, slot;
@@ -67,13 +119,15 @@ class CallRequested extends MessagesEvent {
 
 /// Compose: send to every recipient id; the draft [draftId] (if any) is removed.
 class MessageSent extends MessagesEvent {
-  const MessageSent({required this.to, required this.text, this.subject = '', this.attach = const [], this.draftId});
+  const MessageSent({required this.to, required this.text, this.subject = '', this.attach = const [], this.files = const [], this.draftId});
   final List<String> to;
   final String text, subject;
+  /// Already-referenced attachments (drafts) and freshly picked local files (uploaded before sending).
   final List<FileRef> attach;
+  final List<PickedAttachment> files;
   final String? draftId;
   @override
-  List<Object?> get props => [to, text, subject, attach, draftId];
+  List<Object?> get props => [to, text, subject, attach, files.map((f) => f.path).toList(), draftId];
 }
 
 class DraftSaved extends MessagesEvent {

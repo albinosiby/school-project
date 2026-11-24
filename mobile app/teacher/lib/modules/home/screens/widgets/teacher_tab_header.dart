@@ -62,7 +62,7 @@ class TeacherHeaderActions extends StatelessWidget {
   }
 }
 
-const _tabRoutes = {RoutePaths.home, RoutePaths.timetable, RoutePaths.classes, RoutePaths.tasks, RoutePaths.more};
+const _tabRoutes = {RoutePaths.home, RoutePaths.timetable, RoutePaths.classes, RoutePaths.messages, RoutePaths.more};
 
 /// Opens a module route stored in data (notifications, pending tasks, reminders): tabs switch with `go`, others are pushed.
 void openRoute(BuildContext context, String route) => _tabRoutes.contains(route) ? context.go(route) : context.push(route);

@@ -153,6 +153,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "msg_meetings",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "startsAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "msg_meetings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "parentUids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "threadId",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

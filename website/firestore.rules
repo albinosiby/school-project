@@ -361,6 +361,25 @@ service cloud.firestore {
         && request.resource.data.get('lastFrom', 'parent') in ['parent', 'teacher']
         && request.resource.data.get('unreadParent', 0) == 0 && request.resource.data.get('unreadTeacher', 0) == 0;
     }
+    // a chat meeting belongs to one of the teacher's threads and lists that thread's guardians; the client never sets
+    // the function's reminder flags except to clear them
+    function meetingMatchesThread(sid, staff) {
+      let d = request.resource.data;
+      let t = get(/databases/(default)/documents/schools/$(sid)/msg_threads/$(d.get('threadId', 'none'))).data;
+      return t.get('teacherId', '') == staff
+        && d.get('studentId', '') == t.get('studentId', 'none')
+        && d.get('parentUids', []) == t.get('parentUids', [])
+        && d.get('status', '') in ['scheduled', 'cancelled']
+        && d.get('date', '') is string && d.date.matches('[0-9]{4}-[0-9]{2}-[0-9]{2}')
+        && d.get('time', '') is string && d.time.matches('[0-9]{2}:[0-9]{2}')
+        && d.get('link', '') is string && d.link.matches('https://meet[.]google[.]com/.*')
+        && (!d.keys().hasAny(['reminders']) || d.reminders == {});
+    }
+    // msg_presence/{uid} = {uid, threadId, at}: which conversation a login is reading right now
+    function presenceOk() {
+      let d = request.resource.data;
+      return d.get('uid', '') == request.auth.uid && d.get('threadId', '') is string && d.get('at', '') is string && d.keys().hasOnly(['uid', 'threadId', 'at']);
+    }
     // a message carries its thread's student, teacher and guardians (so both sides can query it)
     function messageMatchesThread(sid) {
       return request.resource.data.get('studentId', '') == threadAfter(sid, request.resource.data.threadId).get('studentId', 'none')
@@ -464,7 +483,9 @@ service cloud.firestore {
             // own private data
             || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting(staff))
             // parent message threads addressed to this teacher (contract 13.3), own meeting slots and bookings (13.7)
-            || (col in ['msg_threads', 'msg_messages', 'ptm_slots', 'ptm_bookings'] && ownsExisting(staff)));
+            || (col in ['msg_threads', 'msg_messages', 'msg_meetings', 'ptm_slots', 'ptm_bookings'] && ownsExisting(staff))
+            // own chat presence doc (which conversation this login is reading)
+            || (col == 'msg_presence' && docId == request.auth.uid));
     }
     function teacherCreate(sid, col, docId) {
       let p = profile();
@@ -484,7 +505,10 @@ service cloud.firestore {
             || (col == 'msg_threads' && ownsIncoming(staff) && docId == 'thr_' + request.resource.data.get('studentId', '') + '_' + staff
                 && studentDoc(sid, request.resource.data.studentId).get('guardianUids', []).hasAll(request.resource.data.get('parentUids', [])) && newThreadOk())
             || (col == 'msg_messages' && ownsIncoming(staff) && request.resource.data.get('from', '') == 'teacher' && request.resource.data.get('uid', '') == request.auth.uid
-                && threadAfter(sid, request.resource.data.get('threadId', 'none')).get('teacherId', '') == staff && messageMatchesThread(sid))));
+                && threadAfter(sid, request.resource.data.get('threadId', 'none')).get('teacherId', '') == staff && messageMatchesThread(sid))
+            // a meeting scheduled from one of the teacher's own parent chats (the function owns `reminders`)
+            || (col == 'msg_meetings' && ownsIncoming(staff) && meetingMatchesThread(sid, staff))
+            || (col == 'msg_presence' && docId == request.auth.uid && presenceOk())));
     }
     function teacherUpdate(sid, col, docId) {
       let p = profile();
@@ -512,6 +536,10 @@ service cloud.firestore {
                 && request.resource.data.get('status', '') in ['Pending', 'Approved', 'Rejected'])
             // reading a thread resets the teacher's own unread counter, nothing else
             || (col == 'msg_threads' && ownsExisting(staff) && onlyKeys(['unreadTeacher', 'updatedAt', 'updatedBy']) && request.resource.data.get('unreadTeacher', 0) == 0)
+            // reschedule / cancel own meetings (the thread, student and guardians never change)
+            || (col == 'msg_meetings' && ownsExisting(staff) && ownsIncoming(staff) && meetingMatchesThread(sid, staff)
+                && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['threadId', 'studentId', 'parentUids', 'createdAt', 'createdBy']))
+            || (col == 'msg_presence' && docId == request.auth.uid && presenceOk())
             || (col.matches('(tt|tk|cl|ls|ts|hm|ms|pm|ed|cr|att|lm)_.*') && ownsExisting(staff) && ownsIncoming(staff))));
     }
     function teacherDelete(sid, col, docId) {
@@ -554,7 +582,8 @@ service cloud.firestore {
           || (col == 'par_transport' && (docId in myStudents() || resource.data.get('studentId', '') in myStudents()))
           || (col in ['fee_invoices', 'fee_payments'] && resource.data.get('grn', '') in myGrns())
           || (col in ['com_notices', 'calendar_events'] && resource.data.get('parentVisible', false) == true)
-          || (col in ['msg_threads', 'msg_messages'] && request.auth.uid in resource.data.get('parentUids', []))
+          || (col in ['msg_threads', 'msg_messages', 'msg_meetings'] && request.auth.uid in resource.data.get('parentUids', []))
+          || (col == 'msg_presence' && docId == request.auth.uid)
           || (col == 'par_notifications' && resource.data.get('uid', '') == request.auth.uid)
           || (col == 'exm_report_cards' && resource.data.get('studentId', '') in myStudents() && resource.data.get('status', '') == 'Published')
           // compiled exam results, only the published version (EXAMS_SHEETS_RESULTS_CONTRACT.md section 2)
@@ -568,6 +597,7 @@ service cloud.firestore {
           || (col == 'msg_messages' && request.resource.data.get('from', '') == 'parent' && request.resource.data.get('uid', '') == request.auth.uid
               && request.auth.uid in threadAfter(sid, request.resource.data.get('threadId', 'none')).get('parentUids', []) && messageMatchesThread(sid))
           || (col == 'consents' && docId == request.auth.uid && request.resource.data.get('uid', '') == request.auth.uid)
+          || (col == 'msg_presence' && docId == request.auth.uid && presenceOk())
           || (col == 'ptm_bookings' && parentBookingOk(sid, docId))
           || (col == 'certificates' && parentCertificateOk(sid))
           || (col == 'fee_claims' && parentClaimOk(sid)));
@@ -588,6 +618,7 @@ service cloud.firestore {
           || (col == 'msg_threads' && request.auth.uid in resource.data.get('parentUids', [])
               && onlyKeys(['unreadParent', 'updatedAt', 'updatedBy']) && request.resource.data.get('unreadParent', 0) == 0)
           || (col == 'consents' && docId == request.auth.uid && request.resource.data.get('uid', '') == request.auth.uid)
+          || (col == 'msg_presence' && docId == request.auth.uid && presenceOk())
           || (col == 'par_notifications' && resource.data.get('uid', '') == request.auth.uid && onlyKeys(['read'])));
         allow delete: if isParentIn(sid) && (
           (col == 'student_leaves' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending')

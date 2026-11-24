@@ -43,6 +43,7 @@ dependencies:
   firebase_auth: ^5.3.4
   cloud_firestore: ^5.6.0
   firebase_messaging: ^15.2.10
+  audioplayers: ^6.8.1
 
 dev_dependencies:
   flutter_test:

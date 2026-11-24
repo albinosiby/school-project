@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, Briefcase, Building2, CalendarClock, CalendarDays, Download, Globe, Lock, Plug, Plus, Save, ShieldCheck, Users } from "lucide-react";
+import { BookOpen, Briefcase, Building2, CalendarClock, CalendarDays, Download, Globe, ListOrdered, Lock, Plug, Plus, Save, ShieldCheck, Users } from "lucide-react";
 import { LoadingSkeleton, Badge, Button, Card, Checkbox, Field, Input, Modal, PageHeader, ProgressBar, Select, Switch, Tabs, useToast } from "@/components/ui";
 import type { Tone } from "@/components/ui";
 import { cn } from "@/lib/cn";
@@ -19,6 +19,7 @@ import { LeavePolicyEditor } from "./LeavePolicyEditor";
 import { AdmissionNumberSettings } from "./AdmissionNumberSettings";
 import { EmployeeNumberSettings } from "./EmployeeNumberSettings";
 import { AdmissionSeatSettings } from "./AdmissionSeatSettings";
+import { RollNumberSettings } from "./RollNumberSettings";
 import { SeniorCourses } from "./SeniorCourses";
 import { SchoolLogoEditor } from "./SchoolLogoEditor";
 import { ExamTypeSettings } from "./ExamTypeSettings";
@@ -313,6 +314,9 @@ export function SettingsPage() {
                 </section>
               ))}
             </div>
+          </Section>
+          <Section id="rolls" icon={<ListOrdered size={20} />} title="Roll numbers" desc="How students are numbered within each division: alphabetical, assigned automatically as they join, with a yearly renumbering for the whole school">
+            <RollNumberSettings academicYear={academicYear} />
           </Section>
         </div>}
 

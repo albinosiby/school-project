@@ -1884,7 +1884,9 @@ class MessagesAdapter extends StoreAdapter {
           'sender': mine ? 'Me' : '${m['name'] ?? t['guardian'] ?? ''}',
           'text': '${m['text'] ?? ''}',
           'ts': '${m['at'] ?? ''}',
-          'attach': null,
+          // uploaded attachments (image / file / voice note) and meeting cards travel as maps on the message
+          'attach': m['attachment'] is Map ? Map<String, dynamic>.from(m['attachment'] as Map) : null,
+          'meeting': m['meeting'] is Map ? Map<String, dynamic>.from(m['meeting'] as Map) : null,
           'read': read,
         });
       }
@@ -1906,6 +1908,8 @@ class MessagesAdapter extends StoreAdapter {
         'msgs': msgs,
         'studentId': sid,
         'studentName': '${t['studentName'] ?? stu?['name'] ?? ''}',
+        // the guardian's phone from the student record, for the call button
+        'phone': '${stu?['phone'] ?? ''}',
       });
     }
     // private conversations; a guardian conversation from before the shared collections never reached the parent,
@@ -1921,16 +1925,34 @@ class MessagesAdapter extends StoreAdapter {
     return rows;
   }
 
-  /// Message text sent to the parent: attachments are simulated in the teacher app (nothing is uploaded), so a
-  /// file-only message is sent as its file name.
+  /// Message text sent to the parent. An uploaded attachment travels in its own `attachment` map (see [_attachment]);
+  /// a legacy simulated attachment (no url) is folded into the text as its file name.
   static String _text(Rec m) {
     final text = '${m['text'] ?? ''}';
     final att = m['attach'];
-    if (att is Map && '${att['name'] ?? ''}'.isNotEmpty) {
+    if (att is Map && '${att['name'] ?? ''}'.isNotEmpty && '${att['url'] ?? ''}'.isEmpty) {
       return text.isEmpty ? 'Attachment: ${att['name']}' : '$text\nAttachment: ${att['name']}';
     }
     return text;
   }
+
+  /// The uploaded attachment of a message (`{kind, name, bytes, url, path, contentType, durationMs}`), or null.
+  static Map<String, dynamic>? _attachment(Rec m) {
+    final att = m['attach'];
+    if (att is! Map || '${att['url'] ?? ''}'.isEmpty) return null;
+    return {
+      'kind': '${att['kind'] ?? 'file'}',
+      'name': '${att['name'] ?? ''}',
+      'bytes': (att['bytes'] as num?)?.toInt() ?? 0,
+      'url': '${att['url']}',
+      'path': '${att['path'] ?? ''}',
+      'contentType': '${att['contentType'] ?? ''}',
+      if ((att['durationMs'] as num?) != null) 'durationMs': (att['durationMs'] as num).toInt(),
+    };
+  }
+
+  /// A message that is a meeting card: either side sees the same `meeting` map (`{id, date, time, link, note, status}`).
+  static Map<String, dynamic>? _meeting(Rec m) => m['meeting'] is Map ? Map<String, dynamic>.from(m['meeting'] as Map) : null;
 
   /// "Class Teacher" for the student's class teacher, else the subject the teacher teaches that class.
   static String roleFor(AdapterContext ctx, Remote remote, String classId) {
@@ -1962,7 +1984,7 @@ class MessagesAdapter extends StoreAdapter {
     ];
     final fresh = [
       for (final m in rowMsgs.skip(shown))
-        if (m['from'] == 'me' && _text(m).trim().isNotEmpty) m,
+        if (m['from'] == 'me' && (_text(m).trim().isNotEmpty || _attachment(m) != null || _meeting(m) != null)) m,
     ];
     if (fresh.isNotEmpty) {
       final parentUids = t == null ? guardianUids(stu) : [for (final u in t['parentUids'] as List? ?? const []) '$u'];
@@ -2000,6 +2022,8 @@ class MessagesAdapter extends StoreAdapter {
             'name': teacher,
             'text': _text(m),
             'at': '${m['ts'] ?? ''}'.isEmpty ? now : '${m['ts']}',
+            if (_attachment(m) != null) 'attachment': _attachment(m),
+            if (_meeting(m) != null) 'meeting': _meeting(m),
           }),
         );
       }
@@ -2028,6 +2052,76 @@ class MessagesAdapter extends StoreAdapter {
     final cleared = last != null && last.isAfter(now) ? last : now;
     return [
       RemoteWrite(state, id, stamp(ctx, {'threadId': id, 'clearedAt': cleared.toIso8601String(), 'pinned': false, 'unread': false})),
+    ];
+  }
+}
+
+/// `ms_meetings` <-> `msg_meetings`: meetings the teacher schedules from a parent chat (Google Meet link, date, time).
+/// Shared with the guardians of the thread (`parentUids`) so the parent app shows the same card; reminders are sent
+/// by the `sendChatMeetingReminders` function. The teacher creates, reschedules and cancels; nothing is deleted.
+class MeetingsAdapter extends StoreAdapter {
+  const MeetingsAdapter() : super('ms_meetings');
+  static const remoteName = 'msg_meetings';
+
+  @override
+  Set<String> get sources => {remoteName, MessagesAdapter.threads};
+
+  @override
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    RemoteQuery(remoteName, eq: {'teacherId': ctx.staffId}),
+    RemoteQuery(MessagesAdapter.threads, eq: {'teacherId': ctx.staffId}),
+  ];
+
+  @override
+  List<Rec> build(AdapterContext ctx, Remote remote) {
+    final rows = [
+      for (final d in _docs(remote, remoteName))
+        if (d['teacherId'] == ctx.staffId)
+          {
+            'id': d['id'],
+            'threadId': '${d['threadId'] ?? ''}',
+            'date': '${d['date'] ?? ''}',
+            'time': '${d['time'] ?? ''}',
+            'link': '${d['link'] ?? ''}',
+            'note': '${d['note'] ?? ''}',
+            'status': '${d['status'] ?? 'scheduled'}',
+            'createdAt': '${d['createdAt'] ?? ''}',
+            'updatedAt': '${d['updatedAt'] ?? ''}',
+          },
+    ];
+    rows.sort((a, b) => '${b['date']}T${b['time']}'.compareTo('${a['date']}T${a['time']}'));
+    return rows;
+  }
+
+  @override
+  List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
+    final id = '${row['id']}';
+    final threadId = '${row['threadId'] ?? ''}';
+    final t = _byId(remote, MessagesAdapter.threads, threadId);
+    if (t == null || !MessagesAdapter.isShared(threadId)) return const []; // only parent chats have shared meetings
+    final existing = _byId(remote, remoteName, id);
+    final now = ctx.now.toIso8601String();
+    final date = '${row['date'] ?? ''}', time = '${row['time'] ?? ''}';
+    return [
+      RemoteWrite(remoteName, id, stamp(ctx, {
+        'threadId': threadId,
+        'studentId': '${t['studentId'] ?? ''}',
+        'studentName': '${t['studentName'] ?? ''}',
+        'parentUids': [for (final u in t['parentUids'] as List? ?? const []) '$u'],
+        'teacher': '${t['teacher'] ?? ''}',
+        'guardian': '${t['guardian'] ?? ''}',
+        'date': date,
+        'time': time,
+        // UTC instant of the local start, for the reminder scheduler (the school runs on one timezone)
+        'startsAt': (DateTime.tryParse('${date}T$time:00') ?? ctx.now).toUtc().toIso8601String(),
+        'link': '${row['link'] ?? ''}',
+        'note': '${row['note'] ?? ''}',
+        'status': '${row['status'] ?? 'scheduled'}',
+        'createdAt': existing?['createdAt'] ?? row['createdAt'] ?? now,
+        'createdBy': existing?['createdBy'] ?? ctx.authUid,
+        // a new date/time restarts the reminders; the function owns `reminders`
+        if (existing == null || existing['date'] != date || existing['time'] != time) 'reminders': <String, dynamic>{},
+      })),
     ];
   }
 }
@@ -2414,6 +2508,7 @@ List<StoreAdapter> defaultAdapters() => const [
   FacultyAdapter(),
   LiveClassesAdapter(),
   MessagesAdapter(),
+  MeetingsAdapter(),
   CircularsAdapter(),
   ReadOnlyAdapter('calendar_events', 'calendar_events'),
   ReadOnlyAdapter('school', 'school'),

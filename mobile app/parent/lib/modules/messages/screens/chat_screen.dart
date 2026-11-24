@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../config/routes/routes.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
@@ -10,6 +11,7 @@ import '../bloc/chat_bloc.dart';
 import '../models/message_models.dart';
 import 'widgets/contact_avatar.dart';
 import 'widgets/file_upload_sheet.dart';
+import 'widgets/voice_bubble.dart';
 
 /// Conversation with a teacher or office (Figma 4.1): date separators, bubbles with attachments and
 /// read ticks, quick replies, attach / voice note / send. Opening it marks the thread read.
@@ -35,7 +37,8 @@ class ChatScreen extends StatelessWidget {
           a.error != b.error,
       listener: (context, s) =>
           AppDialogs.showSnackBar(context, message: s.error!, isError: true),
-      child: Scaffold(
+      child: _PresenceScope(
+        child: Scaffold(
         backgroundColor: C.surface,
         appBar: _ChatHeader(fallbackName: teacher ?? 'Conversation'),
         body: Column(
@@ -68,8 +71,48 @@ class ChatScreen extends StatelessWidget {
             const _Composer(),
           ],
         ),
+        ),
       ),
     ),
+  );
+}
+
+/// Clears the guardian's chat presence when the screen is left or the app goes to the background.
+class _PresenceScope extends StatefulWidget {
+  const _PresenceScope({required this.child});
+  final Widget child;
+  @override
+  State<_PresenceScope> createState() => _PresenceScopeState();
+}
+
+class _PresenceScopeState extends State<_PresenceScope> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    final bloc = context.read<ChatBloc>();
+    if (s == AppLifecycleState.resumed) {
+      final id = bloc.state.threadId;
+      if (id != null) bloc.add(OpenChat(id));
+    } else if (s == AppLifecycleState.paused) {
+      bloc.add(const LeaveChat());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope(
+    onPopInvokedWithResult: (_, _) => context.read<ChatBloc>().add(const LeaveChat()),
+    child: widget.child,
   );
 }
 
@@ -262,6 +305,11 @@ class _MessageList extends StatelessWidget {
       final newDay = prev == null || !sameDay(prev.at, m.at);
       if (newDay) items.add(_DayPill(dayLabel(m.at)));
       final firstOfGroup = newDay || prev.fromParent != m.fromParent;
+      if (m.meeting != null) {
+        items.add(_MeetingCard(key: ValueKey('msg-${m.id}'), card: m.meeting!, time: fmtClock(m.at)));
+        continue;
+      }
+      final media = m.media;
       items.add(
         AppChatBubble(
           key: ValueKey('msg-${m.id}'),
@@ -283,6 +331,15 @@ class _MessageList extends StatelessWidget {
                 )
               : null,
           attachments: [
+            if (media != null && media.isImage) _ImageAttachment(media),
+            if (media != null && media.isAudio) VoiceBubble(url: media.url, duration: media.duration, mine: m.fromParent),
+            if (media != null && !media.isImage && !media.isAudio)
+              AppFileChip(
+                name: media.name,
+                size: media.sizeLabel,
+                tone: Tone.brand,
+                onTap: () => launchUrl(Uri.parse(media.url), mode: LaunchMode.externalApplication),
+              ),
             for (final a in m.attachments)
               AppFileChip(
                 name: a.name,
@@ -304,6 +361,88 @@ class _MessageList extends StatelessWidget {
       padding: EdgeInsets.fromLTRB(S.page, 8.h, S.page, 8.h),
       itemCount: reversed.length,
       itemBuilder: (_, i) => reversed[i],
+    );
+  }
+}
+
+/// A photo shared in the chat; tap to view full screen.
+class _ImageAttachment extends StatelessWidget {
+  const _ImageAttachment(this.media);
+  final ChatMedia media;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: () => showDialog<void>(
+      context: context,
+      builder: (_) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(children: [
+          Center(child: InteractiveViewer(maxScale: 5, child: Image.network(media.url, fit: BoxFit.contain))),
+          Positioned(top: 8, right: 8, child: SafeArea(child: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28)))),
+        ]),
+      ),
+    ),
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(R.md),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 240.w, maxHeight: 240.h),
+        child: Image.network(
+          media.url,
+          fit: BoxFit.cover,
+          loadingBuilder: (_, child, p) => p == null ? child : SizedBox(width: 180.w, height: 140.h, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+          errorBuilder: (_, _, _) => Container(width: 180.w, height: 120.h, color: C.surface, child: Icon(Icons.broken_image_outlined, color: C.muted, size: 32.r)),
+        ),
+      ),
+    ),
+  );
+}
+
+/// A meeting the teacher scheduled: date, time, Google Meet link. Reminders arrive as notifications.
+class _MeetingCard extends StatelessWidget {
+  const _MeetingCard({super.key, required this.card, required this.time});
+  final ChatMeetingCard card;
+  final String time;
+  @override
+  Widget build(BuildContext context) {
+    final cancelled = card.cancelled;
+    final start = card.startsAt;
+    final over = !cancelled && start != null && start.add(const Duration(hours: 1)).isBefore(DateTime.now());
+    final tone = cancelled ? Tone.danger : over ? Tone.neutral : Tone.brand;
+    final c = toneColors(tone);
+    final day = start == null ? card.date : DateFormat('EEE, d MMM yyyy').format(start);
+    final clock = start == null ? card.time : DateFormat('h:mm a').format(start);
+    return Center(
+      child: Container(
+        width: 300.w,
+        margin: EdgeInsets.only(bottom: 12.h),
+        decoration: BoxDecoration(color: C.bg, borderRadius: BorderRadius.circular(R.xl), border: Border.all(color: cancelled ? C.dangerSoft : C.panelBorder)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+            decoration: BoxDecoration(color: c.bg, borderRadius: BorderRadius.vertical(top: Radius.circular(R.xl))),
+            child: Row(children: [
+              Icon(cancelled ? Icons.event_busy_rounded : Icons.video_call_rounded, color: c.fg, size: 20.r),
+              SizedBox(width: 8.w),
+              Expanded(child: Text(cancelled ? 'Meeting cancelled' : over ? 'Past meeting' : 'Meeting with your teacher', style: T.smallStrong.copyWith(color: c.fg))),
+              Text(time, style: T.small.copyWith(fontSize: 10.5.sp)),
+            ]),
+          ),
+          Padding(
+            padding: EdgeInsets.all(14.r),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(day, style: T.h3.copyWith(decoration: cancelled ? TextDecoration.lineThrough : null)),
+              Text(clock, style: T.bodyStrong.copyWith(color: cancelled ? C.slate : C.primary, decoration: cancelled ? TextDecoration.lineThrough : null)),
+              if (card.note.isNotEmpty) ...[SizedBox(height: 6.h), Text(card.note, style: T.small, maxLines: 3, overflow: TextOverflow.ellipsis)],
+              if (!cancelled) ...[
+                SizedBox(height: 12.h),
+                AppButton(over ? 'Open meeting link' : 'Join on Google Meet', icon: Icons.videocam_rounded, kind: over ? BtnKind.outline : BtnKind.primary,
+                    onPressed: () => launchUrl(Uri.parse(card.link), mode: LaunchMode.externalApplication)),
+                SizedBox(height: 6.h),
+                Text('You will be reminded on the day, 1 hour before and 10 minutes before.', style: T.small.copyWith(fontSize: 11.sp), textAlign: TextAlign.center),
+              ],
+            ]),
+          ),
+        ]),
+      ),
     );
   }
 }

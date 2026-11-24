@@ -19,7 +19,9 @@ const _sections = [
   (kReminderCategory, Icons.alarm_rounded),
 ];
 
-/// Tasks tab (Figma 1153:819): weekly workload, stats, filters, urgent card and tasks grouped by category.
+/// Tasks (Figma 1153:819): weekly workload, stats, filters, urgent card and tasks grouped by category.
+/// Opened as a pushed page (from Home, Classes and More) since Chat took its place in the dock; the tab header
+/// is kept for hosts that embed it without a route to pop (tests, future tab).
 class TasksScreen extends StatelessWidget {
   const TasksScreen({super.key});
   @override
@@ -39,20 +41,22 @@ class _TasksViewState extends State<_TasksView> {
   @override
   Widget build(BuildContext context) {
     final s = context.watch<TasksBloc>().state;
-    final header = TeacherTabHeader(title: 'Tasks', subtitle: s.teacher?.name, icon: Icons.assignment_outlined);
+    final pushed = context.canPop();
+    final Widget header = pushed
+        ? DetailHeader('Tasks', subtitle: s.teacher?.name, fallbackRoute: RoutePaths.home)
+        : TeacherTabHeader(title: 'Tasks', subtitle: s.teacher?.name, icon: Icons.assignment_outlined);
+    // Pushed pages have their own scaffold and no dock under the list.
+    Widget page(Widget body) => pushed
+        ? Scaffold(body: Column(children: [header, Expanded(child: AppNavScope(dock: false, child: body))]))
+        : Column(children: [header, Expanded(child: body)]);
     if (s.status != TasksStatus.loaded) {
-      return Column(
-        children: [
-          header,
-          Expanded(
-            child: s.status == TasksStatus.failure
-                ? AppErrorWidget(
-                    message: s.error ?? 'Could not load tasks',
-                    onRetry: () => context.read<TasksBloc>().add(const TasksLoadRequested()),
-                  )
-                : const SchoolSkeletonList(),
-          ),
-        ],
+      return page(
+        s.status == TasksStatus.failure
+            ? AppErrorWidget(
+                message: s.error ?? 'Could not load tasks',
+                onRetry: () => context.read<TasksBloc>().add(const TasksLoadRequested()),
+              )
+            : const SchoolSkeletonList(),
       );
     }
 
@@ -177,14 +181,7 @@ class _TasksViewState extends State<_TasksView> {
       list.add(const Align(alignment: Alignment.centerRight, child: _AddButton()));
     }
 
-    return Column(
-      children: [
-        header,
-        Expanded(
-          child: AppTabBody(side: list, children: children),
-        ),
-      ],
-    );
+    return page(AppTabBody(side: list, children: children));
   }
 }
 

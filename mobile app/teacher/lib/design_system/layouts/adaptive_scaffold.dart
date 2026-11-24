@@ -69,7 +69,7 @@ class AdaptiveScaffold extends StatelessWidget {
                   indicatorColor: C.primarySoft,
                   destinations: [
                     for (final d in destinations)
-                      NavigationRailDestination(icon: Icon(d.icon, size: 22.r), selectedIcon: Icon(d.selectedIcon, color: C.primary, size: 22.r), label: Text(d.label, style: T.small)),
+                      NavigationRailDestination(icon: d.wrap(Icon(d.icon, size: 22.r)), selectedIcon: d.wrap(Icon(d.selectedIcon, color: C.primary, size: 22.r)), label: Text(d.label, style: T.small)),
                   ],
                 )
               : NavigationDrawer(
@@ -78,7 +78,7 @@ class AdaptiveScaffold extends StatelessWidget {
                     Padding(padding: EdgeInsets.fromLTRB(16.w, 28.h, 16.w, 16.h), child: Text(title, style: T.h2)),
                     const Divider(indent: 16, endIndent: 16),
                     for (final d in destinations)
-                      NavigationDrawerDestination(icon: Icon(d.icon), selectedIcon: Icon(d.selectedIcon, color: C.primary), label: Text(d.label, style: T.bodyStrong)),
+                      NavigationDrawerDestination(icon: d.wrap(Icon(d.icon)), selectedIcon: d.wrap(Icon(d.selectedIcon, color: C.primary)), label: Text(d.label, style: T.bodyStrong)),
                   ],
                 );
           return AppNavScope(

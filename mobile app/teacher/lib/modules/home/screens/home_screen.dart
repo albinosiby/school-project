@@ -77,7 +77,7 @@ class _HomeViewState extends State<_HomeView> {
       ScheduleStrip(now: now, today: today, onTap: () => context.go(RoutePaths.timetable)),
     ];
     final attention = <Widget>[
-      SectionHeader('Needs your attention', icon: Icons.assignment_late_outlined, action: 'All tasks', onAction: () => context.go(RoutePaths.tasks)),
+      SectionHeader('Needs your attention', icon: Icons.assignment_late_outlined, action: 'All tasks', onAction: () => context.push(RoutePaths.tasks)),
       if (state.status == HomeStatus.loaded && items.isEmpty)
         AppCard(
           radius: R.lg,

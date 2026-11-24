@@ -21,6 +21,9 @@ class FirestoreDataStore implements DataStore {
   final void Function(Object error, StackTrace? stack)? _onError;
 
   AdapterContext? _ctx;
+
+  /// The signed-in teacher's school and login (null before sign-in / after sign-out).
+  AdapterContext? get adapterContext => _ctx;
   final Set<String> _active = {};
   final Map<String, Map<String, Rec>> _mirror = {}; // remote collection -> id -> doc
   final Map<String, Map<String, Set<String>>> _owners = {}; // remote collection -> id -> query keys

@@ -162,6 +162,9 @@ class MockMessageRepository implements IMessageRepository {
   }
 
   @override
+  Future<void> setPresence(String? threadId) async {}
+
+  @override
   Future<void> markAllRead(String childId) async {
     _seed(childId);
     _threads[childId] = [

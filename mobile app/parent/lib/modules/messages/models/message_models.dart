@@ -183,6 +183,38 @@ class MessageThread extends Equatable {
   ];
 }
 
+/// A file shared in a chat (message `attachment` map): a photo, a document or a voice note, stored in
+/// Firebase Storage; [url] is its download link.
+class ChatMedia extends Equatable {
+  const ChatMedia({required this.kind, required this.name, required this.url, this.bytes = 0, this.contentType = '', this.durationMs = 0});
+  final String kind, name, url, contentType;
+  final int bytes, durationMs;
+  bool get isImage => kind == 'image' || contentType.startsWith('image/');
+  bool get isAudio => kind == 'audio' || contentType.startsWith('audio/');
+  Duration get duration => Duration(milliseconds: durationMs);
+  String get sizeLabel => bytes <= 0 ? '' : bytes < 1024 * 1024 ? '${(bytes / 1024).ceil()} KB' : '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  static ChatMedia? maybe(Object? j) => j is Map && '${j['url'] ?? ''}'.isNotEmpty
+      ? ChatMedia(kind: '${j['kind'] ?? 'file'}', name: '${j['name'] ?? 'File'}', url: '${j['url']}', bytes: (j['bytes'] as num?)?.toInt() ?? 0, contentType: '${j['contentType'] ?? ''}', durationMs: (j['durationMs'] as num?)?.toInt() ?? 0)
+      : null;
+  @override
+  List<Object?> get props => [kind, name, url, bytes, contentType, durationMs];
+}
+
+/// A meeting the teacher scheduled from the chat (message `meeting` map, live state in `msg_meetings`).
+class ChatMeetingCard extends Equatable {
+  const ChatMeetingCard({required this.id, required this.date, required this.time, required this.link, this.note = '', this.status = 'scheduled'});
+  final String id, date, time, link, note, status;
+  bool get cancelled => status == 'cancelled';
+  DateTime? get startsAt => DateTime.tryParse('${date}T$time:00');
+  static ChatMeetingCard? maybe(Object? j) => j is Map
+      ? ChatMeetingCard(id: '${j['id'] ?? ''}', date: '${j['date'] ?? ''}', time: '${j['time'] ?? ''}', link: '${j['link'] ?? ''}', note: '${j['note'] ?? ''}', status: '${j['status'] ?? 'scheduled'}')
+      : null;
+  ChatMeetingCard copyWith({String? date, String? time, String? link, String? note, String? status}) =>
+      ChatMeetingCard(id: id, date: date ?? this.date, time: time ?? this.time, link: link ?? this.link, note: note ?? this.note, status: status ?? this.status);
+  @override
+  List<Object?> get props => [id, date, time, link, note, status];
+}
+
 class ChatMessage extends Equatable {
   const ChatMessage({
     required this.id,
@@ -191,12 +223,18 @@ class ChatMessage extends Equatable {
     required this.text,
     required this.at,
     this.attachments = const [],
+    this.media,
+    this.meeting,
     this.read = true,
   });
   final String id, threadId, text;
   final bool fromParent;
   final DateTime at;
   final List<MessageAttachment> attachments;
+
+  /// An uploaded photo / document / voice note, or a meeting card (teacher app chat features).
+  final ChatMedia? media;
+  final ChatMeetingCard? meeting;
 
   /// For the guardian's own messages: seen by the teacher (double tick).
   final bool read;
@@ -209,6 +247,8 @@ class ChatMessage extends Equatable {
     text,
     at,
     attachments,
+    media,
+    meeting,
     read,
   ];
 }

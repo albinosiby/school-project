@@ -488,20 +488,44 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
       return ts.data();
     });
     if (!thread) return;
-    const text = String(m.text ?? "").replace(/\s+/g, " ").slice(0, 140);
+    const text = messagePreview(m);
+    // someone already reading this conversation (msg_presence, refreshed by the apps) gets no push for it
+    const present = async (uid) => {
+      if (!uid) return false;
+      const p = await S(sid).collection("msg_presence").doc(uid).get();
+      return p.exists && p.get("threadId") === m.threadId && Date.now() - ms(p.get("at")) < 90e3;
+    };
     if (m.from === "parent") {
       if (!thread.teacherId) return;
       await notify(sid, [thread.teacherId], {
         type: "message", category: "Messages", tag: "Parent Message",
-        title: `${m.name ?? thread.guardian ?? "Parent"}${thread.studentName ? ` (${thread.studentName})` : ""}`, body: text, route: "/messages",
-      });
+        title: `${m.name ?? thread.guardian ?? "Parent"}${thread.studentName ? ` (${thread.studentName})` : ""}`, body: text, route: `/messages/${m.threadId}`,
+      }, { skipPush: (u) => present(u.id) });
     } else {
-      await notifyParents(sid, uniq(thread.parentUids).filter((u) => u !== m.uid).map((uid) => ({
-        id: `msg_${e.params.id}_${uid}`, uid, studentId: thread.studentId ?? "", type: "message",
-        title: thread.teacher ?? m.name ?? "Teacher", body: text, route: `/messages/thread/${m.threadId}`,
-      })));
+      const rows = [];
+      for (const uid of uniq(thread.parentUids).filter((u) => u !== m.uid)) {
+        if (await present(uid)) continue;
+        rows.push({ id: `msg_${e.params.id}_${uid}`, uid, studentId: thread.studentId ?? "", type: "message",
+          title: thread.teacher ?? m.name ?? "Teacher", body: text, route: `/messages/thread/${m.threadId}` });
+      }
+      if (rows.length) await notifyParents(sid, rows);
     }
   }));
+
+  /** Push body for a message: its text, else what was shared. */
+  function messagePreview(m) {
+    const text = String(m.text ?? "").replace(/\s+/g, " ").trim();
+    const a = m.attachment;
+    if (a && typeof a === "object") {
+      const kind = a.kind === "image" ? "📷 Photo" : a.kind === "audio" ? "🎤 Voice note" : `📎 ${String(a.name ?? "File").slice(0, 60)}`;
+      return (text ? `${kind} · ${text}` : kind).slice(0, 140);
+    }
+    if (m.meeting && typeof m.meeting === "object") {
+      const mt = m.meeting, st = mt.status === "cancelled" ? "Meeting cancelled" : "Meeting";
+      return `📅 ${st}: ${mt.date ?? ""} ${mt.time ?? ""}`.trim().slice(0, 140);
+    }
+    return text.slice(0, 140);
+  }
 
   // ---------------------------------------------------------------------------
   // live classes and fees

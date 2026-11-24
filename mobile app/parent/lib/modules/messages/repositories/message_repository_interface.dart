@@ -21,6 +21,9 @@ abstract class IMessageRepository {
     List<MessageAttachment> attachments = const [],
   });
   Future<void> markRead(String threadId);
+
+  /// Which conversation the guardian is reading now (null = none): the server skips the push for it.
+  Future<void> setPresence(String? threadId);
   Future<void> markAllRead(String childId);
   Future<void> setPinned(String threadId, bool pinned);
 

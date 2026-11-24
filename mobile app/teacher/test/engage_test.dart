@@ -6,6 +6,7 @@ import 'package:teacher_app/config/routes/routes.dart';
 import 'package:teacher_app/design_system/design_system.dart';
 import 'package:teacher_app/di/injection.dart';
 import 'package:teacher_app/modules/engage/bloc/engage_notice.dart';
+import 'package:teacher_app/modules/engage/screens/messages_screen.dart';
 import 'package:teacher_app/modules/engage/bloc/exam_duties_bloc.dart';
 import 'package:teacher_app/modules/engage/bloc/exam_duties_events.dart';
 import 'package:teacher_app/modules/engage/bloc/exam_duties_states.dart';
@@ -51,6 +52,7 @@ Future<void> pump(WidgetTester t, String location) async {
   await pumpScreen(t, location: location, routes: [
     GoRoute(path: RoutePaths.leaveApply, builder: (_, _) => const Scaffold(body: Text('Apply stub'))),
     GoRoute(path: RoutePaths.home, builder: (_, _) => const Scaffold(body: Text('Home stub'))),
+    GoRoute(path: RoutePaths.messages, builder: (_, _) => const MessagesScreen()), // the Chat tab branch in the real router
     ...engageRoutes,
   ]);
 }
@@ -360,34 +362,22 @@ void main() {
     expect(row('ms_messages', 'ms_2').l('msgs').last['text'], 'Will do, sir');
     await tapV(t, find.text('Acknowledged 👍'));
     expect(row('ms_messages', 'ms_2').l('msgs').length, 3);
-    await tapV(t, find.byTooltip('Attach file'));
-    await tapV(t, sem('Browse files'));
-    await tapV(t, find.text('Add'));
-    expect(row('ms_messages', 'ms_2').l('msgs').last['attach'], isNotNull);
+    expect(find.byTooltip('Attach file'), findsOneWidget); // the system picker itself cannot run in a widget test
+    expect(find.byTooltip('Record voice note'), findsOneWidget);
 
-    // compose
+    // new chat: search a student, tap the tile, the first message starts the conversation with the parent
     await pump(t, RoutePaths.messageNew);
-    await tapV(t, find.text('Send Message'));
-    expect(find.text('Select at least one recipient'), findsOneWidget);
-    await tapV(t, find.text('Mrs. Priya Sharma'));
-    await tapV(t, find.text('Send Message'));
-    await t.fling(find.byType(Scrollable).first, const Offset(0, 3000), 5000);
+    expect(find.text('Aarav Sharma'), findsWidgets);
+    await t.enterText(find.byType(TextField).first, 'Ananya');
     await t.pumpAndSettle();
-    expect(find.text('Write a message before sending'), findsOneWidget);
-    await enterBody(t, 'Please bring the worksheet.');
-    await tapV(t, find.text('Send Message'));
-    expect(row('ms_messages', 'ms_1').l('msgs').last['text'], 'Please bring the worksheet.');
-
-    // save draft + drafts page
-    await pump(t, RoutePaths.messageNew);
-    await enterBody(t, 'Work in progress');
-    await tapV(t, find.text('Save Draft'));
-    expect(db.list('ms_drafts').length, 5);
-    await pump(t, RoutePaths.messageDrafts);
-    expect(find.text('Cloud Auto-Sync Active'), findsOneWidget);
-    expect(find.text('All Drafts (5)'), findsOneWidget);
-    await tapV(t, find.byTooltip('Delete draft'), which: 0);
-    await tapV(t, find.text('Delete').last);
-    expect(db.list('ms_drafts').length, 4);
+    expect(find.text('Aarav Sharma'), findsNothing);
+    await tapV(t, find.text('Ananya Reddy'));
+    expect(find.text('No messages yet'), findsOneWidget);
+    await t.enterText(find.byType(TextField).last, 'Please bring the worksheet.');
+    await tapV(t, find.byTooltip('Send'));
+    final started = db.list('ms_messages').where((r) => r['key'] == 'g_stu_102').toList();
+    expect(started, hasLength(1));
+    expect((started.first['msgs'] as List).last['text'], 'Please bring the worksheet.');
+    expect(find.text('Please bring the worksheet.'), findsOneWidget);
   });
 }

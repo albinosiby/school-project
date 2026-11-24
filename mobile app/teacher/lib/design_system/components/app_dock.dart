@@ -5,9 +5,12 @@ import '../tokens/app_tokens.dart';
 
 /// One tab of the floating dock / rail / drawer.
 class AppNavItem {
-  const AppNavItem(this.icon, this.selectedIcon, this.label);
+  const AppNavItem(this.icon, this.selectedIcon, this.label, {this.badge});
   final IconData icon, selectedIcon;
   final String label;
+  /// Wraps the tab icon (e.g. an unread count badge).
+  final Widget Function(Widget icon)? badge;
+  Widget wrap(Widget icon) => badge == null ? icon : badge!(icon);
 }
 
 /// Floating dock bottom navigation bar (Figma "Modern Floating Dock Navigation Bar"):
@@ -83,10 +86,10 @@ class _DockItem extends StatelessWidget {
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 220),
                   transitionBuilder: (c, a) => FadeTransition(opacity: a, child: ScaleTransition(scale: Tween(begin: .7, end: 1.0).animate(a), child: c)),
-                  child: Icon(
+                  child: item.wrap(Icon(
                     selected ? item.selectedIcon : item.icon, key: ValueKey(selected), size: 23.r,
                     color: selected ? C.primary : C.slate,
-                  ),
+                  )),
                 ),
               ),
             ),

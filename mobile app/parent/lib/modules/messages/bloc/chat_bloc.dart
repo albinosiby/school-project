@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:bloc_concurrency/bloc_concurrency.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/bloc/child_data_bloc.dart' show LoadStatus, errorMessage;
@@ -12,8 +13,10 @@ export 'chat_states.dart';
 /// repository's cache-first stream.
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ChatBloc(this._repo) : super(const ChatState()) {
+    on<LeaveChat>((event, emit) => _repo.setPresence(null));
     on<OpenChat>((event, emit) async {
       emit(ChatState(threadId: event.threadId));
+      unawaited(_repo.setPresence(event.threadId));
       await emit.forEach(
         _repo.watchConversation(event.threadId),
         onData: (c) {

@@ -62,6 +62,8 @@ class FirebaseMessageRepository implements IMessageRepository {
             fromParent: doc.data()['from'] == 'parent',
             text: '${doc.data()['text'] ?? ''}',
             at: parseTime(doc.data()['at']) ?? DateTime.now(),
+            media: ChatMedia.maybe(doc.data()['attachment']),
+            meeting: ChatMeetingCard.maybe(doc.data()['meeting']),
           ),
       ]..sort((a, b) => a.at.compareTo(b.at));
       if (msgs.isNotEmpty &&
@@ -167,6 +169,21 @@ class FirebaseMessageRepository implements IMessageRepository {
       .doc(threadId)
       .update({'unreadParent': 0})
       .catchError((_) {});
+
+  @override
+  Future<void> setPresence(String? threadId) async {
+    final uid = _session.uid;
+    if (uid.isEmpty) return;
+    try {
+      await _session.col('msg_presence').doc(uid).set({
+        'uid': uid,
+        'threadId': threadId ?? '',
+        'at': DateTime.now().toUtc().toIso8601String(),
+      });
+    } catch (_) {
+      // presence only tunes notifications
+    }
+  }
 
   @override
   Future<void> markAllRead(String childId) async {

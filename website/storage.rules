@@ -64,6 +64,30 @@ service firebase.storage {
         && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
         && request.resource.contentType in ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
     }
+    // Chat attachments (photos, documents, voice notes). Readers: the thread's teacher and guardians;
+    // a message's `attachment.url` is the download URL of one of these files.
+    match /schools/{sid}/chat/{threadId}/{file} {
+      function thread() { return firestore.get(/databases/(default)/documents/schools/$(sid)/msg_threads/$(threadId)).data; }
+      function isThreadTeacher() { return me().schoolId == sid && me().role == 'teacher' && thread().teacherId == me().staffId; }
+      function isThreadParent() { return me().schoolId == sid && me().role == 'parent' && parentSession(me()) && request.auth.uid in thread().parentUids; }
+      function chatFile() {
+        return request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
+          && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('audio/.*')
+              || request.resource.contentType in ['application/pdf', 'text/plain', 'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  'application/vnd.openxmlformats-officedocument.presentationml.presentation']);
+      }
+      allow read: if request.auth != null && (isThreadTeacher() || isThreadParent());
+      allow create: if request.auth != null && (isThreadTeacher() || isThreadParent()) && chatFile();
+    }
+    // Files attached while composing a new message (before its threads exist): the sender's own folder,
+    // readable by any member of the school (the URL still needs the download token).
+    match /schools/{sid}/chat/outbox/{file} {
+      allow read: if request.auth != null && me().schoolId == sid;
+      allow create: if request.auth != null && me().schoolId == sid && me().role in ['teacher', 'parent']
+        && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('audio/.*') || request.resource.contentType.matches('application/.*') || request.resource.contentType == 'text/plain');
+    }
     match /{all=**} {
       allow read, write: if false;
     }

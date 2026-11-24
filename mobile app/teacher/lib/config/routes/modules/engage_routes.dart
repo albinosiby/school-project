@@ -12,9 +12,7 @@ import '../../../modules/engage/screens/meeting_room_screen.dart';
 import '../../../modules/engage/screens/meeting_schedule_screen.dart';
 import '../../../modules/engage/screens/meetings_screen.dart';
 import '../../../modules/engage/screens/message_detail_screen.dart';
-import '../../../modules/engage/screens/message_drafts_screen.dart';
 import '../../../modules/engage/screens/message_new_screen.dart';
-import '../../../modules/engage/screens/messages_screen.dart';
 import '../routes.dart';
 
 /// Full-screen (pushed) routes of the engage module. Paths come from RoutePaths.
@@ -41,8 +39,6 @@ final List<RouteBase> engageRoutes = [
   GoRoute(path: RoutePaths.examDutyDetail, builder: (_, st) => ExamDutyDetailScreen(id: st.pathParameters['id']!)),
 
   // Messages
-  GoRoute(path: RoutePaths.messages, builder: (_, _) => const MessagesScreen()),
-  GoRoute(path: RoutePaths.messageNew, builder: (_, st) => MessageNewScreen(draftId: st.uri.queryParameters['draft'], to: st.uri.queryParameters['to'])),
-  GoRoute(path: RoutePaths.messageDrafts, builder: (_, _) => const MessageDraftsScreen()),
+  GoRoute(path: RoutePaths.messageNew, builder: (_, _) => const MessageNewScreen()),
   GoRoute(path: RoutePaths.messageDetail, builder: (_, st) => MessageDetailScreen(id: st.pathParameters['id']!)),
 ];

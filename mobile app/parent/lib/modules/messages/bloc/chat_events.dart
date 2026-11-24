@@ -22,3 +22,8 @@ class SendChatMessage extends ChatEvent {
   @override
   List<Object?> get props => [text, attachments];
 }
+
+/// The guardian left the conversation screen (presence off).
+class LeaveChat extends ChatEvent {
+  const LeaveChat();
+}

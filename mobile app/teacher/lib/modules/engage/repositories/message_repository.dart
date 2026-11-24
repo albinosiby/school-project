@@ -7,7 +7,7 @@ import 'message_repository_interface.dart';
 class LocalMessageRepository implements IMessageRepository {
   LocalMessageRepository(this._db);
   final DataStore _db;
-  static const _threads = 'ms_messages', _contacts = 'ms_contacts', _drafts = 'ms_drafts';
+  static const _threads = 'ms_messages', _contacts = 'ms_contacts', _drafts = 'ms_drafts', _meetings = 'ms_meetings';
 
   @override
   Future<List<MessageThread>> getThreads() async => [for (final r in _db.list(_threads)) MessageThread.fromJson(r)];
@@ -36,9 +36,66 @@ class LocalMessageRepository implements IMessageRepository {
 
   @override
   Future<void> reply(String threadId, ThreadMessage message) async {
-    final t = await getThread(threadId);
-    if (t == null) return;
-    _db.update(_threads, threadId, {'msgs': [...t.msgs.map((m) => m.toJson()), message.toJson()]});
+    final t = await getThread(threadId) ?? _byKey(threadId);
+    if (t != null) {
+      _db.update(_threads, t.id, {'msgs': [...t.msgs.map((m) => m.toJson()), message.toJson()]});
+      return;
+    }
+    // no conversation yet: [threadId] is a recipient id and this message starts it
+    final r = await resolveRecipient(threadId);
+    if (r == null || !r.available) return;
+    _db.add(_threads, _newThread(r, msgs: [message.toJson()]));
+  }
+
+  MessageThread? _byKey(String key) {
+    final r = _db.list(_threads).where((t) => t['key'] == key).firstOrNull;
+    return r == null ? null : MessageThread.fromJson(r);
+  }
+
+  Rec _newThread(Recipient r, {required List<Rec> msgs, String subject = ''}) => MessageThread(
+        key: r.id, name: r.name, role: r.broadcast ? r.extra.split(' • ').first : r.role, kind: r.kind, online: r.online, subject: subject, members: r.broadcast ? 42 : 0,
+        phone: r.phone, studentId: r.id.startsWith('g_') ? r.id.substring(2) : '',
+      ).toJson()
+        ..remove('id')
+        ..['msgs'] = msgs;
+
+  @override
+  Future<List<ChatMeeting>> getMeetings({String? threadId}) async {
+    final rows = [for (final r in _db.list(_meetings)) ChatMeeting.fromJson(r)];
+    rows.sort((a, b) => '${b.date}T${b.time}'.compareTo('${a.date}T${a.time}'));
+    return threadId == null ? rows : rows.where((m) => m.threadId == threadId).toList();
+  }
+
+  @override
+  Future<ChatMeeting> scheduleMeeting(String threadId, ChatMeeting meeting) async {
+    final now = nowIso();
+    final json = meeting.toJson()
+      ..remove('id')
+      ..['threadId'] = threadId
+      ..['status'] = 'scheduled'
+      ..['createdAt'] = now
+      ..['updatedAt'] = now;
+    final saved = ChatMeeting.fromJson(_db.add(_meetings, json));
+    await reply(threadId, ThreadMessage(text: '📅 Meeting scheduled', ts: now, meeting: saved));
+    return saved;
+  }
+
+  @override
+  Future<void> rescheduleMeeting(String id, ChatMeeting next) async {
+    final r = _db.byId(_meetings, id);
+    if (r == null) return;
+    final now = nowIso();
+    final updated = ChatMeeting.fromJson(_db.update(_meetings, id, {'date': next.date, 'time': next.time, 'link': next.link, 'note': next.note, 'status': 'scheduled', 'updatedAt': now})!);
+    await reply(updated.threadId, ThreadMessage(text: '📅 Meeting rescheduled', ts: now, meeting: updated));
+  }
+
+  @override
+  Future<void> cancelMeeting(String id) async {
+    final r = _db.byId(_meetings, id);
+    if (r == null) return;
+    final now = nowIso();
+    final updated = ChatMeeting.fromJson(_db.update(_meetings, id, {'status': 'cancelled', 'updatedAt': now})!);
+    await reply(updated.threadId, ThreadMessage(text: '📅 Meeting cancelled', ts: now, meeting: updated));
   }
 
   @override
@@ -51,17 +108,11 @@ class LocalMessageRepository implements IMessageRepository {
     for (final id in to) {
       final r = await resolveRecipient(id);
       if (r == null || !r.available) continue;
-      final existing = _db.list(_threads).where((t) => t['key'] == id).firstOrNull;
-      if (existing != null) {
-        final t = MessageThread.fromJson(existing);
+      final t = _byKey(id);
+      if (t != null) {
         _db.update(_threads, t.id, {'msgs': [...t.msgs.map((m) => m.toJson()), ...msgs], 'subject': subject.isEmpty ? t.subject : subject, 'unread': 0});
       } else {
-        final t = MessageThread(
-          key: id, name: r.name, role: r.broadcast ? r.extra.split(' • ').first : r.role, kind: r.kind, online: r.online, subject: subject, members: r.broadcast ? 42 : 0,
-        ).toJson()
-          ..remove('id')
-          ..['msgs'] = msgs;
-        _db.add(_threads, t);
+        _db.add(_threads, _newThread(r, msgs: msgs, subject: subject));
       }
     }
   }
@@ -71,9 +122,12 @@ class LocalMessageRepository implements IMessageRepository {
     return c == null ? '' : '${c['grade']}-${c['section']}';
   }
 
+  /// The roll number, or 0 when none has been allotted yet (`''`, `0` or missing).
+  static int _roll(Rec st) => (st['roll'] as num?)?.toInt() ?? int.tryParse('${st['roll'] ?? ''}') ?? 0;
+
   Recipient _student(Rec st) {
     final cl = _clsLabel('${st['classId']}');
-    return Recipient(id: '${st['id']}', name: '${st['name']}', role: 'Student ($cl)', kind: 'student', sub: 'Class $cl • Roll ${st['roll']}');
+    return Recipient(id: '${st['id']}', name: '${st['name']}', role: 'Student ($cl)', kind: 'student', sub: _roll(st) == 0 ? 'Class $cl' : 'Class $cl • Roll ${_roll(st)}');
   }
 
   /// Students synced from the school (Firebase mode) carry `guardianUids`; an empty list means no parent app login,
@@ -84,8 +138,8 @@ class LocalMessageRepository implements IMessageRepository {
     final cl = _clsLabel('${st['classId']}');
     final uids = st['guardianUids'];
     return Recipient(
-      id: 'g_${st['id']}', name: '${st['guardian']} ${'${st['name']}'.split(' ').last}', role: 'Parent ($cl)', kind: 'parent', sub: 'Parent of ${st['name']} (Roll #${st['roll']})',
-      blocked: uids is List && uids.isEmpty ? noParentLogin : '',
+      id: 'g_${st['id']}', name: '${st['guardian']} ${'${st['name']}'.split(' ').last}', role: 'Parent ($cl)', kind: 'parent', sub: _roll(st) == 0 ? 'Parent of ${st['name']}' : 'Parent of ${st['name']} (Roll #${_roll(st)})',
+      blocked: uids is List && uids.isEmpty ? noParentLogin : '', phone: '${st['phone'] ?? ''}',
     );
   }
 
@@ -133,5 +187,5 @@ class LocalMessageRepository implements IMessageRepository {
   }
 
   @override
-  Stream<void> watch() => _db.watch({_threads, _contacts, _drafts, 'students'});
+  Stream<void> watch() => _db.watch({_threads, _contacts, _drafts, _meetings, 'students'});
 }

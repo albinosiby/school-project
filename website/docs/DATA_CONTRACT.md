@@ -70,6 +70,18 @@ No new API endpoints, indexes, or broader permissions are needed for these schoo
 | `com_notices`, `calendar_events` | existing (admin writes). Teacher app reads them for circulars and calendar |
 | `approval_policies`, `set_*` | admin only |
 
+### 3a. Roll numbers (Settings → Classes & Sections → Roll numbers)
+
+- `students.roll` (int 1..999) with `rollAcademicYear`; a number from another year counts as unassigned, and the
+  rollover clears both. Every change bumps `classes.rollRevision` so the apps refresh the division.
+- `set_config/rolls` `{ auto: bool }` (missing = `true`). While `auto` is on, the `onStudentRollNeeded` trigger
+  (`functions/studentRolls.js`) numbers a division whenever a student joins it (admission, division move, rollover)
+  or lacks a number: a division with no numbers for the year is numbered 1..n in name order; a numbered division
+  gives the newcomer the next number after the highest in use, so nobody else's roll changes mid-year. It skips a
+  running rollover (`platform_schools.rolloverJob`) and `auto: false`.
+- "Number all classes alphabetically" on the same page renumbers every division 1..n by name in batches; the class
+  teacher's `assignStudentRoll` callable and the dashboard's per-class "Assign roll numbers" stay for manual fixes.
+
 ### Assessment scheme (Settings → Assessment Scheme)
 
 Yearly academic setup that exams are created from (stage A of `EXAMS_WORKFLOW_PROPOSAL.md`). Admin-only `set_*`
@@ -369,6 +381,23 @@ Projection shapes (written only by functions):
   first sign-in; the admin web shows each student's consent state.
 - `par_notifications/{id}`: parent may only set `read`.
 - `users/{uid}/fcm_tokens/{token}` with `app:"parent"` (§10 layout).
+
+### 13.3a Chat attachments, meetings and presence (2026-11-23)
+- A `msg_messages` row may carry `attachment: {kind: image|file|audio, name, bytes, url, path, contentType, durationMs?}`
+  (a photo, document or voice note uploaded by the sender) and/or `meeting: {id, date, time, link, note, status}` (a card
+  for a chat meeting). `text` may be empty for such rows. Files live in Storage at `schools/{sid}/chat/{threadId}/{id}`
+  (read/create: the thread's teacher and guardians, 15 MB, images / audio / PDF / Office / text) or, for files picked while
+  composing a new message, `schools/{sid}/chat/outbox/{id}` (any member of the school may read).
+- `msg_meetings/{id}` = `{threadId, studentId, studentName, parentUids, teacherId, teacher, guardian, date (yyyy-MM-dd),
+  time (HH:mm, India time), startsAt (UTC ISO), link (https://meet.google.com/…), note, status: scheduled|cancelled,
+  createdAt, createdBy, reminders}`. The teacher creates, reschedules and cancels (never deletes); `reminders` belongs to the
+  function `sendChatMeetingReminders` (every 5 min): it pushes both sides on the morning of the meeting (07:00 IST), one hour
+  before and ten minutes before (`type: "meeting"`, teacher route `/messages/{threadId}`, parent route
+  `/messages/thread/{threadId}`); a changed date/time resets the flags. Parents read their own threads' meetings.
+- `msg_presence/{uid}` = `{uid, threadId, at}`: which conversation a login is reading right now (both apps write their
+  own doc on open / leave / background). `onMessageCreated` skips the push (and the in-app row for parents) for a
+  recipient whose presence names that thread within the last 90 seconds. The push body shows "📷 Photo", "🎤 Voice note",
+  "📎 name" or "📅 Meeting …" for non-text messages.
 
 ### 13.4 Parent notifications (push + `par_notifications` row: `{uid, studentId, type, title, body, route, read, at}`)
 | Trigger | Message | Route |

@@ -73,7 +73,7 @@ function pushBlocked(prefs, n, istDate = new Date(Date.now() + 5.5 * 3600e3)) {
  * Notifies teachers. staffIds = null means every teacher of the school.
  * n = {type, category, tag, title, body, route, urgent?}
  */
-async function notify(sid, staffIds, n) {
+async function notify(sid, staffIds, n, opts = {}) {
   const users = await teacherUsers(sid, staffIds);
   if (!users.length) { logger.info("no teacher accounts to notify", { sid, staffIds, type: n.type }); return; }
   const now = new Date();
@@ -88,7 +88,7 @@ async function notify(sid, staffIds, n) {
 
   const allowed = [];
   for (const u of users) {
-    const why = pushBlocked(await teacherPrefs(sid, u.get("staffId")), n);
+    const why = pushBlocked(await teacherPrefs(sid, u.get("staffId")), n) || (opts.skipPush && await opts.skipPush(u) ? "reading this chat" : null);
     if (why) logger.info("push skipped", { sid, staffId: u.get("staffId"), type: n.type, why }); else allowed.push(u);
   }
   const tokens = (await Promise.all(allowed.map((u) => u.ref.collection("fcm_tokens").get())))
@@ -415,6 +415,7 @@ exports.onRegularizationWithdrawn = onDocumentDeleted("schools/{sid}/staff_regul
 
 const shared = {};
 Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));
+{ const { sendChatMeetingReminders } = require("./chatMeetings")({ db, notify, shared }); Object.assign(exports, { sendChatMeetingReminders }); }
 Object.assign(exports, require("./parentLogin"));
 
 // ---------------------------------------------------------------------------
@@ -430,6 +431,8 @@ Object.assign(exports, require("./owner"));
 Object.assign(exports, require("./staff"));
 
 Object.assign(exports, require("./classRolls"));
+// Automatic roll numbers for students joining a division (set_config/rolls, DATA_CONTRACT section 3a).
+exports.onStudentRollNeeded = require("./studentRolls").onStudentRollNeeded;
 Object.assign(exports, require("./feePayments"));
 Object.assign(exports, require("./feeInvoiceStatus"));
 Object.assign(exports, require("./teachingAccess"));
