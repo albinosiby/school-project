@@ -556,6 +556,8 @@ class StudentsAdapter extends StoreAdapter {
           'admissionDate':
               s['admissionDate'] ?? (s['academicAttendance'] is Map ? (s['academicAttendance'] as Map)['admissionDate'] : '') ?? '',
           'grade': s['perfGrade'] ?? '',
+          // the office's photograph thumbnail (data URL), drawn in avatars
+          'photo': s['photo'] ?? '',
           // linked parent logins (§13.1): a guardian without one cannot be messaged
           'guardianUids': MessagesAdapter.guardianUids(s),
         },
@@ -1908,8 +1910,9 @@ class MessagesAdapter extends StoreAdapter {
         'msgs': msgs,
         'studentId': sid,
         'studentName': '${t['studentName'] ?? stu?['name'] ?? ''}',
-        // the guardian's phone from the student record, for the call button
+        // the guardian's phone from the student record, for the call button; the child's photo for the avatar
         'phone': '${stu?['phone'] ?? ''}',
+        'photo': '${stu?['photo'] ?? ''}',
       });
     }
     // private conversations; a guardian conversation from before the shared collections never reached the parent,

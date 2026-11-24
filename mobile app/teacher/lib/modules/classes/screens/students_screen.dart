@@ -203,7 +203,7 @@ class _StudentCard extends StatelessWidget {
     return AppCard(
       margin: EdgeInsets.only(bottom: 10.h), radius: R.lg, padding: EdgeInsets.all(12.w), onTap: () => context.push(RoutePaths.student(s.id)),
       child: Row(children: [
-        Avatar(s.name, size: 48, tone: status == 'Present' ? Tone.brand : tone),
+        Avatar(s.name, size: 48, tone: status == 'Present' ? Tone.brand : tone, image: s.photo.isEmpty ? null : s.photo),
         SizedBox(width: 12.w),
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

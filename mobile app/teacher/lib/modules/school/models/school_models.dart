@@ -148,8 +148,10 @@ class Student extends Equatable {
     required this.attendance,
     required this.grade,
     this.admissionDate = '',
+    this.photo = '',
   });
-  final String id, name, classId, adm, guardian, phone, grade, admissionDate;
+  /// [photo] is the office's thumbnail of the student photograph as a `data:image/jpeg;base64,…` URL (empty = none).
+  final String id, name, classId, adm, guardian, phone, grade, admissionDate, photo;
   final int roll;
   final double attendance;
 
@@ -164,6 +166,7 @@ class Student extends Equatable {
     phone: j['phone'] as String? ?? '',
     attendance: (j['attendance'] as num?)?.toDouble() ?? 0,
     grade: j['grade'] as String? ?? '',
+    photo: j['photo'] as String? ?? '',
   );
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -176,8 +179,9 @@ class Student extends Equatable {
     'attendance': attendance,
     'admissionDate': admissionDate,
     'grade': grade,
+    if (photo.isNotEmpty) 'photo': photo,
   };
 
   @override
-  List<Object?> get props => [id, name, roll, classId, attendance, grade, admissionDate];
+  List<Object?> get props => [id, name, roll, classId, attendance, grade, admissionDate, photo];
 }

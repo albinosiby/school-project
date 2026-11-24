@@ -42,7 +42,7 @@ class _MessagesViewState extends State<_MessagesView> {
   List<MessageThread> _rows(List<MessageThread> all) {
     final query = q.toLowerCase();
     final rows = all.where((t) {
-      final hit = q.isEmpty || '${t.name} ${t.role} ${t.subject} ${t.last?.text ?? ''}'.toLowerCase().contains(query);
+      final hit = q.isEmpty || '${t.name} ${t.studentName} ${t.role} ${t.subject} ${t.last?.text ?? ''}'.toLowerCase().contains(query);
       final ok = switch (tab) { 1 => t.unread > 0, 2 => t.kind == 'parent' || t.broadcast, 3 => t.kind == 'student', 4 => t.kind == 'staff', _ => true };
       return hit && ok;
     }).toList();
@@ -263,7 +263,7 @@ class _ThreadRow extends StatelessWidget {
         child: Padding(
           padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, 12.h),
           child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            RecipientAvatar(name: t.name, kind: t.kind, online: t.online, size: 52),
+            RecipientAvatar(name: t.name, kind: t.kind, online: t.online, size: 52, image: t.photo),
             SizedBox(width: 12.w),
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -281,7 +281,7 @@ class _ThreadRow extends StatelessWidget {
                   Container(width: 6.r, height: 6.r, margin: EdgeInsets.only(right: 6.w), decoration: BoxDecoration(color: toneColors(tone).fg, shape: BoxShape.circle)),
                   Expanded(
                     child: Text(
-                      [t.role, if (t.subject.isNotEmpty) t.subject].join(' • '),
+                      [t.subtitle, if (t.subject.isNotEmpty) t.subject].join(' • '),
                       style: T.small.copyWith(fontSize: 11.5.sp),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

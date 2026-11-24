@@ -101,7 +101,7 @@ class _ProfileView extends StatelessWidget {
                     shape: BoxShape.circle,
                     border: Border.all(color: C.panelBorder, width: 2),
                   ),
-                  child: Avatar(st.name, size: 88),
+                  child: Avatar(st.name, size: 88, image: st.photo.isEmpty ? null : st.photo),
                 ),
                 Positioned(
                   right: 2.r,

@@ -196,7 +196,7 @@ class _StudentTile extends StatelessWidget {
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: 4.w, vertical: 8.h),
             child: Row(children: [
-              RecipientAvatar(name: p.student.name, kind: 'student', size: 44),
+              RecipientAvatar(name: p.student.name, kind: 'student', size: 44, image: p.student.photo),
               SizedBox(width: 10.w),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

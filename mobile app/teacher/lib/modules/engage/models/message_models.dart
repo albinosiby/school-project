@@ -5,19 +5,20 @@ import 'attachment_models.dart';
 /// [kind] is parent / staff / student / broadcast. A non-empty [blocked] says why the recipient cannot be messaged
 /// (a guardian without a parent app login); such recipients are listed but cannot be selected.
 class Recipient extends Equatable {
-  const Recipient({required this.id, required this.name, this.role = '', this.kind = 'parent', this.sub = '', this.extra = '', this.online = false, this.blocked = '', this.phone = ''});
-  /// [phone] is the guardian's number from the student record (empty for staff and groups).
-  final String id, name, role, kind, sub, extra, blocked, phone;
+  const Recipient({required this.id, required this.name, this.role = '', this.kind = 'parent', this.sub = '', this.extra = '', this.online = false, this.blocked = '', this.phone = '', this.studentName = '', this.photo = ''});
+  /// [phone] is the guardian's number, [studentName] the child's name and [photo] the child's thumbnail (data URL), all from
+  /// the student record (empty for staff and groups).
+  final String id, name, role, kind, sub, extra, blocked, phone, studentName, photo;
   final bool online;
   bool get broadcast => kind == 'broadcast';
   bool get available => blocked.isEmpty;
   factory Recipient.fromJson(Map<String, dynamic> j) => Recipient(
       id: '${j['id'] ?? ''}', name: '${j['name'] ?? ''}', role: '${j['role'] ?? ''}', kind: '${j['kind'] ?? 'parent'}', sub: '${j['sub'] ?? ''}', extra: '${j['extra'] ?? ''}', online: j['online'] == true,
-      blocked: '${j['blocked'] ?? ''}', phone: '${j['phone'] ?? ''}');
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'role': role, 'kind': kind, 'sub': sub, 'extra': extra, 'online': online, if (blocked.isNotEmpty) 'blocked': blocked, if (phone.isNotEmpty) 'phone': phone};
+      blocked: '${j['blocked'] ?? ''}', phone: '${j['phone'] ?? ''}', studentName: '${j['studentName'] ?? ''}', photo: '${j['photo'] ?? ''}');
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'role': role, 'kind': kind, 'sub': sub, 'extra': extra, 'online': online, if (blocked.isNotEmpty) 'blocked': blocked, if (phone.isNotEmpty) 'phone': phone, if (studentName.isNotEmpty) 'studentName': studentName, if (photo.isNotEmpty) 'photo': photo};
   Recipient copyWith({bool? online}) => Recipient.fromJson({...toJson(), 'online': ?online});
   @override
-  List<Object?> get props => [id, name, role, kind, sub, extra, online, blocked, phone];
+  List<Object?> get props => [id, name, role, kind, sub, extra, online, blocked, phone, studentName, photo];
 }
 
 /// A meeting scheduled from a chat (collection `ms_meetings`, shared as `msg_meetings`). [status] is
@@ -60,14 +61,21 @@ class ThreadMessage extends Equatable {
 
 /// A conversation — collection `ms_messages`. [unread] stays an integer (the More tab sums it).
 class MessageThread extends Equatable {
-  const MessageThread({this.id = '', required this.key, required this.name, this.role = '', this.kind = 'parent', this.pinned = false, this.online = false, this.unread = 0, this.subject = '', this.members = 0, this.msgs = const [], this.phone = '', this.studentId = ''});
-  /// The guardian's phone (from the student record) for the call button; empty for staff and groups.
-  final String id, key, name, role, kind, subject, phone, studentId;
+  const MessageThread({this.id = '', required this.key, required this.name, this.role = '', this.kind = 'parent', this.pinned = false, this.online = false, this.unread = 0, this.subject = '', this.members = 0, this.msgs = const [], this.phone = '', this.studentId = '', this.studentName = '', this.photo = ''});
+  /// The guardian's phone (from the student record) for the call button, the child's name and photo thumbnail (data URL);
+  /// empty for staff and groups.
+  final String id, key, name, role, kind, subject, phone, studentId, studentName, photo;
   final bool pinned, online;
   final int unread, members;
   final List<ThreadMessage> msgs;
 
   bool get broadcast => kind == 'broadcast';
+  /// "Parent of Aarav Sharma • Class 10-B" for a guardian chat, else the role ("Vice Principal").
+  String get subtitle {
+    if (studentName.isEmpty) return role;
+    final cls = RegExp(r'\(([^)]+)\)').firstMatch(role)?.group(1);
+    return cls == null || cls.isEmpty ? 'Parent of $studentName' : 'Parent of $studentName • Class $cls';
+  }
   ThreadMessage? get last => msgs.isEmpty ? null : msgs.last;
   bool get hasAttachment => msgs.any((m) => m.attach != null);
   DateTime get lastAt => DateTime.tryParse(last?.ts ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
@@ -75,21 +83,21 @@ class MessageThread extends Equatable {
   factory MessageThread.fromJson(Map<String, dynamic> j) => MessageThread(
         id: '${j['id'] ?? ''}', key: '${j['key'] ?? ''}', name: '${j['name'] ?? ''}', role: '${j['role'] ?? ''}', kind: '${j['kind'] ?? 'parent'}', pinned: j['pinned'] == true,
         online: j['online'] == true, unread: (j['unread'] as num?)?.toInt() ?? 0, subject: '${j['subject'] ?? ''}', members: (j['members'] as num?)?.toInt() ?? 0,
-        phone: '${j['phone'] ?? ''}', studentId: '${j['studentId'] ?? ''}',
+        phone: '${j['phone'] ?? ''}', studentId: '${j['studentId'] ?? ''}', studentName: '${j['studentName'] ?? ''}', photo: '${j['photo'] ?? ''}',
         msgs: [for (final m in (j['msgs'] as List? ?? const [])) ThreadMessage.fromJson(Map<String, dynamic>.from(m as Map))],
       );
   Map<String, dynamic> toJson() => {
         'id': id, 'key': key, 'name': name, 'role': role, 'kind': kind, 'pinned': pinned, 'online': online, 'unread': unread, 'subject': subject, 'members': members,
-        if (phone.isNotEmpty) 'phone': phone, if (studentId.isNotEmpty) 'studentId': studentId,
+        if (phone.isNotEmpty) 'phone': phone, if (studentId.isNotEmpty) 'studentId': studentId, if (studentName.isNotEmpty) 'studentName': studentName, if (photo.isNotEmpty) 'photo': photo,
         'msgs': [for (final m in msgs) m.toJson()],
       };
   MessageThread copyWith({bool? pinned, int? unread, String? subject, List<ThreadMessage>? msgs}) => MessageThread(
         id: id, key: key, name: name, role: role, kind: kind, pinned: pinned ?? this.pinned, online: online, unread: unread ?? this.unread,
-        subject: subject ?? this.subject, members: members, msgs: msgs ?? this.msgs, phone: phone, studentId: studentId,
+        subject: subject ?? this.subject, members: members, msgs: msgs ?? this.msgs, phone: phone, studentId: studentId, studentName: studentName, photo: photo,
       );
 
   @override
-  List<Object?> get props => [id, key, name, role, kind, pinned, online, unread, subject, members, msgs, phone, studentId];
+  List<Object?> get props => [id, key, name, role, kind, pinned, online, unread, subject, members, msgs, phone, studentId, studentName, photo];
 }
 
 /// A saved, unsent message — collection `ms_drafts`.

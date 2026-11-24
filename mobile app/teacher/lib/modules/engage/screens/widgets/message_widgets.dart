@@ -6,12 +6,14 @@ Tone kindTone(String kind) => switch (kind) { 'parent' => Tone.brand, 'staff' =>
 
 /// Avatar for a conversation / recipient; broadcast groups get a group icon tile. [size] is in design pixels.
 class RecipientAvatar extends StatelessWidget {
-  const RecipientAvatar({super.key, required this.name, required this.kind, this.online = false, this.size = 48, this.selected = false});
+  const RecipientAvatar({super.key, required this.name, required this.kind, this.online = false, this.size = 48, this.selected = false, this.image});
   final String name, kind;
   final bool online, selected;
   final double size;
+  /// The student's photo thumbnail (data URL); initials when empty.
+  final String? image;
   @override
   Widget build(BuildContext context) => kind == 'broadcast'
       ? IconTile(Icons.groups_2_outlined, size: size)
-      : Avatar(name, size: size, online: online, tone: selected ? Tone.success : kindTone(kind));
+      : Avatar(name, size: size, online: online, tone: selected ? Tone.success : kindTone(kind), image: (image ?? '').isEmpty ? null : image);
 }

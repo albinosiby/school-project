@@ -54,7 +54,7 @@ class LocalMessageRepository implements IMessageRepository {
 
   Rec _newThread(Recipient r, {required List<Rec> msgs, String subject = ''}) => MessageThread(
         key: r.id, name: r.name, role: r.broadcast ? r.extra.split(' • ').first : r.role, kind: r.kind, online: r.online, subject: subject, members: r.broadcast ? 42 : 0,
-        phone: r.phone, studentId: r.id.startsWith('g_') ? r.id.substring(2) : '',
+        phone: r.phone, studentId: r.id.startsWith('g_') ? r.id.substring(2) : '', studentName: r.studentName, photo: r.photo,
       ).toJson()
         ..remove('id')
         ..['msgs'] = msgs;
@@ -127,7 +127,7 @@ class LocalMessageRepository implements IMessageRepository {
 
   Recipient _student(Rec st) {
     final cl = _clsLabel('${st['classId']}');
-    return Recipient(id: '${st['id']}', name: '${st['name']}', role: 'Student ($cl)', kind: 'student', sub: _roll(st) == 0 ? 'Class $cl' : 'Class $cl • Roll ${_roll(st)}');
+    return Recipient(id: '${st['id']}', name: '${st['name']}', role: 'Student ($cl)', kind: 'student', sub: _roll(st) == 0 ? 'Class $cl' : 'Class $cl • Roll ${_roll(st)}', photo: '${st['photo'] ?? ''}');
   }
 
   /// Students synced from the school (Firebase mode) carry `guardianUids`; an empty list means no parent app login,
@@ -139,7 +139,7 @@ class LocalMessageRepository implements IMessageRepository {
     final uids = st['guardianUids'];
     return Recipient(
       id: 'g_${st['id']}', name: '${st['guardian']} ${'${st['name']}'.split(' ').last}', role: 'Parent ($cl)', kind: 'parent', sub: _roll(st) == 0 ? 'Parent of ${st['name']}' : 'Parent of ${st['name']} (Roll #${_roll(st)})',
-      blocked: uids is List && uids.isEmpty ? noParentLogin : '', phone: '${st['phone'] ?? ''}',
+      blocked: uids is List && uids.isEmpty ? noParentLogin : '', phone: '${st['phone'] ?? ''}', studentName: '${st['name'] ?? ''}', photo: '${st['photo'] ?? ''}',
     );
   }
 

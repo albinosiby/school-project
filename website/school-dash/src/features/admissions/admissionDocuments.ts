@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import { runTransaction } from "firebase/firestore";
+import { runTransaction, updateDoc } from "firebase/firestore";
 import { deleteObject, ref, uploadBytes } from "firebase/storage";
 import { schoolDoc, stamp } from "@/features/fees/logic";
+import { studentPhotoThumbnail } from "@/features/people/studentPhoto";
 import { auth, db, storage } from "@/lib/firebase";
 import { useCollection } from "@/lib/useCollection";
 import { certFileError } from "@/features/people/studentLogic";
@@ -75,6 +76,15 @@ export async function uploadAdmissionDocument(id: string, type: DocumentType, fi
   }));
   const replaced = previous.uploads[type];
   if (replaced) await deleteObject(ref(storage, replaced.path)).catch(() => {});
+  // the apps draw the photograph from a small thumbnail on the student record (they cannot read admission documents)
+  if (type === "photo") {
+    try {
+      const photo = await studentPhotoThumbnail(file);
+      await updateDoc(schoolDoc("students", id), { photo, ...stamp() });
+    } catch (cause) {
+      console.warn("student photo thumbnail not saved", cause);
+    }
+  }
 }
 
 export async function readAdmissionDocument(path: string) {
