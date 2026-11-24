@@ -404,31 +404,19 @@ void main() {
       expect(db.list('tk_tasks').length, before + 1);
     });
 
-    testWidgets('meeting: title min 5 and at least one agenda topic; topic duration 1..240', (t) async {
+    testWidgets('meeting: title min 5, at least one agenda point, online needs a Meet link', (t) async {
       ignoreOverflow();
       await open(t, RoutePaths.meetingSchedule);
       await type(t, field('Meeting Title'), 'Abcd');
-      await tapText(t, 'Send Invites & Schedule');
+      await tapText(t, 'Send Invitation');
       expect(await seen(t, 'Enter a meeting title (min 5 characters)'), findsOneWidget);
       expect(await seen(t, 'Add at least one agenda topic'), findsOneWidget);
-      await tap(t, find.widgetWithText(AppButton, 'Add Topic'));
-      await tap(t, find.widgetWithText(AppButton, 'Add Topic').last);
-      expect(find.text('Topic name is required'), findsOneWidget);
-      await t.enterText(field('Topic Name *'), 'Results review');
-      await tapText(t, 'Custom');
-      await t.enterText(field('Custom minutes'), '241');
-      await t.pump();
-      await tap(t, find.widgetWithText(AppButton, 'Add Topic').last);
-      expect(find.text('Enter a duration between 1 and 240 minutes'), findsOneWidget);
-      await t.enterText(field('Custom minutes'), '0');
-      await t.pump();
-      await tap(t, find.widgetWithText(AppButton, 'Add Topic').last);
-      expect(find.text('Enter a duration between 1 and 240 minutes'), findsOneWidget);
-      await t.enterText(field('Custom minutes'), '240');
-      await t.pump();
-      await tap(t, find.widgetWithText(AppButton, 'Add Topic').last);
-      expect(find.text('Enter a duration between 1 and 240 minutes'), findsNothing);
-      expect(await seen(t, 'Results review', contains: true), findsWidgets);
+      await tapText(t, 'Online');
+      await tapText(t, 'Send Invitation');
+      expect(await seen(t, 'Paste the Google Meet link'), findsOneWidget);
+      await type(t, field('Google Meet Link'), 'https://zoom.us/j/1');
+      await tapText(t, 'Send Invitation');
+      expect(await seen(t, 'Use a Google Meet link like https://meet.google.com/abc-defg-hij'), findsOneWidget);
     });
 
     testWidgets('lesson plan: title min 3, outcome min 10 (also when the title is scrolled out of view)', (t) async {

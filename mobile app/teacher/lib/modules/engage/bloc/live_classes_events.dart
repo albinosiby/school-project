@@ -1,5 +1,6 @@
 import 'package:equatable/equatable.dart';
 import '../models/live_class_models.dart';
+import '../screens/widgets/attachment_sheet.dart';
 
 sealed class LiveClassesEvent extends Equatable {
   const LiveClassesEvent();
@@ -13,11 +14,14 @@ class LiveClassesLoadRequested extends LiveClassesEvent {
 
 /// Create or update a session from the schedule form (as a draft or scheduled).
 class LiveSessionSaved extends LiveClassesEvent {
-  const LiveSessionSaved(this.session, {this.draft = false});
+  const LiveSessionSaved(this.session, {this.draft = false, this.files = const []});
   final LiveSession session;
   final bool draft;
+
+  /// Worksheets / notes picked in the form, uploaded before the session is saved.
+  final List<PickedAttachment> files;
   @override
-  List<Object?> get props => [session, draft];
+  List<Object?> get props => [session, draft, files];
 }
 
 /// Cancel an upcoming session or delete a past recording; [message] is shown afterwards.

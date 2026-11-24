@@ -199,14 +199,12 @@ void main() {
 
   testWidgets('live classes: list, tabs, schedule validation + create', (t) async {
     await pump(t, RoutePaths.liveClasses);
-    expect(find.text('Digital Sessions Manager'), findsOneWidget);
-    expect(find.text('Start Class Now'), findsOneWidget);
-    expect(find.text('Scheduled Pipeline'), findsOneWidget);
-    expect(find.text('Live & Upcoming (3)'), findsOneWidget);
-    await tapV(t, find.text('Past Recordings (12)'));
-    expect(find.text('Play Recording'), findsWidgets);
-    await tapChip(t, 'Class Schedules');
+    expect(find.text('UP NEXT'), findsOneWidget);
+    expect(find.text('Next 7 days'), findsOneWidget);
     expect(find.textContaining('Olympiad'), findsWidgets);
+    await tapV(t, find.text('Past'));
+    expect(find.textContaining('joined'), findsWidgets);
+    await tapV(t, find.text('Upcoming'));
     await tapV(t, find.text('Schedule Live Class'));
     expect(find.text('Target Class & Section'), findsOneWidget);
     await tapV(t, find.text('Schedule & Send'));
@@ -215,7 +213,7 @@ void main() {
     await t.pump();
     await tapV(t, find.text('Schedule & Send'));
     expect(db.list('lv_sessions').where((e) => e['title'] == 'Algebra revision clinic'), hasLength(1));
-    expect(find.text('Digital Sessions Manager'), findsOneWidget);
+    expect(find.text('UP NEXT'), findsOneWidget);
   });
 
   testWidgets('live class lobby -> in-class -> end', (t) async {
@@ -245,29 +243,32 @@ void main() {
     expect(find.text('Apply stub'), findsOneWidget);
   });
 
-  testWidgets('meetings: list, schedule validation, add topic, create', (t) async {
+  testWidgets('meetings: list, schedule validation, agenda points, create', (t) async {
     await pump(t, RoutePaths.meetings);
-    expect(find.text('All Meetings (3)'), findsOneWidget);
-    expect(find.text('Start / Join Meet', skipOffstage: false), findsWidgets);
-    expect(find.text('3 Key Topics', skipOffstage: false), findsWidgets);
-    await tapChip(t, 'Completed (1)');
+    expect(find.text('Upcoming'), findsWidgets);
+    expect(find.textContaining('AGENDA •', skipOffstage: false), findsWidgets);
+    await tapV(t, find.text('Completed').last);
     expect(find.text('Term 1 Result Discussion'), findsOneWidget);
     await tapV(t, find.text('Schedule Meeting'));
-    await tapV(t, find.text('Send Invites & Schedule'));
+    await tapV(t, find.text('Send Invitation'));
     expect(find.textContaining('Enter a meeting title'), findsOneWidget);
+    await t.enterText(find.descendant(of: find.widgetWithText(AppTextField, 'Meeting Title'), matching: find.byType(TextFormField)), 'Pre-board parent briefing');
     await t.scrollUntilVisible(find.text('Add at least one agenda topic'), 300, scrollable: find.byType(Scrollable).first);
     expect(find.text('Add at least one agenda topic'), findsOneWidget);
-    await t.enterText(find.byType(TextFormField).first, 'Pre-board parent briefing');
-    await t.fling(find.byType(Scrollable).first, const Offset(0, 3000), 5000);
+    await t.enterText(find.widgetWithText(TextField, 'Add another point').evaluate().isEmpty ? find.widgetWithText(TextField, 'Type a discussion point') : find.widgetWithText(TextField, 'Add another point'), 'Board exam tips');
+    await t.testTextInput.receiveAction(TextInputAction.done);
     await t.pumpAndSettle();
-    await tapV(t, find.text('Add Topic'));
-    await tapV(t, find.text('Add Topic').last);
-    expect(find.text('Topic name is required'), findsOneWidget);
-    await t.enterText(find.descendant(of: find.byType(BottomSheet), matching: find.byType(TextFormField)).first, 'Board exam tips');
-    await tapV(t, find.text('Add Topic').last);
-    expect(find.textContaining('Board exam tips', skipOffstage: false), findsOneWidget);
-    await tapV(t, find.text('Send Invites & Schedule'));
-    expect(db.list('pm_meetings').where((e) => e['title'] == 'Pre-board parent briefing'), hasLength(1));
+    await t.enterText(find.widgetWithText(TextField, 'Add another point'), 'Revision timetable');
+    await tapV(t, find.widgetWithText(TextButton, 'Add'));
+    expect(find.text('Board exam tips', skipOffstage: false), findsOneWidget);
+    expect(find.text('Revision timetable', skipOffstage: false), findsOneWidget);
+    await t.enterText(find.descendant(of: find.byKey(const ValueKey('venue')), matching: find.byType(TextFormField)), 'Room 12');
+    await tapV(t, find.text('Send Invitation'));
+    final saved = db.list('pm_meetings').where((e) => e['title'] == 'Pre-board parent briefing').toList();
+    expect(saved, hasLength(1));
+    expect([for (final a in saved.single['agenda'] as List) (a as Map)['title']], ['Board exam tips', 'Revision timetable']);
+    expect(saved.single['format'], 'In-Person Meeting');
+    expect(saved.single['venue'], 'Room 12');
   });
 
   testWidgets('meeting lobby and room: admit, chat, mute all, end meeting', (t) async {

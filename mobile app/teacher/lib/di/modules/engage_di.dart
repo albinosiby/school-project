@@ -47,7 +47,7 @@ void registerEngageModule(GetIt getIt) {
   });
 
   // BLoCs (one instance per screen)
-  getIt.registerFactory<LiveClassesBloc>(() => LiveClassesBloc(getIt<ILiveClassRepository>(), getIt<IMeetSchedulingRepository>()));
+  getIt.registerFactory<LiveClassesBloc>(() => LiveClassesBloc(getIt<ILiveClassRepository>(), getIt<IMeetSchedulingRepository>(), getIt<IChatMediaRepository>()));
   getIt.registerFactory<LeaveBloc>(() => LeaveBloc(getIt<ILeaveRepository>(), getIt<ISchoolRepository>()));
   getIt.registerFactory<MeetingsBloc>(() => MeetingsBloc(getIt<IMeetingRepository>()));
   getIt.registerFactory<MeetingRoomBloc>(() => MeetingRoomBloc(getIt<IMeetingRepository>(), getIt<ISchoolRepository>()));

@@ -5,7 +5,9 @@ import '../../../../config/routes/routes.dart';
 import '../../../../design_system/design_system.dart';
 import '../../../../utils/helpers/date_helper.dart';
 import '../../../school/models/school_models.dart';
+import '../../../../utils/services/document_opener.dart';
 import '../../bloc/engage_notice.dart';
+import '../../models/attachment_models.dart';
 
 /// Pops the screen, or goes home when it was opened directly.
 void engageBack(BuildContext context) => context.canPop() ? context.pop() : context.go(RoutePaths.home);
@@ -47,8 +49,11 @@ class IdxChips extends StatelessWidget {
   final int index;
   final ValueChanged<int> onChanged;
   @override
-  Widget build(BuildContext context) =>
-      FilterChips(items: items, value: items[index.clamp(0, items.length - 1)], onChanged: (v) => onChanged(items.indexOf(v)));
+  Widget build(BuildContext context) => FilterChips(
+    items: items,
+    value: items[index.clamp(0, items.length - 1)],
+    onChanged: (v) => onChanged(items.indexOf(v)),
+  );
 }
 
 /// Grey caption above a form control.
@@ -112,7 +117,14 @@ class FormCard extends StatelessWidget {
 
 /// Date + start time pick tiles side by side.
 class DateTimeFields extends StatelessWidget {
-  const DateTimeFields({super.key, required this.date, required this.time, required this.onDate, required this.onTime, this.year = false});
+  const DateTimeFields({
+    super.key,
+    required this.date,
+    required this.time,
+    required this.onDate,
+    required this.onTime,
+    this.year = false,
+  });
   final String date, time;
   final ValueChanged<String> onDate, onTime;
   final bool year;
@@ -189,7 +201,12 @@ class OrganizerRow extends StatelessWidget {
                   Icon(Icons.verified_rounded, size: 16.r, color: C.primary),
                 ],
               ),
-              Text('Lead Organizer • ${teacher?.title ?? ''}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(
+                'Lead Organizer • ${teacher?.title ?? ''}',
+                style: T.small,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),
@@ -199,7 +216,13 @@ class OrganizerRow extends StatelessWidget {
 }
 
 /// Bottom sheet asking for a short text; returns null when cancelled.
-Future<String?> askText(BuildContext context, {required String title, String? hint, String confirm = 'Save', bool required = false}) {
+Future<String?> askText(
+  BuildContext context, {
+  required String title,
+  String? hint,
+  String confirm = 'Save',
+  bool required = false,
+}) {
   final c = TextEditingController();
   String? err;
   return showAppSheet<String>(
@@ -255,4 +278,14 @@ class EngageStatusBody extends StatelessWidget {
     EngageStatus.loaded => Center(child: AppEmptyState(notFound ?? 'Not found', icon: Icons.search_off_rounded)),
     _ => const SchoolSkeletonList(),
   };
+}
+
+/// Downloads [f] (once, into the app cache) and opens it in the phone's viewer app.
+Future<void> openFileRef(BuildContext context, FileRef f) async {
+  if (!f.url.startsWith('http')) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  messenger?.showSnackBar(SnackBar(content: Text('Opening ${f.name}…'), duration: const Duration(seconds: 20)));
+  final err = await openDocument(url: f.url, name: f.name, key: f.path);
+  messenger?.hideCurrentSnackBar();
+  if (err != null && context.mounted) showNotice(context, err, error: true);
 }

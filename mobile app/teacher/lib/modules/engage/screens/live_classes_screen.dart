@@ -19,14 +19,25 @@ import 'widgets/engage_widgets.dart';
 String _editPath(LiveSession e) => '${RoutePaths.liveClassSchedule}?id=${e.id}';
 String _span(LiveSession e) => '${fmtTime(e.time)} – ${fmtTime(addMins(e.time, e.mins))}';
 
-/// Live classes hub (Figma 1153:4722): live & upcoming, past recordings and the class schedule.
+/// "Today", "Tomorrow", else "Wednesday, 26 Nov".
+String _dayLabel(String iso) {
+  final d = fmtDay(iso);
+  return d == 'Today' || d == 'Tomorrow' ? d : fmtDate(iso).replaceFirst(RegExp(r'^\w+,'), '$d,');
+}
+
+String _className(BuildContext context, LiveSession e) {
+  final c = context.read<SchoolBloc>().state.classById(e.classId);
+  return c == null ? e.audience : classLabel(c);
+}
+
+/// Live classes hub: the next session up front, then upcoming by day, drafts and past sessions.
 class LiveClassesScreen extends StatelessWidget {
   const LiveClassesScreen({super.key});
   @override
   Widget build(BuildContext context) => BlocProvider(
-        create: (_) => getIt<LiveClassesBloc>()..add(const LiveClassesLoadRequested()),
-        child: const NoticeListener<LiveClassesBloc, LiveClassesState>(child: _LiveClassesView()),
-      );
+    create: (_) => getIt<LiveClassesBloc>()..add(const LiveClassesLoadRequested()),
+    child: const NoticeListener<LiveClassesBloc, LiveClassesState>(child: _LiveClassesView()),
+  );
 }
 
 class _LiveClassesView extends StatefulWidget {
@@ -36,92 +47,190 @@ class _LiveClassesView extends StatefulWidget {
 }
 
 class _LiveClassesViewState extends State<_LiveClassesView> {
-  int tab = 0;
+  String tab = 'Upcoming';
 
   @override
   Widget build(BuildContext context) {
     final st = context.watch<LiveClassesBloc>().state;
-    final up = st.upcoming, past = st.past;
-    final tabs = ['Live & Upcoming (${up.length})', 'Past Recordings (${past.length})', 'Class Schedules'];
+    final now = DateTime.now();
+    final up = [
+      for (final e in st.upcoming)
+        if (!e.isDraft && e.phase(now) != LivePhase.ended) e,
+    ];
+    final drafts = [
+      for (final e in st.upcoming)
+        if (e.isDraft) e,
+    ];
+    final past = [
+      ...st.past,
+      for (final e in st.upcoming)
+        if (!e.isDraft && e.phase(now) == LivePhase.ended) e,
+    ]..sort((a, b) => b.sortKey.compareTo(a.sortKey));
+    final today = todayIso(), weekEnd = plusDays(7);
+    final todayCount = up.where((e) => e.date == today).length;
+    final weekCount = up.where((e) => e.date.compareTo(weekEnd) <= 0).length;
+
     final List<Widget> body = switch (tab) {
-      0 => [
-          if (up.isEmpty) const AppEmptyState('No upcoming sessions', hint: 'Tap Schedule Live Class to create one.', icon: Icons.videocam_off_outlined),
-          if (up.isNotEmpty) _Hero(up.first),
-          if (up.length > 1) ...[const _PipelineHeader(), for (final e in up.skip(1)) _PipelineCard(e)],
+      'Drafts' => [
+        if (drafts.isEmpty)
+          const AppEmptyState(
+            'No drafts',
+            hint: 'Sessions saved with Save Draft wait here.',
+            icon: Icons.edit_note_rounded,
+          ),
+        for (final e in drafts) _SessionTile(e),
+      ],
+      'Past' => [
+        if (past.isEmpty) const AppEmptyState('No past sessions yet', icon: Icons.history_rounded),
+        ..._byDay(past, (e) => _SessionTile(e, past: true)),
+      ],
+      _ => [
+        if (up.isEmpty)
+          const AppEmptyState(
+            'No upcoming sessions',
+            hint: 'Tap Schedule Live Class to create one.',
+            icon: Icons.videocam_off_outlined,
+          )
+        else ...[
+          _SectionLabel('Up next'),
+          _NextCard(up.first),
+          if (up.length > 1) ..._byDay(up.skip(1).toList(), (e) => _SessionTile(e)),
         ],
-      1 => [
-          if (past.isEmpty) const AppEmptyState('No recordings yet', icon: Icons.video_library_outlined),
-          for (final e in past) _PastCard(e),
-        ],
-      _ => _schedule(up),
+      ],
     };
+
     return DetailScaffold(
       title: 'Live Classes',
-      bottom: AppButton('Schedule Live Class', icon: Icons.add_rounded, onPressed: () => context.push(RoutePaths.liveClassSchedule)),
+      bottom: AppButton(
+        'Schedule Live Class',
+        icon: Icons.add_rounded,
+        onPressed: () => context.push(RoutePaths.liveClassSchedule),
+      ),
       body: st.status != EngageStatus.loaded
-          ? EngageStatusBody(status: st.status, error: st.error, onRetry: () => context.read<LiveClassesBloc>().add(const LiveClassesLoadRequested()))
-          : ListView(padding: EdgeInsets.all(S.page), children: [
-              Row(children: [
-                const IconTile(Icons.cast_for_education_outlined),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('VIRTUAL CLASSROOM HUB', style: T.capsMuted.copyWith(fontSize: 10.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text('Digital Sessions Manager', style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ]),
-                ),
-              ]),
-              SizedBox(height: 14.h),
-              IdxChips(items: tabs, index: tab, onChanged: (i) => setState(() => tab = i)),
-              SizedBox(height: 14.h),
-              ...body,
-              SizedBox(height: 8.h),
-            ]),
+          ? EngageStatusBody(
+              status: st.status,
+              error: st.error,
+              onRetry: () => context.read<LiveClassesBloc>().add(const LiveClassesLoadRequested()),
+            )
+          : RefreshIndicator(
+              onRefresh: () async => context.read<LiveClassesBloc>().add(const LiveClassesLoadRequested()),
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, S.page),
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _Stat(value: todayCount, label: 'Today', icon: Icons.today_rounded, tone: Tone.brand),
+                      ),
+                      SizedBox(width: 10.w),
+                      Expanded(
+                        child: _Stat(
+                          value: weekCount,
+                          label: 'Next 7 days',
+                          icon: Icons.date_range_rounded,
+                          tone: Tone.purple,
+                        ),
+                      ),
+                      SizedBox(width: 10.w),
+                      Expanded(
+                        child: _Stat(
+                          value: drafts.length,
+                          label: 'Drafts',
+                          icon: Icons.edit_note_rounded,
+                          tone: Tone.warning,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 14.h),
+                  AppSegmented(
+                    track: true,
+                    items: ['Upcoming', 'Drafts', 'Past'],
+                    value: tab,
+                    onChanged: (v) => setState(() => tab = v),
+                  ),
+                  SizedBox(height: 6.h),
+                  ...body,
+                  SizedBox(height: 8.h),
+                ],
+              ),
+            ),
     );
   }
 
-  List<Widget> _schedule(List<LiveSession> rows) {
-    if (rows.isEmpty) return [const AppEmptyState('Nothing scheduled', icon: Icons.event_busy_outlined)];
+  /// Rows under a day heading each time the date changes.
+  List<Widget> _byDay(List<LiveSession> rows, Widget Function(LiveSession) tile) {
     final out = <Widget>[];
     String? last;
     for (final e in rows) {
       if (e.date != last) {
-        out.add(SectionHeader('${fmtDay(e.date)} • ${fmtDate(e.date)}', caps: true));
+        out.add(_SectionLabel(_dayLabel(e.date)));
         last = e.date;
       }
-      out.add(Padding(
-        padding: EdgeInsets.only(bottom: 10.h),
-        child: AppCard(
-          padding: EdgeInsets.all(12.w),
-          onTap: () => context.push(_editPath(e)),
-          child: Row(children: [
-            IconTile(Icons.videocam_outlined, tone: e.isDraft ? Tone.warning : Tone.brand),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(e.title, style: T.bodyStrong, maxLines: 2, overflow: TextOverflow.ellipsis),
-                Text('${_span(e)} • ${e.audience}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-              ]),
-            ),
-            if (e.isDraft) ...[SizedBox(width: 6.w), const Pill('Draft', tone: Tone.warning)],
-          ]),
-        ),
-      ));
+      out.add(tile(e));
     }
     return out;
   }
 }
 
-class _PipelineHeader extends StatelessWidget {
-  const _PipelineHeader();
+class _SectionLabel extends StatelessWidget {
+  const _SectionLabel(this.text);
+  final String text;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.fromLTRB(2.w, 22.h, 2.w, 12.h),
-        child: Row(children: [
-          Expanded(child: Text('Scheduled Pipeline', style: T.h2, maxLines: 1, overflow: TextOverflow.ellipsis)),
-          const Pill('Term 2 Active', tone: Tone.brand, dot: true),
-        ]),
-      );
+    padding: EdgeInsets.fromLTRB(2.w, 16.h, 2.w, 8.h),
+    child: Text(
+      text.toUpperCase(),
+      style: T.capsMuted.copyWith(fontSize: 11.sp, letterSpacing: .6),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+  );
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.value, required this.label, required this.icon, required this.tone});
+  final int value;
+  final String label;
+  final IconData icon;
+  final Tone tone;
+  @override
+  Widget build(BuildContext context) {
+    final c = toneColors(tone);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 10.h),
+      decoration: BoxDecoration(
+        color: C.bg,
+        borderRadius: BorderRadius.circular(R.lg),
+        border: Border.all(color: C.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 30.r,
+            height: 30.r,
+            decoration: BoxDecoration(color: c.bg, borderRadius: BorderRadius.circular(R.sm)),
+            child: Icon(icon, size: 16.r, color: c.fg),
+          ),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$value', style: T.h3.copyWith(height: 1.1)),
+                Text(
+                  label,
+                  style: T.small.copyWith(fontSize: 10.5.sp),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 Future<void> _copyLink(BuildContext context, LiveSession e) async {
@@ -130,170 +239,347 @@ Future<void> _copyLink(BuildContext context, LiveSession e) async {
   if (context.mounted) showNotice(context, 'Student link copied');
 }
 
-class _Hero extends StatelessWidget {
-  const _Hero(this.e);
-  final LiveSession e;
-  @override
-  Widget build(BuildContext context) {
-    final joined = e.joined, total = e.total;
-    final tag = e.isDraft ? 'DRAFT' : (e.tag.isEmpty ? '${fmtDay(e.date)} • ${fmtTime(e.time)}'.toUpperCase() : e.tag);
-    return AppCard(
-      padding: EdgeInsets.all(16.w), radius: R.xxl,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Align(alignment: Alignment.centerLeft, child: Pill(tag, tone: e.isDraft ? Tone.warning : Tone.brand, dot: true))),
-          SizedBox(width: 8.w),
-          Flexible(child: Pill(e.room, tone: Tone.neutral)),
-        ]),
-        SizedBox(height: 12.h),
-        Text(e.title, style: T.h1, maxLines: 3, overflow: TextOverflow.ellipsis),
-        SizedBox(height: 8.h),
-        Row(children: [
-          Icon(Icons.schedule_rounded, size: 16.r, color: C.primary), SizedBox(width: 6.w),
-          Expanded(child: Text('${fmtDay(e.date)}, ${_span(e)} (${e.mins} mins)', style: T.body.copyWith(color: C.ink, fontSize: 13.sp), maxLines: 2, overflow: TextOverflow.ellipsis)),
-        ]),
-        SizedBox(height: 12.h),
-        Container(
-          padding: EdgeInsets.all(12.w),
-          decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md), border: Border.all(color: C.border)),
-          child: Row(children: [
-            Icon(Icons.videocam_outlined, size: 16.r, color: C.slate), SizedBox(width: 6.w),
-            Expanded(child: Text(e.medium, style: T.small.copyWith(color: C.ink), maxLines: 1, overflow: TextOverflow.ellipsis)),
-            if (e.studentShare) ...[
-              Icon(Icons.screen_share_outlined, size: 16.r, color: C.primary), SizedBox(width: 6.w),
-              Text('Screen Share On', style: T.small.copyWith(color: C.primary)),
-            ],
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        Row(children: [
-          const AvatarStack(names: ['Aarav S', 'Diya M', 'Kabir N'], size: 32),
-          SizedBox(width: 6.w),
-          if (total > 3) Text('+${(joined - 3).clamp(0, 999)}', style: T.small),
-          const Spacer(),
-          Flexible(
-            flex: 4,
-            child: Text.rich(
-              TextSpan(children: [TextSpan(text: '$joined of $total', style: T.bodyStrong), TextSpan(text: ' Joined', style: T.small.copyWith(color: C.ink))]),
-              maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.end,
-            ),
-          ),
-        ]),
-        SizedBox(height: 10.h),
-        AppProgress(total == 0 ? 0 : joined / total),
-        SizedBox(height: 14.h),
-        if (isMeet(e)) ...[
-          _MeetButtons(e),
-          SizedBox(height: 10.h),
-        ] else ...[
-          AppButton('Start Class Now', icon: Icons.videocam_rounded, onPressed: () => context.push(RoutePaths.liveClassJoin(e.id))),
-          SizedBox(height: 10.h),
-        ],
-        AppButton('Copy Student Link', icon: Icons.copy_rounded, kind: BtnKind.outline, onPressed: () => _copyLink(context, e)),
-        SizedBox(height: 4.h),
-        Center(child: TextButton(onPressed: () => context.push(_editPath(e)), child: const Text('Edit session'))),
-      ]),
+Future<void> _cancel(BuildContext context, LiveSession e, {bool past = false}) async {
+  final ok = await confirmAction(
+    context,
+    title: past ? 'Delete session?' : 'Cancel session?',
+    message: past ? 'This removes "${e.title}" from your history.' : 'This removes "${e.title}" from your schedule.',
+    confirm: past ? 'Delete' : 'Cancel session',
+    danger: true,
+  );
+  if (ok && context.mounted) {
+    context.read<LiveClassesBloc>().add(
+      LiveSessionDeleted(e.id, message: past ? 'Session deleted' : 'Session cancelled'),
     );
   }
 }
 
-/// Join (enabled from 10 minutes before the start until the end) and Share for a Google Meet session.
-class _MeetButtons extends StatelessWidget {
-  const _MeetButtons(this.e, {this.small = false});
+/// Edit / copy link / share / cancel menu shared by the cards.
+class _Menu extends StatelessWidget {
+  const _Menu(this.e, {this.past = false, this.light = false});
   final LiveSession e;
-  final bool small;
+  final bool past, light;
+  @override
+  Widget build(BuildContext context) => PopupMenuButton<String>(
+    tooltip: 'More',
+    icon: Icon(Icons.more_vert_rounded, color: light ? Colors.white : C.slate, size: 20.r),
+    onSelected: (v) => switch (v) {
+      'edit' => context.push(_editPath(e)),
+      'copy' => _copyLink(context, e),
+      'share' => shareToWhatsApp(context, e, className: _className(context, e)),
+      _ => _cancel(context, e, past: past),
+    },
+    itemBuilder: (_) => [
+      if (!past) const PopupMenuItem(value: 'edit', child: Text('Edit session')),
+      if (!past && !e.isDraft) const PopupMenuItem(value: 'copy', child: Text('Copy student link')),
+      if (!past && !e.isDraft && isMeet(e)) const PopupMenuItem(value: 'share', child: Text('Share on WhatsApp')),
+      PopupMenuItem(
+        value: 'cancel',
+        child: Text(
+          past ? 'Delete' : (e.isDraft ? 'Discard draft' : 'Cancel session'),
+          style: TextStyle(color: C.danger),
+        ),
+      ),
+    ],
+  );
+}
+
+/// The next session: big gradient card with the countdown, Join and Share.
+class _NextCard extends StatelessWidget {
+  const _NextCard(this.e);
+  final LiveSession e;
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
     final open = e.canJoin(now);
-    final cls = context.watch<SchoolBloc>().state.classById(e.classId);
-    final className = cls == null ? e.classId : classLabel(cls);
-    final join = AppButton(open ? 'Join Google Meet' : e.statusLabel(now), icon: open ? Icons.videocam_rounded : Icons.schedule_rounded, small: small, expand: !small, onPressed: open ? () => joinMeet(context, e) : null);
-    final share = AppButton('Share to WhatsApp', icon: Icons.share_rounded, kind: BtnKind.outline, small: small, expand: !small, onPressed: () => shareToWhatsApp(context, e, className: className));
-    if (small) return Wrap(spacing: 8.w, runSpacing: 8.h, children: [join, share]);
-    return Column(children: [join, SizedBox(height: 10.h), share, SizedBox(height: 10.h), JoinedCount(e.joined)]);
-  }
-}
-
-class _PipelineCard extends StatelessWidget {
-  const _PipelineCard(this.e);
-  final LiveSession e;
-  @override
-  Widget build(BuildContext context) {
-    final mat = e.material;
-    return Padding(
-      padding: EdgeInsets.only(bottom: 12.h),
-      child: AppCard(
-        padding: EdgeInsets.all(14.w), radius: R.xl,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Flexible(child: Pill('${fmtDay(e.date)} • ${fmtTime(e.time)}', tone: Tone.brand, icon: Icons.event_outlined)),
-            if (e.isDraft) ...[SizedBox(width: 6.w), const Pill('Draft', tone: Tone.warning)],
-            const Spacer(),
-            Text('${e.mins} mins', style: T.small),
-          ]),
-          SizedBox(height: 10.h),
-          Text(e.title, style: T.h2, maxLines: 2, overflow: TextOverflow.ellipsis),
-          SizedBox(height: 4.h),
-          Text(e.audience, style: T.body.copyWith(fontSize: 13.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
-          if (e.cohost.isNotEmpty) ...[
-            SizedBox(height: 8.h),
-            Row(children: [
-              const Pill('AM', tone: Tone.purple), SizedBox(width: 8.w),
-              Expanded(child: Text('Co-host: ${e.cohost}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis)),
-            ]),
-          ],
-          if (mat != null) ...[SizedBox(height: 10.h), AppFileChip(name: mat.name, size: mat.size)],
-          if (isMeet(e) && !e.isDraft) ...[SizedBox(height: 10.h), _MeetButtons(e, small: true), SizedBox(height: 8.h), JoinedCount(e.joined)],
-          SizedBox(height: 12.h),
-          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            TextButton(
-              style: TextButton.styleFrom(minimumSize: Size(44.w, 44.h)),
-              onPressed: () async {
-                final ok = await confirmAction(context, title: 'Cancel session?', message: 'This removes "${e.title}" from your schedule.', confirm: 'Cancel session', danger: true);
-                if (ok && context.mounted) context.read<LiveClassesBloc>().add(LiveSessionDeleted(e.id, message: 'Session cancelled'));
-              },
-              child: Text('Cancel', style: T.bodyStrong.copyWith(color: C.danger, fontSize: 13.sp)),
+    final live = e.phase(now) == LivePhase.open && !now.isBefore(e.start ?? now);
+    final white70 = Colors.white.withValues(alpha: .78);
+    Widget meta(IconData icon, String text) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14.r, color: white70),
+        SizedBox(width: 5.w),
+        Flexible(
+          child: Text(
+            text,
+            style: T.small.copyWith(color: Colors.white, fontSize: 12.sp),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+    return Container(
+      decoration: BoxDecoration(
+        color: C.bg,
+        borderRadius: BorderRadius.circular(R.xl),
+        border: Border.all(color: C.border),
+        boxShadow: [BoxShadow(color: C.primary.withValues(alpha: .12), blurRadius: 18, offset: const Offset(0, 6))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: EdgeInsets.fromLTRB(16.w, 12.h, 4.w, 16.h),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [C.primary, C.primaryDark],
+              ),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(R.xl)),
             ),
-            SizedBox(width: 8.w),
-            AppButton('Edit Session', kind: BtnKind.soft, small: true, expand: false, onPressed: () => context.push(_editPath(e))),
-          ]),
-        ]),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 10.w, vertical: 5.h),
+                      decoration: BoxDecoration(
+                        color: live ? C.danger : Colors.white.withValues(alpha: .18),
+                        borderRadius: BorderRadius.circular(R.pill),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6.r,
+                            height: 6.r,
+                            decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                          ),
+                          SizedBox(width: 6.w),
+                          Text(
+                            e.statusLabel(now),
+                            style: T.smallStrong.copyWith(color: Colors.white, fontSize: 11.5.sp),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    _Menu(e, light: true),
+                  ],
+                ),
+                SizedBox(height: 10.h),
+                Padding(
+                  padding: EdgeInsets.only(right: 12.w),
+                  child: Text(
+                    e.title,
+                    style: T.h2.copyWith(color: Colors.white),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                SizedBox(height: 4.h),
+                Text(
+                  [if (e.subject.isNotEmpty) e.subject, _className(context, e)].join(' • '),
+                  style: T.small.copyWith(color: white70, fontSize: 12.5.sp),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                SizedBox(height: 12.h),
+                Wrap(
+                  spacing: 14.w,
+                  runSpacing: 6.h,
+                  children: [
+                    meta(Icons.event_rounded, _dayLabel(e.date)),
+                    meta(Icons.schedule_rounded, '${_span(e)} • ${e.mins} min'),
+                    meta(Icons.videocam_outlined, e.medium),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.all(14.w),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (e.category.isNotEmpty || e.materials.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6.w,
+                    runSpacing: 6.h,
+                    children: [
+                      if (e.category.isNotEmpty) Pill(e.category, tone: Tone.neutral),
+                      if (e.notify)
+                        const Pill('Parents notified', tone: Tone.success, icon: Icons.notifications_active_outlined),
+                    ],
+                  ),
+                  SizedBox(height: 10.h),
+                ],
+                for (final m in e.materials) ...[
+                  AppFileChip(
+                    name: m.name,
+                    size: m.size,
+                    onTap: m.url.startsWith('http') ? () => openFileRef(context, m) : null,
+                  ),
+                  SizedBox(height: 8.h),
+                ],
+                if (isMeet(e)) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 3,
+                        child: AppButton(
+                          open ? 'Join Google Meet' : e.statusLabel(now),
+                          icon: open ? Icons.videocam_rounded : Icons.schedule_rounded,
+                          onPressed: open ? () => joinMeet(context, e) : null,
+                        ),
+                      ),
+                      SizedBox(width: 10.w),
+                      Expanded(
+                        flex: 2,
+                        child: AppButton(
+                          'Share to WhatsApp',
+                          icon: Icons.share_rounded,
+                          kind: BtnKind.outline,
+                          onPressed: () => shareToWhatsApp(context, e, className: _className(context, e)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 10.h),
+                  JoinedCount(e.joined),
+                ] else ...[
+                  AppButton(
+                    'Start Class Now',
+                    icon: Icons.videocam_rounded,
+                    onPressed: () => context.push(RoutePaths.liveClassJoin(e.id)),
+                  ),
+                  SizedBox(height: 8.h),
+                  AppButton(
+                    'Copy Student Link',
+                    icon: Icons.copy_rounded,
+                    kind: BtnKind.outline,
+                    onPressed: () => _copyLink(context, e),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _PastCard extends StatelessWidget {
-  const _PastCard(this.e);
+/// Compact row: date block, title, subject • class, time and notes; Join appears when the room is open.
+class _SessionTile extends StatelessWidget {
+  const _SessionTile(this.e, {this.past = false});
   final LiveSession e;
+  final bool past;
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: EdgeInsets.only(bottom: 12.h),
-        child: AppCard(
-          padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Flexible(child: Pill(fmtDate(e.date, year: true), tone: Tone.neutral, icon: Icons.event_outlined)),
-              const Spacer(),
-              Text('${e.mins} mins', style: T.small),
-            ]),
-            SizedBox(height: 8.h),
-            Text(e.title, style: T.h3, maxLines: 2, overflow: TextOverflow.ellipsis),
-            Text('${e.audience} • ${e.joined} attended', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-            SizedBox(height: 10.h),
-            Row(children: [
-              Expanded(
-                child: AppButton(e.record ? 'Play Recording' : 'No recording', icon: Icons.play_circle_outline_rounded, kind: BtnKind.soft, small: true,
-                    onPressed: e.record ? () => showNotice(context, 'Playing recording (simulated)') : null),
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final d = parseIso(e.date);
+    final open = !past && e.canJoin(now);
+    final tone = e.isDraft ? Tone.warning : (past ? Tone.neutral : Tone.brand);
+    final c = toneColors(tone);
+    final status = e.isDraft
+        ? const Pill('Draft', tone: Tone.warning)
+        : past
+        ? Pill('${e.joined} joined', tone: Tone.neutral, icon: Icons.how_to_reg_outlined)
+        : Pill(e.statusLabel(now), tone: open ? Tone.success : Tone.brand);
+    return Padding(
+      padding: EdgeInsets.only(bottom: 10.h),
+      child: AppCard(
+        padding: EdgeInsets.fromLTRB(12.w, 12.h, 2.w, 12.h),
+        onTap: past ? null : () => context.push(_editPath(e)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 48.r,
+                  padding: EdgeInsets.symmetric(vertical: 6.h),
+                  decoration: BoxDecoration(color: c.bg, borderRadius: BorderRadius.circular(R.md)),
+                  child: Column(
+                    children: [
+                      Text(d == null ? '' : '${d.day}', style: T.h3.copyWith(color: c.fg, height: 1.1)),
+                      Text(
+                        d == null
+                            ? ''
+                            : const [
+                                'JAN',
+                                'FEB',
+                                'MAR',
+                                'APR',
+                                'MAY',
+                                'JUN',
+                                'JUL',
+                                'AUG',
+                                'SEP',
+                                'OCT',
+                                'NOV',
+                                'DEC',
+                              ][d.month - 1],
+                        style: T.small.copyWith(color: c.fg, fontSize: 10.sp, fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(width: 12.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(e.title, style: T.bodyStrong, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      SizedBox(height: 2.h),
+                      Text(
+                        [if (e.subject.isNotEmpty) e.subject, _className(context, e)].join(' • '),
+                        style: T.small,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: 6.h),
+                      Row(
+                        children: [
+                          Icon(Icons.schedule_rounded, size: 13.r, color: C.slate),
+                          SizedBox(width: 4.w),
+                          Flexible(
+                            child: Text(
+                              _span(e),
+                              style: T.small.copyWith(color: C.ink, fontSize: 11.5.sp),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (e.materials.isNotEmpty) ...[
+                            SizedBox(width: 10.w),
+                            Icon(Icons.attach_file_rounded, size: 13.r, color: C.slate),
+                            SizedBox(width: 2.w),
+                            Text('${e.materials.length}', style: T.small.copyWith(fontSize: 11.5.sp)),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                _Menu(e, past: past),
+              ],
+            ),
+            Padding(
+              padding: EdgeInsets.only(left: 60.w, top: 8.h, right: 10.w),
+              child: Row(
+                children: [
+                  Flexible(child: status),
+                  const Spacer(),
+                  if (open)
+                    AppButton(
+                      'Join',
+                      icon: Icons.videocam_rounded,
+                      small: true,
+                      expand: false,
+                      onPressed: () => isMeet(e) ? joinMeet(context, e) : context.push(RoutePaths.liveClassJoin(e.id)),
+                    ),
+                ],
               ),
-              SizedBox(width: 10.w),
-              AppButton('Delete', kind: BtnKind.ghost, small: true, expand: false, onPressed: () async {
-                final ok = await confirmAction(context, title: 'Delete recording?', message: 'This cannot be undone.', confirm: 'Delete', danger: true);
-                if (ok && context.mounted) context.read<LiveClassesBloc>().add(LiveSessionDeleted(e.id, message: 'Recording deleted'));
-              }),
-            ]),
-          ]),
+            ),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }

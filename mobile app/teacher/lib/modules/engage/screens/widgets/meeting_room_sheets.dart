@@ -235,7 +235,7 @@ Future<void> showAgendaSheet(BuildContext context, MeetingRoomBloc bloc) => show
             contentPadding: EdgeInsets.zero,
             leading: CircleAvatar(radius: 14.r, backgroundColor: C.primarySoft, child: Text('${i + 1}', style: T.small.copyWith(color: C.primary))),
             title: Text(agenda[i].title, style: T.bodyStrong, maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: Text('${agenda[i].mins} mins', style: T.small),
+            subtitle: agenda[i].mins > 0 ? Text('${agenda[i].mins} mins', style: T.small) : null,
           ),
         SizedBox(height: 8.h),
         AppButton('Add Topic', icon: Icons.add_rounded, kind: BtnKind.soft, onPressed: () async {

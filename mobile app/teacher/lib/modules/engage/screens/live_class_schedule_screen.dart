@@ -13,7 +13,9 @@ import '../bloc/live_classes_states.dart';
 import '../models/attachment_models.dart';
 import '../models/live_class_models.dart';
 import '../models/live_class_rules.dart';
+import 'widgets/attachment_sheet.dart';
 import 'widgets/engage_widgets.dart';
+import 'widgets/form_steps.dart';
 
 /// Schedule (or edit, with [editId]) a live class (Figma 1153:5033).
 class LiveClassScheduleScreen extends StatelessWidget {
@@ -37,13 +39,21 @@ class _ScheduleFormState extends State<_ScheduleForm> {
   final _key = GlobalKey<FormState>();
   final _title = TextEditingController();
   final _link = TextEditingController();
-  String classId = 'cls_10B', subject = 'Mathematics', category = 'Doubt Clearing', date = _defaultDate(), time = '16:30', medium = liveMedia(AppConfig.backend).last;
+  String classId = '',
+      subject = '',
+      category = 'Doubt Clearing',
+      date = _defaultDate(),
+      time = '16:30',
+      medium = liveMedia(AppConfig.backend).last;
   int mins = 45;
   bool record = true, mute = true, share = false, notify = true, filled = false, calendarSync = true;
 
   /// Meet room created in the app for this form, and the calendar event of the session being edited.
   String meetSpace = '', calendarEventId = '', calendarLink = '';
-  FileRef? material;
+
+  /// Notes already uploaded (editing) and files picked now (uploaded on save).
+  List<FileRef> materials = [];
+  List<PickedAttachment> files = [];
   String? dateErr;
 
   @override
@@ -53,15 +63,31 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     super.dispose();
   }
 
-  /// The teacher's classes may not include the demo default: start on her first class and its subject.
+  /// Start on her first taught class, and keep the subject one she actually teaches there.
   void _defaultClass(List<SchoolClass> classes) {
-    if (widget.editId != null || classes.isEmpty || classes.any((c) => c.id == classId)) return;
-    classId = classes.first.id;
-    if (classes.first.subject.isNotEmpty) subject = classes.first.subject;
+    if (widget.editId != null || classes.isEmpty) return;
+    final c = classes.where((c) => c.id == classId).firstOrNull;
+    if (c == null) return _pickClass(classes.first, classes);
+    if (!subjectsOf(c, classes).contains(subject)) subject = subjectsOf(c, classes).firstOrNull ?? '';
+  }
+
+  /// Subjects the teacher teaches [c] (assignments and timetable periods) — only these: the rules refuse any
+  /// other subject (teaching_access anchors).
+  static List<String> subjectsOf(SchoolClass? c, List<SchoolClass> all) {
+    return {...?c?.subjectNames, if (c != null && c.subject.isNotEmpty) c.subject}.where((s) => s.isNotEmpty).toList();
+  }
+
+  /// Switch the target class; the subject follows it unless the current one is also taught there.
+  void _pickClass(SchoolClass c, List<SchoolClass> all) {
+    classId = c.id;
+    final list = subjectsOf(c, all);
+    if (!list.contains(subject)) subject = list.firstOrNull ?? '';
   }
 
   /// Google Meet: the link the teacher pasted (validated). Other media keep a generated placeholder.
-  String get link => medium == 'Google Meet' ? (normalizeMeetLink(_link.text) ?? _link.text.trim()) : 'https://zoom.us/j/edu-cls-${classId.split('_').last}';
+  String get link => medium == 'Google Meet'
+      ? (normalizeMeetLink(_link.text) ?? _link.text.trim())
+      : 'https://zoom.us/j/edu-cls-${classId.split('_').last}';
 
   void _fill(LiveSession? e) {
     filled = true;
@@ -79,7 +105,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     mute = e.mute;
     share = e.studentShare;
     notify = e.notify;
-    material = e.material;
+    materials = [...e.materials];
     meetSpace = e.meetSpace;
     calendarEventId = e.calendarEventId;
     calendarLink = e.calendarLink;
@@ -92,7 +118,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     setState(() => dateErr = past ? 'Pick a start time in the future' : null);
     if (!(_key.currentState?.validate() ?? false) || past) return;
     final c = context.read<SchoolBloc>().state.classById(classId);
-    if (c == null) return;
+    if (c == null || subject.isEmpty) return;
     context.read<LiveClassesBloc>().add(
       LiveSessionSaved(
         LiveSession(
@@ -111,7 +137,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
           mute: mute,
           studentShare: share,
           notify: notify,
-          material: material,
+          materials: materials,
           total: c.students,
           meetSpace: medium == 'Google Meet' ? meetSpace : '',
           calendarEventId: calendarEventId,
@@ -119,8 +145,18 @@ class _ScheduleFormState extends State<_ScheduleForm> {
           calendarSync: AppConfig.googleMeetIntegration && medium == 'Google Meet' && calendarSync,
         ),
         draft: draft,
+        files: [...files],
       ),
     );
+  }
+
+  /// "4:30 PM – 5:15 PM" from the start time and duration.
+  String get _span {
+    final parts = time.split(':');
+    final startMin = (int.tryParse(parts.first) ?? 0) * 60 + (int.tryParse(parts.length > 1 ? parts[1] : '0') ?? 0);
+    final endMin = (startMin + mins) % (24 * 60);
+    String hhmm(int m) => '${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}';
+    return '${fmtTime(time)} – ${fmtTime(hhmm(endMin))}';
   }
 
   @override
@@ -128,11 +164,20 @@ class _ScheduleFormState extends State<_ScheduleForm> {
     final st = context.watch<LiveClassesBloc>().state;
     if (!filled && widget.editId != null && st.status == EngageStatus.loaded) _fill(st.byId(widget.editId!));
     final school = context.watch<SchoolBloc>().state;
-    final classes = school.classes;
+    // classes she teaches a subject in (class-teacher-only or exam-only classes can't host a session)
+    final classes = [
+      for (final c in school.classes)
+        if (subjectsOf(c, school.classes).isNotEmpty || c.id == classId && widget.editId != null) c,
+    ];
     _defaultClass(classes);
     final cls = school.classById(classId);
-    final subjects = {subject, if (cls != null && cls.subject.isNotEmpty) cls.subject, 'Mathematics', 'Physics', 'Science Remedial'}.toList();
+    // only what the teacher teaches this class; a session edited with another subject keeps it visible
+    final subjects = [
+      ...subjectsOf(cls, classes),
+      if (widget.editId != null && subject.isNotEmpty && !subjectsOf(cls, classes).contains(subject)) subject,
+    ];
     final students = cls?.students ?? 0;
+    final editing = widget.editId != null;
     return BlocListener<LiveClassesBloc, LiveClassesState>(
       listenWhen: (a, b) => b.meeting != null && a.meeting != b.meeting,
       listener: (_, s) => setState(() {
@@ -140,7 +185,7 @@ class _ScheduleFormState extends State<_ScheduleForm> {
         meetSpace = s.meeting!.space;
       }),
       child: DetailScaffold(
-        title: widget.editId == null ? 'Schedule Live Class' : 'Edit Live Class',
+        title: editing ? 'Edit Live Class' : 'Schedule Live Class',
         actions: [
           TextButton(
             style: TextButton.styleFrom(minimumSize: Size(44.w, 44.h)),
@@ -148,98 +193,161 @@ class _ScheduleFormState extends State<_ScheduleForm> {
             child: const Text('Save Draft'),
           ),
         ],
-        bottom: AppButton(notify ? 'Schedule & Send' : 'Schedule', icon: Icons.send_rounded, onPressed: () => _save(false)),
+        bottom: AppButton(
+          st.uploading > 0
+              ? 'Uploading notes…'
+              : notify
+              ? 'Schedule & Send'
+              : 'Schedule',
+          icon: Icons.send_rounded,
+          busy: st.uploading > 0,
+          onPressed: () => _save(false),
+        ),
         body: Form(
           key: _key,
           child: ListView(
             // keep every field built: Form.validate() only checks mounted fields, so a field scrolled out of a lazy list
             // would be skipped and an invalid value saved
             scrollCacheExtent: kFormScrollCache,
-
-            padding: EdgeInsets.all(S.page),
+            padding: EdgeInsets.fromLTRB(S.page, 12.h, S.page, 24.h),
             children: [
-              Row(
-                children: [
-                  const IconTile(Icons.cast_for_education_outlined, size: 34),
-                  SizedBox(width: 10.w),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'VIRTUAL CLASSROOM HUB',
-                          style: T.capsMuted.copyWith(fontSize: 10.sp),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(widget.editId == null ? 'Schedule Live Class' : 'Edit Live Class', style: T.h2, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ],
-                    ),
-                  ),
-                  const Pill('Term 2 Active', tone: Tone.neutral, dot: true),
-                ],
+              // ---- live summary of what will be scheduled
+              _SummaryCard(
+                title: _title.text.trim().isEmpty ? 'Untitled session' : _title.text.trim(),
+                cls: cls == null ? '' : classLabel(cls),
+                subject: subject,
+                category: category,
+                date: date,
+                span: _span,
+                mins: mins,
+                medium: medium,
+                students: students,
+                notify: notify,
               ),
-              SizedBox(height: 14.h),
-              FormCard(
+              SizedBox(height: 18.h),
+
+              // ---- 1. who
+              FormStep(
+                n: 1,
                 title: 'Target Class & Section',
+                subtitle: students == 0
+                    ? 'Choose the class to invite'
+                    : '$students students and their parents will be invited',
                 icon: Icons.groups_2_outlined,
                 children: [
-                  if (classes.isNotEmpty && cls != null)
+                  if (classes.isEmpty || cls == null)
+                    Text('No classes assigned to you yet.', style: T.small)
+                  else if (classes.length <= 6)
+                    AppChoiceChips(
+                      items: [for (final c in classes) classLabel(c)],
+                      value: classLabel(cls),
+                      solid: true,
+                      dense: true,
+                      onChanged: (v) =>
+                          setState(() => _pickClass(classes.firstWhere((c) => classLabel(c) == v), classes)),
+                    )
+                  else
                     AppDropdown<String>(
                       key: ValueKey('class_$classId'),
                       label: 'Class',
                       value: classId,
                       items: [for (final c in classes) c.id],
                       labelOf: (v) => school.classById(v) == null ? v : classLabel(school.classById(v)!),
-                      onChanged: (v) => setState(() => classId = v),
+                      onChanged: (v) => setState(() => _pickClass(classes.firstWhere((c) => c.id == v), classes)),
                     ),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Pill('$students Students & Parents', tone: Tone.brand),
-                  ),
-                  SizedBox(height: 10.h),
+                  SizedBox(height: 12.h),
                   OrganizerRow(teacher: school.teacher),
                 ],
               ),
-              FormCard(
+
+              // ---- 2. what
+              FormStep(
+                n: 2,
                 title: 'Class Details',
+                subtitle: 'Subject, title and the kind of session',
                 icon: Icons.menu_book_outlined,
                 children: [
                   const FieldLabel('Subject'),
-                  AppChoiceChips(items: subjects, value: subject, solid: true, onChanged: (v) => setState(() => subject = v)),
+                  AppChoiceChips(
+                    items: subjects,
+                    value: subject,
+                    solid: true,
+                    dense: true,
+                    onChanged: (v) => setState(() => subject = v),
+                  ),
                   SizedBox(height: 12.h),
                   AppTextField(
                     label: 'Class / Session Title',
                     controller: _title,
                     maxLines: 2,
                     hint: 'e.g. Quadratic Equations Doubt Clearing',
+                    onChanged: (_) => setState(() {}),
                     validator: (v) => (v ?? '').trim().length < 5 ? 'Enter a session title (min 5 characters)' : null,
                   ),
                   const FieldLabel('Session Category'),
-                  AppChoiceChips(items: const ['Doubt Clearing', 'Masterclass', 'Revision & Quiz', 'Exam Prep'], value: category, onChanged: (v) => setState(() => category = v)),
+                  AppChoiceChips(
+                    items: const ['Doubt Clearing', 'Masterclass', 'Revision & Quiz', 'Exam Prep'],
+                    value: category,
+                    dense: true,
+                    onChanged: (v) => setState(() => category = v),
+                  ),
                 ],
               ),
-              FormCard(
-                title: 'Schedule Time & Duration',
+
+              // ---- 3. when
+              FormStep(
+                n: 3,
+                title: 'Date & Time',
+                subtitle: '${fmtDate(date)} • $_span',
                 icon: Icons.schedule_rounded,
                 children: [
-                  DateTimeFields(date: date, time: time, onDate: (v) => setState(() => date = v), onTime: (v) => setState(() => time = v)),
+                  DateTimeFields(
+                    date: date,
+                    time: time,
+                    onDate: (v) => setState(() => date = v),
+                    onTime: (v) => setState(() => time = v),
+                  ),
                   if (dateErr != null)
                     Padding(
                       padding: EdgeInsets.only(top: 8.h),
-                      child: Text(dateErr!, style: T.small.copyWith(color: C.danger)),
+                      child: Row(
+                        children: [
+                          Icon(Icons.error_outline_rounded, size: 16.r, color: C.danger),
+                          SizedBox(width: 6.w),
+                          Expanded(
+                            child: Text(
+                              dateErr!,
+                              style: T.small.copyWith(color: C.danger, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   SizedBox(height: 12.h),
-                  const FieldLabel('Allocated Duration'),
-                  AppSegmented(items: const ['30m', '45m', '60m', '90m'], value: '${mins}m', onChanged: (v) => setState(() => mins = int.parse(v.replaceAll('m', '')))),
+                  const FieldLabel('Duration'),
+                  AppSegmented(
+                    items: const ['30m', '45m', '60m', '90m'],
+                    value: '${mins}m',
+                    onChanged: (v) => setState(() => mins = int.parse(v.replaceAll('m', ''))),
+                  ),
                 ],
               ),
-              FormCard(
-                title: 'Class Delivery Medium',
+
+              // ---- 4. where
+              FormStep(
+                n: 4,
+                title: 'Delivery',
+                subtitle: medium == 'Google Meet' ? 'Parents join with the Meet link' : 'Link is generated for you',
                 icon: Icons.videocam_outlined,
                 children: [
-                  AppChoiceChips(items: liveMedia(AppConfig.backend), value: medium, onChanged: (v) => setState(() => medium = v)),
-                  SizedBox(height: 10.h),
+                  if (liveMedia(AppConfig.backend).length > 1) ...[
+                    AppChoiceChips(
+                      items: liveMedia(AppConfig.backend),
+                      value: medium,
+                      onChanged: (v) => setState(() => medium = v),
+                    ),
+                    SizedBox(height: 12.h),
+                  ],
                   if (medium == 'Google Meet') ...[
                     AppTextField(
                       label: 'Google Meet link',
@@ -261,89 +369,100 @@ class _ScheduleFormState extends State<_ScheduleForm> {
                       ),
                       SizedBox(height: 6.h),
                       Text(
-                        meetSpace.isNotEmpty ? 'Created with your Google account. Anyone with the link can join.' : 'Create a room with your Google account, or paste a link from Google Meet.',
+                        meetSpace.isNotEmpty
+                            ? 'Created with your Google account. Anyone with the link can join.'
+                            : 'Create a room with your Google account, or paste a link from Google Meet.',
                         style: T.small,
                       ),
                       SizedBox(height: 10.h),
                       AppToggleRow(
                         title: 'Add to my Google Calendar',
-                        subtitle: calendarEventId.isEmpty ? 'With a 10-minute reminder' : 'Already on your calendar; changes are updated',
+                        subtitle: calendarEventId.isEmpty
+                            ? 'With a 10-minute reminder'
+                            : 'Already on your calendar; changes are updated',
                         value: calendarSync,
                         onChanged: (v) => setState(() => calendarSync = v),
                       ),
                     ] else
-                      Text('Create the meeting in Google Meet and paste its link here.', style: T.small),
+                      StepHint(
+                        icon: Icons.info_outline_rounded,
+                        text: 'Create the meeting in Google Meet and paste its link here.',
+                      ),
                   ] else
-                    Container(
-                      width: double.infinity,
-                      padding: EdgeInsets.all(12.w),
-                      decoration: BoxDecoration(
-                        color: C.surface,
-                        borderRadius: BorderRadius.circular(R.md),
-                        border: Border.all(color: C.border),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Virtual Classroom Stream • Auto-Generated', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-                          Text(
-                            medium == 'In-App Live' ? 'In-app room (no link needed)' : link,
-                            style: T.bodyStrong.copyWith(fontSize: 12.5.sp, color: C.primary),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
+                    StepHint(
+                      icon: Icons.link_rounded,
+                      text: medium == 'In-App Live' ? 'In-app room, no link needed.' : link,
+                      strong: medium != 'In-App Live',
                     ),
-                  SizedBox(height: 10.h),
-                  AppToggleRow(
-                    title: 'Auto-record session',
-                    subtitle: 'Directly archive to Past Recordings library',
-                    value: record,
-                    margin: EdgeInsets.only(bottom: 8.h),
-                    onChanged: (v) => setState(() => record = v),
-                  ),
-                  AppToggleRow(
-                    title: 'Mute participants upon entry',
-                    subtitle: 'Maintain classroom decorum at start',
-                    value: mute,
-                    margin: EdgeInsets.only(bottom: 8.h),
-                    onChanged: (v) => setState(() => mute = v),
-                  ),
-                  AppToggleRow(title: 'Allow student screen sharing', subtitle: 'Only educator can present by default', value: share, onChanged: (v) => setState(() => share = v)),
                 ],
               ),
-              FormCard(
-                title: 'Attached Classroom Material',
+
+              // ---- 5. material
+              FormStep(
+                n: 5,
+                title: 'Classroom Material',
+                subtitle: materials.isEmpty && files.isEmpty
+                    ? 'Optional worksheets or notes, up to 15 MB each'
+                    : '${materials.length + files.length} ${materials.length + files.length == 1 ? 'file' : 'files'} attached',
                 icon: Icons.attach_file_rounded,
+                last: true,
                 children: [
-                  if (material != null)
-                    AppFileChip(
-                      name: material!.name,
-                      size: material!.size,
-                      sub: subject,
-                      trailing: IconButton(
-                        tooltip: 'Remove file',
-                        onPressed: () => setState(() => material = null),
-                        icon: Icon(Icons.close_rounded, size: 18.r),
+                  for (var i = 0; i < materials.length; i++)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 8.h),
+                      child: AppFileChip(
+                        name: materials[i].name,
+                        size: materials[i].size,
+                        sub: 'Uploaded • tap to open',
+                        onTap: materials[i].url.startsWith('http') ? () => openFileRef(context, materials[i]) : null,
+                        trailing: IconButton(
+                          tooltip: 'Remove file',
+                          onPressed: () => setState(() => materials = [...materials]..removeAt(i)),
+                          icon: Icon(Icons.close_rounded, size: 18.r),
+                        ),
                       ),
-                    )
-                  else
-                    Text('No files attached', style: T.body),
-                  SizedBox(height: 10.h),
+                    ),
+                  for (var i = 0; i < files.length; i++)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: 8.h),
+                      child: AppFileChip(
+                        name: files[i].name,
+                        size: files[i].sizeLabel,
+                        sub: 'Uploads when you schedule',
+                        icon: files[i].isImage ? Icons.image_outlined : null,
+                        tone: files[i].isImage ? Tone.purple : Tone.danger,
+                        trailing: IconButton(
+                          tooltip: 'Remove file',
+                          onPressed: () => setState(() => files = [...files]..removeAt(i)),
+                          icon: Icon(Icons.close_rounded, size: 18.r),
+                        ),
+                      ),
+                    ),
                   AppButton(
-                    'Attach Additional Worksheet / Notes',
+                    materials.isEmpty && files.isEmpty ? 'Attach worksheet / notes' : 'Attach more',
                     icon: Icons.upload_file_outlined,
                     kind: BtnKind.outline,
-                    onPressed: () {
-                      setState(() => material = FileRef(name: '${subject.replaceAll(' ', '_')}_Worksheet.pdf', size: '1.8 MB'));
-                      showNotice(context, 'Worksheet attached (simulated)');
+                    onPressed: () async {
+                      final picked = await pickDocuments();
+                      final ok = picked.where((f) => f.bytes <= kMaxAttachmentBytes).toList();
+                      if (!context.mounted) return;
+                      if (ok.length < picked.length) {
+                        showNotice(context, '${picked.length - ok.length} file(s) over 15 MB were skipped');
+                      }
+                      if (ok.isNotEmpty) setState(() => files = [...files, ...ok]);
                     },
                   ),
                 ],
               ),
-              AppToggleRow(title: 'Notify $students Students & Parents', subtitle: 'Instant WhatsApp & In-App push blast', value: notify, tinted: true, onChanged: (v) => setState(() => notify = v)),
-              SizedBox(height: 8.h),
+
+              SizedBox(height: 6.h),
+              AppToggleRow(
+                title: 'Notify $students Students & Parents',
+                subtitle: 'In-app push the moment it is scheduled',
+                value: notify,
+                tinted: true,
+                onChanged: (v) => setState(() => notify = v),
+              ),
             ],
           ),
         ),
@@ -352,12 +471,121 @@ class _ScheduleFormState extends State<_ScheduleForm> {
   }
 }
 
-/// Today, unless the default 16:30 start has already passed (then tomorrow).
+/// What will be scheduled, updated as the form changes: title, class and subject, date, time span and medium.
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({
+    required this.title,
+    required this.cls,
+    required this.subject,
+    required this.category,
+    required this.date,
+    required this.span,
+    required this.mins,
+    required this.medium,
+    required this.students,
+    required this.notify,
+  });
+  final String title, cls, subject, category, date, span, medium;
+  final int mins, students;
+  final bool notify;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.all(14.w),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [C.primary, C.primaryDark],
+      ),
+      borderRadius: BorderRadius.circular(R.xl),
+      boxShadow: [BoxShadow(color: C.primary.withValues(alpha: .28), blurRadius: 16, offset: const Offset(0, 6))],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 40.r,
+              height: 40.r,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .18),
+                borderRadius: BorderRadius.circular(R.md),
+              ),
+              child: Icon(Icons.cast_for_education_rounded, color: Colors.white, size: 22.r),
+            ),
+            SizedBox(width: 10.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: T.h3.copyWith(color: Colors.white),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    [if (cls.isNotEmpty) cls, subject, category].join(' • '),
+                    style: T.small.copyWith(color: Colors.white70),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: 12.h),
+        Wrap(
+          spacing: 8.w,
+          runSpacing: 6.h,
+          children: [
+            _Tag(Icons.calendar_today_rounded, fmtDate(date)),
+            _Tag(Icons.schedule_rounded, span),
+            _Tag(Icons.timer_outlined, '$mins min'),
+            _Tag(Icons.videocam_rounded, medium),
+            _Tag(
+              notify ? Icons.notifications_active_outlined : Icons.notifications_off_outlined,
+              notify ? '$students invited' : 'No notification',
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _Tag extends StatelessWidget {
+  const _Tag(this.icon, this.text);
+  final IconData icon;
+  final String text;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.symmetric(horizontal: 9.w, vertical: 5.h),
+    decoration: BoxDecoration(color: Colors.white.withValues(alpha: .16), borderRadius: BorderRadius.circular(R.pill)),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13.r, color: Colors.white),
+        SizedBox(width: 5.w),
+        Text(
+          text,
+          style: T.small.copyWith(color: Colors.white, fontWeight: FontWeight.w600),
+        ),
+      ],
+    ),
+  );
+}
+
+/// One numbered step of the form: a badge with a connector line, title, subtitle and the fields in a panel.
 /// Delivery media offered in the schedule form. On the shared backend only Google Meet is offered (contract §6): parents
 /// join with the link, and the other media have no real link (the local demo keeps them, the in-app room is simulated).
 /// The last item is the default.
-List<String> liveMedia(BackendType backend) => backend == BackendType.firebase ? const ['Google Meet'] : const ['Google Meet', 'Zoom', 'In-App Live'];
+List<String> liveMedia(BackendType backend) =>
+    backend == BackendType.firebase ? const ['Google Meet'] : const ['Google Meet', 'Zoom', 'In-App Live'];
 
+/// Today, unless the default 16:30 start has already passed (then tomorrow).
 String _defaultDate() {
   final n = DateTime.now();
   return n.hour * 60 + n.minute >= 16 * 60 + 30 ? plusDays(1) : plusDays(0);

@@ -12,10 +12,14 @@ export function ProgressBar({ value, tone = "brand", className }: { value: numbe
   );
 }
 
-export function Avatar({ name, size = 32, className }: { name: string; size?: number; className?: string }) {
+/** Initials in a circle, or the person's photo when [image] (a data URL or https URL) is given. */
+export function Avatar({ name, size = 32, className, image }: { name: string; size?: number; className?: string; image?: string }) {
   return (
-    <span className={cn("grid shrink-0 place-items-center rounded-full bg-info-container font-semibold text-secondary", className)}
-      style={{ width: size, height: size, fontSize: size * 0.38 }} aria-hidden>{initials(name)}</span>
+    <span className={cn("grid shrink-0 place-items-center overflow-hidden rounded-full bg-info-container font-semibold text-secondary", className)}
+      style={{ width: size, height: size, fontSize: size * 0.38 }} aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element -- a tiny inline thumbnail; next/image cannot optimise data URLs */}
+      {image ? <img src={image} alt="" width={size} height={size} className="size-full object-cover" /> : initials(name)}
+    </span>
   );
 }
 

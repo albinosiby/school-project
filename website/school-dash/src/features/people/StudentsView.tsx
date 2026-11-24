@@ -22,7 +22,7 @@ const StudentLeavesPanel = dynamic(() => import("./StudentLeavesPanel").then((mo
 const MeetingsPanel = dynamic(() => import("./MeetingsPanel").then((module) => module.MeetingsPanel), { loading: () => <LoadingSkeleton variant="table" label="Loading meetings…" /> });
 const GuardiansPanel = dynamic(() => import("./GuardiansDirectory").then((module) => module.GuardiansPanel), { loading: () => <LoadingSkeleton variant="table" label="Loading guardians…" /> });
 
-export type Student = { id: string; name: string; grn: string; grade: string; section: string; guardian: string; phone: string; status: string; attendance: number;
+export type Student = { id: string; name: string; grn: string; grade: string; section: string; guardian: string; phone: string; status: string; attendance: number; photo?: string;
   email?: string; dob?: string; gender?: string; academicYear?: string; address?: string; relation?: string; admissionDate?: string; admissionNumber?: string;
   /** contract 3: class id `cls_{grade}{SECTION}` and the integer roll in that class (older rows may lack them) */
   classId?: string; streamId?: string; stream?: string; roll?: number; deleted?: boolean; offerId?: string;
@@ -108,7 +108,7 @@ export function StudentsView({ initialQ = "" }: { initialQ?: string }) {
   const belowThreshold = summary.below;
 
   const cols: Column<Student>[] = [
-    { key: "name", header: "Student", sortValue: (s) => s.name, render: (s) => (<div className="flex items-center gap-3"><Avatar name={s.name} /><div><Link className="font-semibold text-secondary hover:underline" href={studentProfileHref(s.id)} onClick={(event) => event.stopPropagation()}>{s.name}</Link><div className="t-caption font-mono text-outline">{s.grn}</div></div></div>) },
+    { key: "name", header: "Student", sortValue: (s) => s.name, render: (s) => (<div className="flex items-center gap-3"><Avatar name={s.name} image={s.photo} /><div><Link className="font-semibold text-secondary hover:underline" href={studentProfileHref(s.id)} onClick={(event) => event.stopPropagation()}>{s.name}</Link><div className="t-caption font-mono text-outline">{s.grn}</div></div></div>) },
     { key: "class", header: "Class", sortValue: (s) => gradeOrder(s.grade) * 10 + ((s.section ?? "").charCodeAt(0) || 0), render: (s) => <span className="rounded bg-surface-container px-2 py-1 text-xs font-medium">Grade {s.grade}{isSeniorGrade(s.grade) && (s.stream || streamName(s.streamId || streamFromClassId(s.classId))) ? ` · ${s.stream || streamName(s.streamId || streamFromClassId(s.classId))}` : ""}-{s.section}</span> },
     { key: "guardian", header: "Guardian", sortValue: (s) => s.guardian, render: (s) => <div><div>{s.guardian}</div><div className="t-caption text-outline">{s.phone}</div></div> },
     { key: "parent", header: "Parent app", sortValue: (s) => CONSENT.findIndex((c) => c.v === cstate(s)), render: (s) => { const c = CONSENT.find((x) => x.v === cstate(s))!;

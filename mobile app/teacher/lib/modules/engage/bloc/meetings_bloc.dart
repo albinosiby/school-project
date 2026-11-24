@@ -13,6 +13,7 @@ class MeetingsBloc extends Bloc<MeetingsEvent, MeetingsState> {
     on<MeetingsLoadRequested>(_onLoad);
     on<MeetingSaved>(_onSaved);
     on<MeetingDeleted>(_onDeleted);
+    on<MeetingCompleted>(_onCompleted);
     _sub = _repo.watch().listen((_) => add(const MeetingsLoadRequested()));
   }
 
@@ -38,6 +39,13 @@ class MeetingsBloc extends Bloc<MeetingsEvent, MeetingsState> {
   Future<void> _onDeleted(MeetingDeleted e, Emitter<MeetingsState> emit) async {
     await _repo.delete(e.id);
     emit(state.copyWith(notice: Notice.next(state.notice, 'Meeting deleted')));
+  }
+
+  Future<void> _onCompleted(MeetingCompleted e, Emitter<MeetingsState> emit) async {
+    final m = state.byId(e.id);
+    if (m == null) return;
+    await _repo.save(m.copyWith(status: MeetingStatus.completed));
+    emit(state.copyWith(notice: Notice.next(state.notice, 'Marked as completed')));
   }
 
   @override

@@ -124,6 +124,15 @@ class _LiveClassCardState extends State<LiveClassCard> {
                 '${fmtClock(c.start)} - ${fmtClock(c.endsAt)}  (${c.mins} min)',
             compact: true,
           ),
+          if (c.materials.isNotEmpty) ...[
+            SizedBox(height: 10.h),
+            Text('CLASS NOTES', style: T.capsMuted),
+            for (final m in c.materials)
+              Padding(
+                padding: EdgeInsets.only(top: 6.h),
+                child: AppFileChip(name: m.name, size: m.size, onTap: () => getIt<LinkLauncher>().open(m.url)),
+              ),
+          ],
           if (status != LiveStatus.ended) ...[
             SizedBox(height: 12.h),
             AppButton(

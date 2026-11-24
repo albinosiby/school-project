@@ -152,11 +152,11 @@ void main() {
 
     testWidgets('a class days away has Join disabled with a countdown', (t) async {
       await pumpLive(t);
-      // the seeded Google Meet session two days out sits in the pipeline: Join is disabled
-      await t.scrollUntilVisible(find.textContaining('Starts in'), 300, scrollable: find.byType(Scrollable).first);
-      final disabled = find.byWidgetPredicate((w) => w is FilledButton && w.onPressed == null);
-      expect(disabled, findsWidgets);
+      // the seeded Google Meet session two days out shows a countdown and no Join until the room opens
+      await t.scrollUntilVisible(find.textContaining('Starts in').first, 300, scrollable: find.byType(Scrollable).first);
+      expect(find.textContaining('Starts in'), findsWidgets);
       expect(find.text('Join Google Meet'), findsNothing);
+      expect(find.text('Join'), findsNothing);
     });
 
     testWidgets('schedule form shows an inline error for a bad Meet link', (t) async {

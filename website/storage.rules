@@ -88,6 +88,15 @@ service firebase.storage {
         && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('audio/.*') || request.resource.contentType.matches('application/.*') || request.resource.contentType == 'text/plain');
     }
+    // Live class worksheets / notes (DATA_CONTRACT section 6): the teacher uploads into their own folder; any
+    // member of the school (teachers, parents, staff) may read, and `live_classes.materials[].url` carries the
+    // download URL (token required).
+    match /schools/{sid}/live-classes/{uid}/{file} {
+      allow read: if request.auth != null && me().schoolId == sid;
+      allow create: if request.auth != null && request.auth.uid == uid && me().schoolId == sid && me().role == 'teacher'
+        && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('application/.*') || request.resource.contentType == 'text/plain');
+    }
     match /{all=**} {
       allow read, write: if false;
     }

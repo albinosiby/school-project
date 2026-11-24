@@ -12,7 +12,17 @@ typedef ChatIdentity = ({String schoolId, String uid})? Function();
 /// lets the server skip the push for a message you are already looking at.
 abstract class IChatMediaRepository {
   /// Uploads the local file and returns the attachment reference to send. Throws when the backend has no storage.
-  Future<FileRef> upload({required String threadId, required String path, required String name, required String kind, int durationMs = 0});
+  Future<FileRef> upload({
+    required String threadId,
+    required String path,
+    required String name,
+    required String kind,
+    int durationMs = 0,
+  });
+
+  /// Uploads a worksheet / notes file for a live class (Storage `schools/{sid}/live-classes/{uid}/…`, readable by the
+  /// school's parents and teachers) and returns its reference.
+  Future<FileRef> uploadMaterial({required String path, required String name});
 
   /// Marks the login as reading [threadId] (null = left the chat). Best effort, never throws.
   Future<void> setPresence(String? threadId);
@@ -21,10 +31,28 @@ abstract class IChatMediaRepository {
 /// Local backend: nothing is uploaded; files are referenced by their local path so the demo still shows them.
 class LocalChatMediaRepository implements IChatMediaRepository {
   @override
-  Future<FileRef> upload({required String threadId, required String path, required String name, required String kind, int durationMs = 0}) async {
+  Future<FileRef> upload({
+    required String threadId,
+    required String path,
+    required String name,
+    required String kind,
+    int durationMs = 0,
+  }) async {
     final bytes = File(path).existsSync() ? File(path).lengthSync() : 0;
-    return FileRef(name: name, kind: kind, url: path, path: path, bytes: bytes, durationMs: durationMs, contentType: contentTypeOf(name));
+    return FileRef(
+      name: name,
+      kind: kind,
+      url: path,
+      path: path,
+      bytes: bytes,
+      durationMs: durationMs,
+      contentType: contentTypeOf(name),
+    );
   }
+
+  @override
+  Future<FileRef> uploadMaterial({required String path, required String name}) =>
+      upload(threadId: 'material', path: path, name: name, kind: 'file');
 
   @override
   Future<void> setPresence(String? threadId) async {}
@@ -40,16 +68,48 @@ class FirebaseChatMediaRepository implements IChatMediaRepository {
   FirebaseFirestore get _db => _fs ?? FirebaseFirestore.instance;
 
   @override
-  Future<FileRef> upload({required String threadId, required String path, required String name, required String kind, int durationMs = 0}) async {
+  Future<FileRef> upload({
+    required String threadId,
+    required String path,
+    required String name,
+    required String kind,
+    int durationMs = 0,
+  }) async {
     final me = _identity();
     if (me == null) throw StateError('Sign in to share files.');
     final file = File(path);
-    final data = await file.readAsBytes();
     final contentType = contentTypeOf(name, fallback: kind == 'audio' ? 'audio/mp4' : 'application/octet-stream');
     final id = uid('att');
     final storagePath = 'schools/${me.schoolId}/chat/$threadId/$id';
-    final url = await _storage.uploadFile(storagePath, data, contentType: contentType);
-    return FileRef(name: name, kind: kind, url: url, path: storagePath, bytes: data.length, durationMs: durationMs, contentType: contentType);
+    // streamed from disk: one upload request plus the URL lookup, nothing copied into memory first
+    final url = await _storage.uploadLocalFile(storagePath, file, contentType: contentType);
+    return FileRef(
+      name: name,
+      kind: kind,
+      url: url,
+      path: storagePath,
+      bytes: await file.length(),
+      durationMs: durationMs,
+      contentType: contentType,
+    );
+  }
+
+  @override
+  Future<FileRef> uploadMaterial({required String path, required String name}) async {
+    final me = _identity();
+    if (me == null) throw StateError('Sign in to attach files.');
+    final file = File(path);
+    final contentType = contentTypeOf(name, fallback: 'application/octet-stream');
+    final storagePath = 'schools/${me.schoolId}/live-classes/${me.uid}/${uid('mat')}';
+    final url = await _storage.uploadLocalFile(storagePath, file, contentType: contentType);
+    return FileRef(
+      name: name,
+      kind: 'file',
+      url: url,
+      path: storagePath,
+      bytes: await file.length(),
+      contentType: contentType,
+    );
   }
 
   @override

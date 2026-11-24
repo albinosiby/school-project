@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:school_sync/school_sync.dart';
 import 'dart:async';
 import 'dart:math';
@@ -203,6 +204,8 @@ class FirestoreDataStore implements DataStore {
     for (final w in writes) {
       final f = w.delete ? _gateway.delete(w.collection, w.id) : _gateway.set(w.collection, w.id, cleanRec(w.data));
       f.catchError((Object e, StackTrace s) {
+        // debug builds: the refused document, so a rules denial can be traced to the field that failed
+        if (kDebugMode) debugPrint('Firestore refused ${w.delete ? 'delete' : 'set'} ${w.collection}/${w.id}: ${w.delete ? '' : cleanRec(w.data)}');
         final docs = _mirror.putIfAbsent(w.collection, () => {});
         final previous = before[(w.collection, w.id)];
         if (previous == null) {

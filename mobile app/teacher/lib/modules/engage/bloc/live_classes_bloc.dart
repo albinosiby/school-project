@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../utils/exceptions/app_exception.dart';
+import '../models/attachment_models.dart';
 import '../models/live_class_models.dart';
 import '../../../utils/services/google/google_workspace_service.dart';
+import '../repositories/chat_media_repository.dart';
 import '../repositories/live_class_repository_interface.dart';
 import '../repositories/meet_scheduling_repository_interface.dart';
 import 'engage_notice.dart';
@@ -11,7 +13,7 @@ import 'live_classes_states.dart';
 
 /// Live classes list, lobby/in-class actions and the schedule form.
 class LiveClassesBloc extends Bloc<LiveClassesEvent, LiveClassesState> {
-  LiveClassesBloc(this._repo, [this._meet]) : super(const LiveClassesState()) {
+  LiveClassesBloc(this._repo, [this._meet, this._media]) : super(const LiveClassesState()) {
     on<LiveMeetCreateRequested>(_onCreateMeet);
     on<LiveClassesLoadRequested>(_onLoad);
     on<LiveSessionSaved>(_onSaved);
@@ -24,6 +26,7 @@ class LiveClassesBloc extends Bloc<LiveClassesEvent, LiveClassesState> {
 
   final ILiveClassRepository _repo;
   final IMeetSchedulingRepository? _meet;
+  final IChatMediaRepository? _media;
   late final StreamSubscription<void> _sub;
 
   Future<void> _onCreateMeet(LiveMeetCreateRequested e, Emitter<LiveClassesState> emit) async {
@@ -32,9 +35,20 @@ class LiveClassesBloc extends Bloc<LiveClassesEvent, LiveClassesState> {
     emit(state.copyWith(meetBusy: true));
     try {
       final m = await meet.createMeeting();
-      emit(state.copyWith(meetBusy: false, meeting: m, notice: Notice.next(state.notice, 'Google Meet created: ${m.uri.replaceFirst('https://', '')}')));
+      emit(
+        state.copyWith(
+          meetBusy: false,
+          meeting: m,
+          notice: Notice.next(state.notice, 'Google Meet created: ${m.uri.replaceFirst('https://', '')}'),
+        ),
+      );
     } on GoogleWorkspaceException catch (err) {
-      emit(state.copyWith(meetBusy: false, notice: err.cancelled ? null : Notice.next(state.notice, err.message, error: true)));
+      emit(
+        state.copyWith(
+          meetBusy: false,
+          notice: err.cancelled ? null : Notice.next(state.notice, err.message, error: true),
+        ),
+      );
     }
   }
 
@@ -49,6 +63,41 @@ class LiveClassesBloc extends Bloc<LiveClassesEvent, LiveClassesState> {
 
   Future<void> _onSaved(LiveSessionSaved e, Emitter<LiveClassesState> emit) async {
     var s = e.session;
+    // worksheets picked in the form go to Storage first; a failed file is reported and skipped
+    if (e.files.isNotEmpty) {
+      final media = _media;
+      final uploaded = <FileRef>[];
+      var failed = 0;
+      emit(state.copyWith(uploading: e.files.length));
+      for (final f in e.files) {
+        try {
+          if (media == null) throw StateError('no storage');
+          uploaded.add(await media.uploadMaterial(path: f.path, name: f.name));
+        } catch (_) {
+          failed++;
+        }
+        emit(state.copyWith(uploading: (state.uploading - 1).clamp(0, 1 << 20)));
+      }
+      s = LiveSession.fromJson({
+        ...s.toJson(),
+        'materials': [
+          for (final m in [...s.materials, ...uploaded]) m.toJson(),
+        ],
+      });
+      if (failed > 0) {
+        emit(
+          state.copyWith(
+            notice: Notice.next(
+              state.notice,
+              failed == e.files.length
+                  ? 'Could not upload the notes. Check your connection and try again.'
+                  : '$failed of ${e.files.length} files failed to upload',
+            ),
+          ),
+        );
+      }
+      if (failed == e.files.length) return;
+    }
     // scheduled Google Meet classes go on (or stay in step with) the teacher's Google Calendar
     String? calendarProblem;
     final meet = _meet;
@@ -59,9 +108,15 @@ class LiveClassesBloc extends Bloc<LiveClassesEvent, LiveClassesState> {
         calendarProblem = err.cancelled ? 'not added to Google Calendar' : 'Google Calendar: ${err.message}';
       }
     }
-    await _repo.save(LiveSession.fromJson({...s.toJson(), 'status': (e.draft ? LiveStatus.draft : LiveStatus.upcoming).name}));
-    var msg = e.draft ? 'Draft saved' : (s.notify ? 'Class scheduled — ${s.total} students & parents notified' : 'Class scheduled');
-    if (!e.draft && s.calendarEventId.isNotEmpty && calendarProblem == null) msg = '$msg · added to your Google Calendar';
+    await _repo.save(
+      LiveSession.fromJson({...s.toJson(), 'status': (e.draft ? LiveStatus.draft : LiveStatus.upcoming).name}),
+    );
+    var msg = e.draft
+        ? 'Draft saved'
+        : (s.notify ? 'Class scheduled — ${s.total} students & parents notified' : 'Class scheduled');
+    if (!e.draft && s.calendarEventId.isNotEmpty && calendarProblem == null) {
+      msg = '$msg · added to your Google Calendar';
+    }
     if (calendarProblem != null) msg = '$msg ($calendarProblem)';
     emit(state.copyWith(notice: Notice.next(state.notice, msg, pop: true)));
   }

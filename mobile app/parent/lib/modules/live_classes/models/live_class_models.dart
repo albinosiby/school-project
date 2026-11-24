@@ -12,8 +12,11 @@ class LiveClass extends Equatable {
     required this.start,
     required this.mins,
     required this.link,
+    this.materials = const [],
   });
   final String id, title, subject, teacher, link;
+  /// Worksheets / notes the teacher attached (download URLs).
+  final List<LiveMaterial> materials;
   final DateTime start;
   final int mins;
 
@@ -33,5 +36,17 @@ class LiveClass extends Equatable {
       !now.isBefore(opensAt) && now.isBefore(endsAt);
 
   @override
-  List<Object?> get props => [id, title, subject, teacher, link, start, mins];
+  List<Object?> get props => [id, title, subject, teacher, link, start, mins, materials];
+}
+
+/// A file attached to a live class: `{name, size, url}` from `live_classes.materials[]`.
+class LiveMaterial extends Equatable {
+  const LiveMaterial({required this.name, required this.url, this.size = ''});
+  final String name, url, size;
+  static List<LiveMaterial> listOf(Object? v) => [
+        for (final m in (v is List ? v : const []))
+          if (m is Map && '${m['url'] ?? ''}'.startsWith('http')) LiveMaterial(name: '${m['name'] ?? 'File'}', url: '${m['url']}', size: '${m['size'] ?? ''}'),
+      ];
+  @override
+  List<Object?> get props => [name, url, size];
 }

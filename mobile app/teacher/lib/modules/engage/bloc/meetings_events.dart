@@ -26,3 +26,11 @@ class MeetingDeleted extends MeetingsEvent {
   @override
   List<Object?> get props => [id];
 }
+
+/// The teacher marks a held meeting as done.
+class MeetingCompleted extends MeetingsEvent {
+  const MeetingCompleted(this.id);
+  final String id;
+  @override
+  List<Object?> get props => [id];
+}

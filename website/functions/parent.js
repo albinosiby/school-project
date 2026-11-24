@@ -531,13 +531,61 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   // live classes and fees
   // ---------------------------------------------------------------------------
 
-  const onLiveClassForParents = onDocumentCreated("schools/{sid}/live_classes/{id}", safe("onLiveClassForParents", async (e) => {
-    const sid = e.params.sid, c = e.data?.data();
-    if (!c?.classId || /draft|cancel/i.test(String(c.status ?? ""))) return;
+  // Live classes (section 6): parents of the class hear when a class is scheduled (`notify` on, not a draft), when its
+  // date / time / link changes, and when it is cancelled. Each event is sent once per parent and child (deduped ids).
+  /** "14:05" -> "02:05 PM" */
+  const t12 = (t) => { const [h, m] = String(t ?? "").split(":").map(Number); return Number.isFinite(h) ? `${String(h % 12 || 12).padStart(2, "0")}:${String(m || 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}` : String(t ?? ""); };
+  const liveState = (c) => (!c || c.deleted === true || /cancel/i.test(String(c.status ?? "")) ? "cancelled" : /draft/i.test(String(c.status ?? "")) ? "draft" : "scheduled");
+  const onLiveClassForParents = onDocumentWritten("schools/{sid}/live_classes/{id}", safe("onLiveClassForParents", async (e) => {
+    const sid = e.params.sid, before = e.data?.before?.data(), after = e.data?.after?.data();
+    const was = before ? liveState(before) : "none", now = after ? liveState(after) : "cancelled";
+    const c = after ?? before;
+    if (!c?.classId) return;
+    const name = c.title || c.subject || "Online class";
+    const when = [c.date, c.time ? t12(c.time) : ""].filter(Boolean).join(" at ");
+    let title, body, key;
+    if (now === "scheduled" && was !== "scheduled") {
+      if (c.notify === false) return;
+      title = `Live class: ${name}`; body = [c.subject, when].filter(Boolean).join(" · "); key = "new";
+    } else if (now === "scheduled" && was === "scheduled" && (before.date !== after.date || before.time !== after.time || before.link !== after.link)) {
+      title = `Live class rescheduled: ${name}`; body = [c.subject, `now ${when}`].filter(Boolean).join(" · "); key = `r${String(after.updatedAt ?? Date.now()).replace(/[^0-9A-Za-z]/g, "")}`;
+    } else if (now === "cancelled" && was === "scheduled") {
+      title = `Live class cancelled: ${name}`; body = [c.subject, when].filter(Boolean).join(" · "); key = "cancel";
+    } else return;
     const roster = await classRoster(sid, c.classId);
     await notifyParents(sid, guardiansOf(roster).map(({ uid, student }) => ({
-      id: `live_${e.params.id}_${student.id}_${uid}`, uid, studentId: student.id, type: "live",
-      title: `Live class: ${c.title ?? c.subject ?? "Online class"}`, body: [c.subject, [c.date, c.time].filter(Boolean).join(" at ")].filter(Boolean).join(" · "), route: "/more/live",
+      id: key === "new" ? `live_${e.params.id}_${student.id}_${uid}` : `live_${e.params.id}_${key}_${student.id}_${uid}`,
+      uid, studentId: student.id, type: "live", title, body, route: "/more/live",
+    })));
+  }));
+
+  // Class parent-teacher meetings (teacher app `pm_meetings`, teacher-private): parents of the class get the invitation
+  // when a meeting is scheduled (not a draft), an update when its date / time / place / link changes, and a notice when
+  // it is cancelled (deleted while scheduled). Deduped per parent and child like live classes.
+  const meetingState = (m) => (!m || m.deleted === true ? "cancelled" : m.status === "upcoming" ? "scheduled" : String(m.status ?? ""));
+  const meetingWhere = (m) => (/person/i.test(String(m.format ?? ""))
+    ? `In person${m.venue ? ` at ${m.venue}` : ""}`
+    : `Online on Google Meet${m.link ? `: ${m.link}` : ""}`);
+  const onClassMeetingForParents = onDocumentWritten("schools/{sid}/pm_meetings/{id}", safe("onClassMeetingForParents", async (e) => {
+    const sid = e.params.sid, before = e.data?.before?.data(), after = e.data?.after?.data();
+    const was = meetingState(before), now = after ? meetingState(after) : "cancelled";
+    const m = after ?? before;
+    if (!m?.classId) return;
+    const name = m.title || "Parent-teacher meeting";
+    const when = [fmtDay(m.date), m.time ? t12(m.time) : ""].filter(Boolean).join(", ");
+    const moved = (k) => String(before?.[k] ?? "") !== String(after?.[k] ?? "");
+    let title, body, key;
+    if (now === "scheduled" && was !== "scheduled") {
+      if (m.invite === false) return;
+      title = `Meeting invitation: ${name}`; body = `${when} · ${meetingWhere(m)}`; key = "new";
+    } else if (now === "scheduled" && was === "scheduled" && ["date", "time", "venue", "link", "format"].some(moved)) {
+      title = `Meeting updated: ${name}`; body = `Now ${when} · ${meetingWhere(m)}`; key = `u${String(after.updatedAt ?? Date.now()).replace(/[^0-9A-Za-z]/g, "")}`;
+    } else if (now === "cancelled" && was === "scheduled") {
+      title = `Meeting cancelled: ${name}`; body = when; key = "cancel";
+    } else return;
+    const roster = await classRoster(sid, m.classId);
+    await notifyParents(sid, guardiansOf(roster).map(({ uid, student }) => ({
+      id: `ptmc_${e.params.id}_${key}_${student.id}_${uid}`, uid, studentId: student.id, type: "ptm", title, body: body.slice(0, 300), route: "/notifications",
     })));
   }));
 
@@ -729,7 +777,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   return {
     onStudentWritten, onClassTeacherNameSync, onStaffRenamed, onAttendanceForParents, onHomeworkForParents, onPaperForParents,
     onMarkForParents, onNoticeForParents, onCalendarForParents, onNoticeAck, onStudentLeaveRequested, onStudentLeaveDecided,
-    onMessageCreated, onLiveClassForParents, onFeeInvoiceCreated, onFeePaymentCreated, onConsentWritten, onPtmBookingWritten,
+    onMessageCreated, onLiveClassForParents, onClassMeetingForParents, onFeeInvoiceCreated, onFeePaymentCreated, onConsentWritten, onPtmBookingWritten,
     onPtmSlotDeleted, onCertificateWritten, onFeeClaimWritten, onFeeReminderCreated, feeDueReminders,
   };
 };

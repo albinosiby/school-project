@@ -30,6 +30,7 @@ class FirebaseLiveClassRepository implements ILiveClassRepository {
           start: start,
           mins: (d['mins'] as num?)?.toInt() ?? 40,
           link: '${d['link']}',
+          materials: LiveMaterial.listOf(d['materials'] ?? (d['material'] == null ? null : [d['material']])),
         ));
       }
       out.sort((a, b) => a.start.compareTo(b.start));

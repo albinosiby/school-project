@@ -8,16 +8,18 @@ import 'app_tone.dart';
 /// [toneOf] lets each item pick its tone (e.g. Present = success, Absent = danger).
 /// With [deselectable] tapping the selected chip clears it (calls [onChanged] with '').
 class AppChoiceChips extends StatelessWidget {
-  const AppChoiceChips({super.key, required this.items, required this.value, required this.onChanged, this.solid = false, this.toneOf, this.deselectable = false, this.icons, this.check = false});
+  const AppChoiceChips({super.key, required this.items, required this.value, required this.onChanged, this.solid = false, this.toneOf, this.deselectable = false, this.icons, this.check = false, this.dense = false});
   final List<String> items;
   final String value;
   final ValueChanged<String> onChanged;
   final bool solid, deselectable, check;
+  /// Compact chips (32 px tall, smaller text) for secondary pickers.
+  final bool dense;
   final Tone Function(String)? toneOf;
   final Map<String, IconData>? icons;
 
   @override
-  Widget build(BuildContext context) => Wrap(spacing: 8.w, runSpacing: 8.h, children: [
+  Widget build(BuildContext context) => Wrap(spacing: dense ? 6.w : 8.w, runSpacing: dense ? 6.h : 8.h, children: [
         for (final i in items)
           Builder(builder: (_) {
             final on = i == value;
@@ -33,12 +35,12 @@ class AppChoiceChips extends StatelessWidget {
                 onTap: () => onChanged(on && deselectable ? '' : i),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
-                  constraints: BoxConstraints(minHeight: 40.h),
-                  padding: EdgeInsets.symmetric(horizontal: 14.w),
+                  constraints: BoxConstraints(minHeight: dense ? 32.h : 40.h),
+                  padding: EdgeInsets.symmetric(horizontal: dense ? 11.w : 14.w),
                   decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(R.pill), border: Border.all(color: on ? strong : C.border)),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     if (icons?[i] != null) ...[Icon(icons![i], size: 16.r, color: fg), SizedBox(width: 6.w)],
-                    Text(i, style: T.smallStrong.copyWith(fontSize: 13.sp, color: fg)),
+                    Text(i, style: T.smallStrong.copyWith(fontSize: dense ? 12.sp : 13.sp, color: fg)),
                     if (check && on) ...[SizedBox(width: 4.w), Icon(Icons.check_rounded, size: 16.r, color: fg)],
                   ]),
                 ),

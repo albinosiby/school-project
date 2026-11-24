@@ -16,7 +16,12 @@ class VoiceClip {
 /// Records a voice note (AAC in an .m4a file) while showing a live waveform fed by the microphone level.
 /// Replaces the composer while active: [onCancel] discards, [onDone] hands back the clip.
 class VoiceRecorderBar extends StatefulWidget {
-  const VoiceRecorderBar({super.key, required this.onCancel, required this.onDone, this.maxDuration = const Duration(minutes: 3)});
+  const VoiceRecorderBar({
+    super.key,
+    required this.onCancel,
+    required this.onDone,
+    this.maxDuration = const Duration(minutes: 3),
+  });
   final VoidCallback onCancel;
   final ValueChanged<VoiceClip> onDone;
   final Duration maxDuration;
@@ -27,7 +32,8 @@ class VoiceRecorderBar extends StatefulWidget {
 class _VoiceRecorderBarState extends State<VoiceRecorderBar> with SingleTickerProviderStateMixin {
   final _rec = AudioRecorder();
   final _levels = List<double>.filled(28, 0.05); // rolling microphone levels, newest last
-  late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+  late final AnimationController _pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+    ..repeat(reverse: true);
   StreamSubscription<Amplitude>? _amp;
   Timer? _tick;
   Duration _elapsed = Duration.zero;
@@ -48,7 +54,10 @@ class _VoiceRecorderBarState extends State<VoiceRecorderBar> with SingleTickerPr
       }
       final dir = await getTemporaryDirectory();
       final path = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      await _rec.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 44100, numChannels: 1), path: path);
+      await _rec.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 32000, sampleRate: 24000, numChannels: 1),
+        path: path,
+      );
       _path = path;
       _amp = _rec.onAmplitudeChanged(const Duration(milliseconds: 90)).listen((a) {
         // dBFS roughly -60 (silence) .. 0 (peak) → 0..1
@@ -114,45 +123,65 @@ class _VoiceRecorderBarState extends State<VoiceRecorderBar> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
-      return Row(children: [
-        Icon(Icons.mic_off_rounded, color: C.danger, size: 20.r),
-        SizedBox(width: 8.w),
-        Expanded(child: Text(_error!, style: T.small.copyWith(color: C.danger))),
-        TextButton(onPressed: widget.onCancel, child: const Text('Close')),
-      ]);
+      return Row(
+        children: [
+          Icon(Icons.mic_off_rounded, color: C.danger, size: 20.r),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Text(_error!, style: T.small.copyWith(color: C.danger)),
+          ),
+          TextButton(onPressed: widget.onCancel, child: const Text('Close')),
+        ],
+      );
     }
-    return Row(children: [
-      // Pulsing red dot + clock.
-      AnimatedBuilder(
-        animation: _pulse,
-        builder: (_, _) => Container(
-          width: 12.r,
-          height: 12.r,
-          decoration: BoxDecoration(
-            color: C.danger,
-            shape: BoxShape.circle,
-            boxShadow: [BoxShadow(color: C.danger.withValues(alpha: .25 + .35 * _pulse.value), blurRadius: 6 + 10 * _pulse.value, spreadRadius: 1 + 3 * _pulse.value)],
+    return Row(
+      children: [
+        // Pulsing red dot + clock.
+        AnimatedBuilder(
+          animation: _pulse,
+          builder: (_, _) => Container(
+            width: 12.r,
+            height: 12.r,
+            decoration: BoxDecoration(
+              color: C.danger,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: C.danger.withValues(alpha: .25 + .35 * _pulse.value),
+                  blurRadius: 6 + 10 * _pulse.value,
+                  spreadRadius: 1 + 3 * _pulse.value,
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-      SizedBox(width: 10.w),
-      Text(_clock, style: T.bodyStrong.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
-      SizedBox(width: 12.w),
-      Expanded(
-        child: SizedBox(
-          height: 40.h,
-          child: CustomPaint(painter: _WavePainter(List.of(_levels), color: C.primary)),
+        SizedBox(width: 10.w),
+        Text(_clock, style: T.bodyStrong.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+        SizedBox(width: 12.w),
+        Expanded(
+          child: SizedBox(
+            height: 40.h,
+            child: CustomPaint(painter: _WavePainter(List.of(_levels), color: C.primary)),
+          ),
         ),
-      ),
-      SizedBox(width: 8.w),
-      IconButton(tooltip: 'Discard recording', onPressed: _cancel, icon: Icon(Icons.delete_outline_rounded, color: C.slate, size: 24.r)),
-      Container(
-        width: 48.r,
-        height: 48.r,
-        decoration: const BoxDecoration(color: C.primary, shape: BoxShape.circle),
-        child: IconButton(tooltip: 'Send voice note', onPressed: _finish, icon: Icon(Icons.send_rounded, size: 20.r, color: Colors.white)),
-      ),
-    ]);
+        SizedBox(width: 8.w),
+        IconButton(
+          tooltip: 'Discard recording',
+          onPressed: _cancel,
+          icon: Icon(Icons.delete_outline_rounded, color: C.slate, size: 24.r),
+        ),
+        Container(
+          width: 48.r,
+          height: 48.r,
+          decoration: const BoxDecoration(color: C.primary, shape: BoxShape.circle),
+          child: IconButton(
+            tooltip: 'Send voice note',
+            onPressed: _finish,
+            icon: Icon(Icons.send_rounded, size: 20.r, color: Colors.white),
+          ),
+        ),
+      ],
+    );
   }
 }
 

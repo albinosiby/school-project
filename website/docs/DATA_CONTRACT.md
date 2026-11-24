@@ -156,6 +156,8 @@ These are one collection read by both apps. The teacher app's local collection n
 
 Everything else in the teacher app (`tt_*` extras, `tk_*` tasks/duties/syllabus, `cl_*`, `ls_*`, `ts_*`, `hm_*`, `ms_*`, `pm_*`, `ed_*`, `cr_*`, `att_*` leftovers) is stored under the same school with the same name and a `teacherId` field. Admin does not need them yet; rules still scope them to the owning teacher. They move to shared collections when an admin or parent screen needs them (messages, meetings, certificates are next).
 
+- **Class parent-teacher meetings** (`pm_meetings`, teacher-private): `{title, classId, category, format: 'In-Person Meeting'|'Online Meeting', venue, link (Google Meet, online only), date, time, mins, agenda: [{title, mins: 0}], status: draft|upcoming|completed, total}`. `onClassMeetingForParents` notifies the class's parents (`par_notifications`, type `ptm`): the invitation when it becomes `upcoming` ("Meeting invitation: …", date, time and venue or Meet link), an update when date / time / venue / link / format change, and a cancellation when a scheduled meeting is deleted. Drafts and completed meetings send nothing.
+
 ## 6. Live classes (Google Meet)
 
 - Two ways to get the link, both validated (`https://meet.google.com/xxx-xxxx-xxx` or `meet.google.com/lookup/…`):
@@ -173,6 +175,12 @@ Everything else in the teacher app (`tt_*` extras, `tk_*` tasks/duties/syllabus,
 - Join opens the link externally (`url_launcher`, `LaunchMode.externalApplication`); if it fails, show the link with a copy action.
 - Join is enabled from 10 min before start until `start + mins`; status is derived from the clock.
 - Tapping Join writes `live_classes/{id}/joins/{authUid}`. This records link opens, not proof of presence.
+- **Notes**: the schedule form attaches worksheets / notes (PDF, Office, images, ≤ 15 MB each) uploaded to Storage
+  `schools/{sid}/live-classes/{teacherUid}/…` (readable by the school's members) and listed on the session as
+  `materials: [{name, size, url, path, contentType, bytes}]` (`material` = the first one, for older readers). The parent app
+  shows them on the class card and opens the download URL.
+- **Parent notifications** (`onLiveClassForParents`): scheduled with `notify` on (drafts excluded) → "Live class: …";
+  date / time / link changed → "Live class rescheduled: …"; cancelled or deleted → "Live class cancelled: …".
 - Admin web has a read-only **Live classes** list (filter by class, teacher, date).
 
 ## 7. Firestore rules by role
@@ -408,7 +416,7 @@ Projection shapes (written only by functions):
 | notice becomes parent-visible | notice title | `/notifications` |
 | `student_leaves` decided | "Leave approved/rejected" | `/more/leave` |
 | teacher message | teacher name + text | `/messages/thread/{threadId}` |
-| live class scheduled for the class | title + time | `/more/live` |
+| live class scheduled for the class (`notify` on) / rescheduled / cancelled | title + time | `/more/live` |
 | `fee_invoices` created / `fee_payments` created | invoice due / receipt | `/fees` |
 | admin Remind (`fee_reminders` created) | "Fee reminder" | `/fees` |
 | daily 09:00 IST (`feeDueReminders`): unpaid invoice due in 3 days / today / 1 and 7 days late | "Fee due in 3 days" / "Fee due today" / "Fee overdue" | `/fees` |
