@@ -92,7 +92,7 @@ export function NoticesView() {
         <div className="min-w-0 space-y-4">
           <Card className="min-w-0 p-4">
             <ListToolbar search={<SearchBox value={q} onChange={setQ} placeholder="Search notices by title, grade, recipient or ID..." />}
-              actions={<Button onClick={() => setComposer({ open: true, notice: null })}><Plus size={14} />New Notice</Button>} />
+              actions={<Button onClick={() => setComposer({ open: true, notice: null })}><Plus size={14} />New Circular / Notice</Button>} />
             <Tabs className="mt-3" value={tab} onChange={setTab} items={[
               { id: "all", label: "All", count: counts("all") }, { id: "Published", label: "Published", count: counts("Published") },
               { id: "Scheduled", label: "Scheduled", count: counts("Scheduled") }, { id: "Draft", label: "Draft", count: counts("Draft") },

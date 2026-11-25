@@ -3,6 +3,7 @@ import 'package:equatable/equatable.dart';
 import '../models/home_models.dart';
 import '../../attendance/models/attendance_models.dart';
 import '../models/timetable_models.dart';
+import '../../attendance/models/circular_models.dart';
 
 enum HomeStatus { initial, loading, loaded, failure }
 
@@ -17,6 +18,7 @@ class HomeState extends Equatable {
     this.error,
     this.today = const {},
     this.drafts = const {},
+    this.latestCircular,
   });
   final String policyVersion;
   final HomeStatus status;
@@ -32,6 +34,9 @@ class HomeState extends Equatable {
   /// Classes with a saved but unsubmitted attendance draft today (and no submitted record).
   final Set<String> drafts;
 
+  /// The most recently published circular, for the home card.
+  final Circular? latestCircular;
+
   List<PendingTask> get open => pending.where((p) => !p.done).toList();
   List<Period> periodsOf(int day) => periodsFor(periods, subs, day);
 
@@ -44,6 +49,7 @@ class HomeState extends Equatable {
     String? error,
     Map<String, AttCounts>? today,
     Set<String>? drafts,
+    Circular? latestCircular,
   }) => HomeState(
     policyVersion: SchoolPolicyRuntime.current.version,
     status: status ?? this.status,
@@ -54,8 +60,9 @@ class HomeState extends Equatable {
     error: error,
     today: today ?? this.today,
     drafts: drafts ?? this.drafts,
+    latestCircular: latestCircular ?? this.latestCircular,
   );
 
   @override
-  List<Object?> get props => [policyVersion, status, pending, reminders, periods, subs, error, today, drafts];
+  List<Object?> get props => [policyVersion, status, pending, reminders, periods, subs, error, today, drafts, latestCircular];
 }

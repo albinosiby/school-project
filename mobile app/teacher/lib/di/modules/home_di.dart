@@ -1,3 +1,4 @@
+import '../../modules/attendance/repositories/circulars_repository_interface.dart';
 import 'package:get_it/get_it.dart';
 import '../../modules/attendance/repositories/attendance_repository_interface.dart';
 import '../../modules/home/bloc/home_bloc.dart';
@@ -29,7 +30,7 @@ void registerHomeModule(GetIt getIt) {
 
   // BLoCs
   getIt.registerFactory<NotificationsBloc>(() => NotificationsBloc(getIt<INotificationRepository>()));
-  getIt.registerFactory<HomeBloc>(() => HomeBloc(getIt<IHomeRepository>(), getIt<ITimetableRepository>(), getIt<ISettingsRepository>(), getIt<IAttendanceRepository>()));
+  getIt.registerFactory<HomeBloc>(() => HomeBloc(getIt<IHomeRepository>(), getIt<ITimetableRepository>(), getIt<ISettingsRepository>(), getIt<IAttendanceRepository>(), getIt<ICircularsRepository>()));
   getIt.registerFactory<TimetableBloc>(() => TimetableBloc(getIt<ITimetableRepository>(), getIt<ISettingsRepository>()));
   getIt.registerFactory<SubstitutionBloc>(() => SubstitutionBloc(getIt<ITimetableRepository>()));
   getIt.registerFactory<ProfileBloc>(() => ProfileBloc(getIt<IProfileRepository>()));

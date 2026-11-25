@@ -55,8 +55,6 @@ class _MoreView extends StatelessWidget {
             tone: Tone.success, badge: text(s.leaveBadge), badgeTone: Tone.success),
         MoreModule('Exam Duties', 'Invigilation and halls', Icons.fact_check_outlined, () => push(RoutePaths.examDuties),
             tone: Tone.purple, badge: text(s.dutyBadge), badgeTone: Tone.brand),
-        MoreModule('Student Certificates', 'Awards you issue to students', Icons.workspace_premium_outlined, () => push(RoutePaths.certificates),
-            tone: Tone.warning, badge: count(s.pendingCertificates, 'to sign'), badgeTone: Tone.warning),
       ]),
     ];
 

@@ -2230,6 +2230,7 @@ class CircularsAdapter extends StoreAdapter {
         'read': st['read'] == true,
         'ack': st['ack'] == true,
         'pinned': st['pinned'] ?? n['pinned'] == true,
+        'urgent': n['urgent'] == true,
         'audience': '${n['audience'] ?? ''}',
         'points': const <String>[],
         'attachment': att == null || '$att'.isEmpty ? null : {'name': '$att', 'size': '${n['attachmentSize'] ?? ''}'},

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../attendance/models/attendance_models.dart';
 import '../../attendance/repositories/attendance_repository_interface.dart';
+import '../../attendance/repositories/circulars_repository_interface.dart';
+import '../../attendance/models/circular_models.dart';
 import '../repositories/home_repository_interface.dart';
 import '../repositories/settings_repository_interface.dart';
 import '../repositories/timetable_repository_interface.dart';
@@ -10,11 +12,11 @@ import 'home_states.dart';
 
 /// Home tab: pending tasks, reminders, today's periods (for the now card) and today's attendance per class.
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
-  HomeBloc(this._home, this._timetable, this._settings, [this._attendance]) : super(const HomeState()) {
+  HomeBloc(this._home, this._timetable, this._settings, [this._attendance, this._circulars]) : super(const HomeState()) {
     on<HomeLoadRequested>(_onLoad);
     on<HomeTaskCompleted>((e, _) => _home.setPendingDone(e.id));
     _subs = [
-      for (final s in [_home.watch(), _timetable.watch(), _settings.watch(), ?_attendance?.watch()]) s.listen((_) => add(const HomeLoadRequested())),
+      for (final s in [_home.watch(), _timetable.watch(), _settings.watch(), ?_attendance?.watch(), ?_circulars?.watch()]) s.listen((_) => add(const HomeLoadRequested())),
     ];
   }
 
@@ -22,6 +24,18 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   final ITimetableRepository _timetable;
   final ISettingsRepository _settings;
   final IAttendanceRepository? _attendance;
+  final ICircularsRepository? _circulars;
+
+  /// Newest circular by publish date (unread first on the same day).
+  Future<Circular?> _latest() async {
+    final all = await _circulars?.getAll() ?? const <Circular>[];
+    if (all.isEmpty) return null;
+    return ([...all]..sort((a, b) {
+          final d = b.date.compareTo(a.date);
+          return d != 0 ? d : (a.read ? 1 : 0).compareTo(b.read ? 1 : 0);
+        }))
+        .first;
+  }
 
   /// Latest submitted record of today per class, and the classes that only have a draft today.
   Future<({Map<String, AttCounts> today, Set<String> drafts})> _today() async {
@@ -55,6 +69,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         subs: await _timetable.getSubstitutions(),
         today: att.today,
         drafts: att.drafts,
+        latestCircular: await _latest(),
       ));
     } catch (err) {
       emit(state.copyWith(status: HomeStatus.failure, error: '$err'));

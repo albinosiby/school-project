@@ -23,7 +23,7 @@ export function CommHeader({ active }: { active: "notices" | "reports" | "messag
       <div className="mt-4 flex items-center justify-between border-b border-outline-variant">
         <Tabs variant="underline" value={active} onChange={(id) => router.push(href[id] ?? "/communication")}
           items={[
-            { id: "notices", label: "Notices", count: notices.length },
+            { id: "notices", label: "Circulars & Notices", count: notices.length },
             { id: "reports", label: "Standard Reports", count: reports.length },
             { id: "messages", label: "Parent messages", count: threads.length },
           ]} className="!border-b-0" />

@@ -19,6 +19,7 @@ export const EXTRA_PAGES = [
   { href: "/approvals", label: "Approvals Inbox" },
   { href: "/calendar", label: "Academic Calendar" },
   { href: "/notifications", label: "Notifications" },
+  { href: "/communication", label: "Circulars & Notices" },
   { href: "/profile", label: "My Profile" },
 ] as const;
 export { BookOpenCheck };

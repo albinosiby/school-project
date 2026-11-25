@@ -14,7 +14,7 @@ const roster = {
 async function compose() {
   seed(roster);
   const r = renderUI(<NoticesView />);
-  await r.user.click(screen.getByRole("button", { name: /New Notice/ }));
+  await r.user.click(screen.getByRole("button", { name: /New Circular/ }));
   return { ...r, d: dialog("Compose Notice") };
 }
 
@@ -97,7 +97,7 @@ describe("Notice composer writes (contract 10 / 13.6)", () => {
     expect(rowsOf("com_notices")[0]).toMatchObject({ status: "Scheduled", sentAt: new Date("2099-01-05T09:30").toISOString(), delivered: 0 });
     expect(writesTo("com_log")).toHaveLength(0);
 
-    await user.click(screen.getByRole("button", { name: /New Notice/ }));
+    await user.click(screen.getByRole("button", { name: /New Circular/ }));
     const d2 = dialog("Compose Notice");
     await user.type(field("Title", d2), "Idea");
     await user.click(within(d2).getByRole("button", { name: "Save Draft" }));

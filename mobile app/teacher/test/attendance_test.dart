@@ -299,8 +299,8 @@ void main() {
 
   testWidgets('circulars list, open marks read, acknowledge', (t) => quiet(() async {
         await open(t, RoutePaths.circulars);
-        expect(find.text('General Circulars'), findsOneWidget);
-        await t.tap(find.textContaining('Parent-Teacher Meeting'));
+        expect(find.text('To acknowledge'), findsOneWidget);
+        await t.tap(find.textContaining('Parent-Teacher Meeting').first);
         await t.pumpAndSettle();
         expect(find.text('Acknowledge Circular'), findsOneWidget);
         expect(db.byId('att_circulars', 'cir_1')!['read'], true);

@@ -13,6 +13,7 @@ import '../bloc/home_states.dart';
 import '../../attendance/models/attendance_models.dart' show AttCounts;
 import '../models/home_models.dart';
 import '../models/timetable_models.dart';
+import '../../attendance/screens/widgets/circular_widgets.dart';
 import 'widgets/home_checkin_card.dart';
 import 'widgets/home_now_card.dart';
 import 'widgets/teacher_tab_header.dart';
@@ -75,6 +76,10 @@ class _HomeViewState extends State<_HomeView> {
       const _QuickActions(),
       SectionHeader("Today's Schedule", icon: Icons.calendar_today_outlined, action: 'View Timetable', onAction: () => context.go(RoutePaths.timetable)),
       ScheduleStrip(now: now, today: today, onTap: () => context.go(RoutePaths.timetable)),
+      if (state.latestCircular != null) ...[
+        SectionHeader('Latest Circular', icon: Icons.campaign_outlined, action: 'View all', onAction: () => context.push(RoutePaths.circulars)),
+        CircularTile(state.latestCircular!, highlight: true),
+      ],
     ];
     final attention = <Widget>[
       SectionHeader('Needs your attention', icon: Icons.assignment_late_outlined, action: 'All tasks', onAction: () => context.push(RoutePaths.tasks)),
