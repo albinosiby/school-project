@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../models/notification_models.dart';
 
 sealed class NotificationsEvent extends Equatable {
   const NotificationsEvent();
@@ -27,6 +28,14 @@ class NotificationDeleted extends NotificationsEvent {
   final String id;
   @override
   List<Object?> get props => [id];
+}
+
+/// Puts a deleted notification back (Undo).
+class NotificationRestored extends NotificationsEvent {
+  const NotificationRestored(this.notification);
+  final AppNotification notification;
+  @override
+  List<Object?> get props => [notification];
 }
 
 /// Deletes every read notification.

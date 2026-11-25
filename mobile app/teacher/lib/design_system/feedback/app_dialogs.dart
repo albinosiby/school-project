@@ -50,13 +50,16 @@ class AppDialogs {
 
   static void dismissLoadingDialog(BuildContext context) => Navigator.of(context).pop();
 
-  static void showSnackBar(BuildContext context, {required String message, bool isError = false}) {
+  /// [action] adds a button (e.g. "Undo"); the bar then stays a little longer so it can be tapped.
+  static void showSnackBar(BuildContext context, {required String message, bool isError = false, String? action, VoidCallback? onAction}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
         content: Text(message, style: T.bodyStrong.copyWith(color: Colors.white)),
         backgroundColor: isError ? C.danger : C.ink,
-        duration: const Duration(seconds: 2),
+        duration: Duration(seconds: action == null ? 2 : 5),
+        persist: false,
+        action: action == null ? null : SnackBarAction(label: action, textColor: C.primarySoft, onPressed: onAction ?? () {}),
       ));
   }
 }

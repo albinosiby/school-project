@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../engage/screens/widgets/attachment_sheet.dart';
 import '../models/lesson_plan_models.dart';
 
 sealed class LessonPlansEvent extends Equatable {
@@ -11,13 +12,14 @@ class LessonPlansLoadRequested extends LessonPlansEvent {
   const LessonPlansLoadRequested();
 }
 
-/// Ticks/unticks milestone [index] of plan [planId].
-class LessonMilestoneToggled extends LessonPlansEvent {
-  const LessonMilestoneToggled(this.planId, this.index);
-  final String planId;
-  final int index;
+/// A session was taught (with an optional note on how it went), skipped, or reopened.
+class LessonSessionMarked extends LessonPlansEvent {
+  const LessonSessionMarked(this.planId, this.sessionId, this.status, {this.note});
+  final String planId, sessionId;
+  final SessionStatus status;
+  final String? note;
   @override
-  List<Object?> get props => [planId, index];
+  List<Object?> get props => [planId, sessionId, status, note];
 }
 
 class LessonPlanDeleted extends LessonPlansEvent {
@@ -27,17 +29,27 @@ class LessonPlanDeleted extends LessonPlansEvent {
   List<Object?> get props => [id];
 }
 
-class LessonPlanShared extends LessonPlansEvent {
-  const LessonPlanShared(this.id);
-  final String id;
+/// Creates (empty id) or updates [plan]; [files] are uploaded first and added to its attachments.
+class LessonPlanSaved extends LessonPlansEvent {
+  const LessonPlanSaved(this.plan, {this.files = const []});
+  final LessonPlan plan;
+  final List<PickedAttachment> files;
   @override
-  List<Object?> get props => [id];
+  List<Object?> get props => [plan, files];
 }
 
-/// Creates (empty id) or updates [plan]. [plan.draft] decides the feedback message.
-class LessonPlanSaved extends LessonPlansEvent {
-  const LessonPlanSaved(this.plan);
-  final LessonPlan plan;
+/// Copies a plan to another section of the same subject (as a draft, with dates from that class's timetable).
+class LessonPlanCopied extends LessonPlansEvent {
+  const LessonPlanCopied(this.planId, {required this.cls, this.classId = ''});
+  final String planId, cls, classId;
   @override
-  List<Object?> get props => [plan];
+  List<Object?> get props => [planId, cls, classId];
+}
+
+/// Sends the plan to the HOD / admin for review.
+class LessonPlanReviewRequested extends LessonPlansEvent {
+  const LessonPlanReviewRequested(this.planId);
+  final String planId;
+  @override
+  List<Object?> get props => [planId];
 }

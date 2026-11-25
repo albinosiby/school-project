@@ -304,6 +304,28 @@ exports.onStaffLeaveRequested = onDocumentCreated("schools/{sid}/staff_leaves/{i
   });
 });
 
+// Lesson plan review (DATA_CONTRACT section 5, ls_plans.review): the teacher sends a plan -> the admin hears about it;
+// the admin approves or asks for changes -> the teacher hears about it.
+exports.onLessonPlanReview = onDocumentWritten("schools/{sid}/ls_plans/{id}", async (e) => {
+  const before = e.data?.before?.data(), after = e.data?.after?.data();
+  const was = before?.review?.state ?? "none", now = after?.review?.state ?? "none";
+  if (!after || was === now) return;
+  const sid = e.params.sid, what = `“${after.title ?? "Lesson plan"}” (${after.cls ?? ""} ${after.subject ?? ""})`.replace(/\s+\)/, ")");
+  if (now === "submitted") {
+    await notifyAdmin(sid, {
+      category: "approvals", title: "Lesson plan to review", href: `/lesson-plans?id=${e.params.id}`,
+      body: `${await staffName(sid, after.teacherId)} sent ${what} for review: ${after.sessionCount ?? 0} sessions.`,
+    });
+  } else if ((now === "approved" || now === "changes") && after.teacherId) {
+    const note = String(after.review?.note ?? "").trim();
+    await notify(sid, [after.teacherId], {
+      type: "lesson", category: "Academic", tag: "Lesson Plan",
+      title: now === "approved" ? `Lesson plan approved: ${after.title ?? ""}` : `Changes asked: ${after.title ?? ""}`,
+      body: note || (now === "approved" ? "Your plan was approved." : "Open the plan to see what to change."), route: `/lesson-plans/${e.params.id}`,
+    });
+  }
+});
+
 exports.onLiveClassScheduled = onDocumentCreated("schools/{sid}/live_classes/{id}", async (e) => {
   const c = e.data?.data();
   if (!c) return;

@@ -389,7 +389,10 @@ class _PointInput extends StatelessWidget {
             style: T.body.copyWith(color: C.ink, fontSize: 13.5.sp),
             decoration: InputDecoration(
               isDense: true,
+              filled: false,
               border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
               hintText: n == 1 ? 'Type a discussion point' : 'Add another point',
               hintStyle: T.small.copyWith(fontSize: 13.sp),
             ),

@@ -164,6 +164,17 @@ void main() {
       await expectLater(bloc.stream, emitsThrough(predicate<NotificationsState>((s) => s.items.length == 3 && s.unread == 3)));
       await bloc.close();
     });
+
+    test('NotificationsBloc: Undo puts a deleted notification back as it was', () async {
+      final bloc = getIt<NotificationsBloc>()..add(const NotificationsLoadRequested());
+      await expectLater(bloc.stream, emitsThrough(predicate<NotificationsState>((s) => s.loaded && s.items.length == 8)));
+      final n = bloc.state.byId('n_1')!;
+      bloc.add(const NotificationDeleted('n_1'));
+      await expectLater(bloc.stream, emitsThrough(predicate<NotificationsState>((s) => s.byId('n_1') == null)));
+      bloc.add(NotificationRestored(n));
+      await expectLater(bloc.stream, emitsThrough(predicate<NotificationsState>((s) => s.byId('n_1')?.title == n.title && s.items.length == 8)));
+      await bloc.close();
+    });
   });
 
   group('screens', () {
@@ -175,6 +186,11 @@ void main() {
       expect(find.text("Today's Schedule"), findsOneWidget);
       expect(find.text('Attendance'), findsOneWidget); // quick actions sit right under the now card
       await t.scrollUntilVisible(find.text('Needs your attention'), 200, scrollable: find.byType(Scrollable).first);
+      // Today's Lessons sits above: scroll on until the tasks are built
+      for (var i = 0; i < 20 && find.byTooltip('Mark done').evaluate().isEmpty; i++) {
+        await t.drag(find.byType(Scrollable).first, const Offset(0, -200));
+        await t.pump();
+      }
       await t.ensureVisible(find.byTooltip('Mark done').first);
       await t.pumpAndSettle();
       expect(find.byTooltip('Mark done', skipOffstage: false), findsNWidgets(4));
@@ -256,7 +272,8 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.text('Ananya Reddy (#02 • 10-B)'));
       await t.pumpAndSettle();
-      expect(find.text('Leave Application Submitted'), findsOneWidget);
+      // the detail shows the notification itself (no sample leave content)
+      expect(find.text('Ananya Reddy (#02 • 10-B)'), findsOneWidget);
       expect(find.text('Review leave requests'), findsOneWidget);
       await t.tap(find.byTooltip('Delete notification'));
       await t.pumpAndSettle();

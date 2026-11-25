@@ -44,13 +44,12 @@ class TeacherHeaderActions extends StatelessWidget {
           button: true, label: unread > 0 ? 'Notifications, unread' : 'Notifications',
           child: InkResponse(
             onTap: () => context.push(RoutePaths.notifications),
-            child: Container(
+            child: SizedBox(
               width: 44.r, height: 44.r,
-              decoration: BoxDecoration(color: C.panel, shape: BoxShape.circle, border: Border.all(color: C.panelBorder)),
               child: Stack(alignment: Alignment.center, children: [
-                Icon(Icons.notifications_none_rounded, color: C.primary, size: 22.r),
+                Icon(Icons.notifications_none_rounded, color: C.ink, size: 26.r),
                 if (unread > 0)
-                  Positioned(right: 10.r, top: 10.r, child: Container(width: 8.r, height: 8.r, decoration: BoxDecoration(color: C.danger, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))),
+                  Positioned(right: 11.r, top: 10.r, child: Container(width: 8.r, height: 8.r, decoration: BoxDecoration(color: C.danger, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))),
               ]),
             ),
           ),

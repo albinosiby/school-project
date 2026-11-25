@@ -7,6 +7,9 @@ import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
 import '../../school/bloc/school_bloc.dart';
 import '../../school/models/school_models.dart';
+import '../../lessons/models/lesson_plan_models.dart';
+import '../../lessons/screens/widgets/lesson_plan_widgets.dart';
+import '../../../utils/helpers/date_helper.dart';
 import '../bloc/home_bloc.dart';
 import '../bloc/home_events.dart';
 import '../bloc/home_states.dart';
@@ -66,6 +69,11 @@ class _HomeViewState extends State<_HomeView> {
     final now = schoolNow();
     final today = state.periodsOf(now.day);
     final items = attentionItems(state, school.classes, now);
+    // sessions of published lesson plans dated today, in period order
+    final todayLessons = [
+      for (final p in state.lessonPlans)
+        for (final ses in p.sessionsOn(todayIso())) (plan: p, session: ses),
+    ]..sort((a, b) => (int.tryParse(a.session.slot.replaceAll(RegExp(r'\D'), '')) ?? 99).compareTo(int.tryParse(b.session.slot.replaceAll(RegExp(r'\D'), '')) ?? 99));
     final top = <Widget>[
       _GreetingBar(teacher: school.teacher, now: now),
       SizedBox(height: 14.h),
@@ -76,6 +84,19 @@ class _HomeViewState extends State<_HomeView> {
       const _QuickActions(),
       SectionHeader("Today's Schedule", icon: Icons.calendar_today_outlined, action: 'View Timetable', onAction: () => context.go(RoutePaths.timetable)),
       ScheduleStrip(now: now, today: today, onTap: () => context.go(RoutePaths.timetable)),
+      if (todayLessons.isNotEmpty) ...[
+        SectionHeader("Today's Lessons", icon: Icons.menu_book_outlined, action: 'All plans', onAction: () => context.push(RoutePaths.lessonPlans)),
+        AppCard(
+          radius: R.lg,
+          padding: EdgeInsets.zero,
+          child: Column(children: [
+            for (var i = 0; i < todayLessons.length; i++) ...[
+              if (i > 0) Divider(height: 1, color: C.border),
+              _LessonRow(plan: todayLessons[i].plan, session: todayLessons[i].session),
+            ],
+          ]),
+        ),
+      ],
       if (state.latestCircular != null) ...[
         SectionHeader('Latest Circular', icon: Icons.campaign_outlined, action: 'View all', onAction: () => context.push(RoutePaths.circulars)),
         CircularTile(state.latestCircular!, highlight: true),
@@ -343,4 +364,34 @@ class _ReminderCard extends StatelessWidget {
           ]),
         ),
       );
+}
+
+/// One of today's planned lessons: period, class and subject, the session focus; tap opens the plan.
+class _LessonRow extends StatelessWidget {
+  const _LessonRow({required this.plan, required this.session});
+  final LessonPlan plan;
+  final LessonSession session;
+  @override
+  Widget build(BuildContext context) {
+    final n = plan.indexOf(session) + 1;
+    return InkWell(
+      onTap: () => context.push(RoutePaths.lessonPlan(plan.id)),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(12.w, 12.h, 8.w, 12.h),
+        child: Row(children: [
+          SessionDot(session, n),
+          SizedBox(width: 12.w),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text([if (session.slot.isNotEmpty) slotLabel(session.slot), '${plan.cls} ${plan.subject}'].join(' • '),
+                  style: T.small.copyWith(fontSize: 11.5.sp, color: C.primary, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(session.focus.isEmpty ? plan.title : session.focus, style: T.bodyStrong.copyWith(fontSize: 14.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text('${plan.title} • Session $n of ${plan.sessions.length}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ]),
+          ),
+          if (session.taught) Icon(Icons.check_circle_rounded, color: C.successDark, size: 20.r) else Icon(Icons.chevron_right_rounded, color: C.muted, size: 20.r),
+        ]),
+      ),
+    );
+  }
 }

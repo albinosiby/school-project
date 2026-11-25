@@ -4,6 +4,8 @@ import '../../attendance/models/attendance_models.dart';
 import '../../attendance/repositories/attendance_repository_interface.dart';
 import '../../attendance/repositories/circulars_repository_interface.dart';
 import '../../attendance/models/circular_models.dart';
+import '../../lessons/models/lesson_plan_models.dart';
+import '../../lessons/repositories/lesson_plan_repository_interface.dart';
 import '../repositories/home_repository_interface.dart';
 import '../repositories/settings_repository_interface.dart';
 import '../repositories/timetable_repository_interface.dart';
@@ -12,11 +14,11 @@ import 'home_states.dart';
 
 /// Home tab: pending tasks, reminders, today's periods (for the now card) and today's attendance per class.
 class HomeBloc extends Bloc<HomeEvent, HomeState> {
-  HomeBloc(this._home, this._timetable, this._settings, [this._attendance, this._circulars]) : super(const HomeState()) {
+  HomeBloc(this._home, this._timetable, this._settings, [this._attendance, this._circulars, this._lessons]) : super(const HomeState()) {
     on<HomeLoadRequested>(_onLoad);
     on<HomeTaskCompleted>((e, _) => _home.setPendingDone(e.id));
     _subs = [
-      for (final s in [_home.watch(), _timetable.watch(), _settings.watch(), ?_attendance?.watch(), ?_circulars?.watch()]) s.listen((_) => add(const HomeLoadRequested())),
+      for (final s in [_home.watch(), _timetable.watch(), _settings.watch(), ?_attendance?.watch(), ?_circulars?.watch(), ?_lessons?.watch()]) s.listen((_) => add(const HomeLoadRequested())),
     ];
   }
 
@@ -25,6 +27,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   final ISettingsRepository _settings;
   final IAttendanceRepository? _attendance;
   final ICircularsRepository? _circulars;
+  final ILessonPlanRepository? _lessons;
 
   /// Newest circular by publish date (unread first on the same day).
   Future<Circular?> _latest() async {
@@ -70,6 +73,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         today: att.today,
         drafts: att.drafts,
         latestCircular: await _latest(),
+        lessonPlans: [for (final p in await _lessons?.getAll() ?? const <LessonPlan>[]) if (!p.draft) p],
       ));
     } catch (err) {
       emit(state.copyWith(status: HomeStatus.failure, error: '$err'));

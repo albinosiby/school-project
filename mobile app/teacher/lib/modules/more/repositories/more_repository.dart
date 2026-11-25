@@ -1,3 +1,4 @@
+import '../../lessons/models/lesson_plan_models.dart';
 import '../../../utils/helpers/date_helper.dart';
 import '../../../utils/services/data_store.dart';
 import '../../home/models/timetable_models.dart';
@@ -12,10 +13,10 @@ class LocalMoreRepository implements IMoreRepository {
 
   @override
   Future<MoreSummary> getSummary() async {
-    final plans = _db.list('ls_plans');
+    final plans = [for (final p in _db.list('ls_plans')) LessonPlan.fromJson(p)];
     return MoreSummary(
-      activePlans: plans.where((p) => p['draft'] != true && p['stage'] != 'completed').length,
-      draftPlans: plans.where((p) => p['draft'] == true).length,
+      activePlans: plans.where((p) => p.isActive).length,
+      draftPlans: plans.where((p) => p.draft).length,
       upcomingTests: _db.list('ts_tests').where((t) => t['status'] == 'upcoming').length,
       pendingCertificates: _db.list('cr_certs').where((c) => c['status'] == 'pending').length,
       openTasks: _db.list('tk_tasks').where((t) => t['status'] != 'done' && t['done'] != true).length,

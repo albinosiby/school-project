@@ -11,6 +11,7 @@ class NotificationsBloc extends Bloc<NotificationsEvent, NotificationsState> {
     on<NotificationMarkedRead>((e, _) => _repo.markRead(e.id, read: e.read));
     on<NotificationsAllMarkedRead>((e, _) => _repo.markAllRead());
     on<NotificationDeleted>((e, _) => _repo.delete(e.id));
+    on<NotificationRestored>((e, _) => _repo.add(e.notification));
     on<NotificationsReadDeleted>((e, _) => _repo.deleteRead());
     _sub = _repo.watch().listen((_) => add(const NotificationsLoadRequested()));
   }

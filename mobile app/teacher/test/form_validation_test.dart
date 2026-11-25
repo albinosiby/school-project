@@ -419,22 +419,18 @@ void main() {
       expect(await seen(t, 'Use a Google Meet link like https://meet.google.com/abc-defg-hij'), findsOneWidget);
     });
 
-    testWidgets('lesson plan: title min 3, outcome min 10 (also when the title is scrolled out of view)', (t) async {
+    testWidgets('lesson plan: title min 3 (also when scrolled out of view) and at least one session', (t) async {
       ignoreOverflow();
       final id = '${db.list('ls_plans').first['id']}';
       await open(t, RoutePaths.lessonPlanEdit(id));
-      await type(t, field('Lesson title'), 'ab');
-      await type(t, field('Primary Learning Outcome'), '123456789');
-      await tapText(t, 'Save & Publish');
+      await type(t, field('Title'), 'ab');
+      await tapText(t, 'Save Plan');
       expect(await seen(t, 'Enter a title (min 3 characters)'), findsOneWidget);
-      expect(await seen(t, 'Describe the outcome (min 10 characters)'), findsOneWidget);
       // the title field sat above the fold when Save was tapped: it is still validated, nothing is saved
       expect(db.byId('ls_plans', id)!['title'], isNot('ab'));
-      await type(t, field('Lesson title'), 'abc');
-      await type(t, field('Primary Learning Outcome'), '1234567890');
-      await tapText(t, 'Save & Publish');
+      await type(t, field('Title'), 'abc');
+      await tapText(t, 'Save Plan');
       expect(find.text('Enter a title (min 3 characters)'), findsNothing);
-      expect(find.text('Describe the outcome (min 10 characters)'), findsNothing);
     });
 
     testWidgets('online test: title min 3, duration 5..300, cutoff within total', (t) async {

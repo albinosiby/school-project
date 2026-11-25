@@ -11,6 +11,8 @@ import '../../modules/lessons/repositories/online_test_repository_interface.dart
 import '../../modules/more/bloc/more_bloc.dart';
 import '../../modules/more/repositories/more_repository.dart';
 import '../../modules/more/repositories/more_repository_interface.dart';
+import '../../modules/engage/repositories/chat_media_repository.dart';
+import '../../modules/home/repositories/timetable_repository_interface.dart';
 import '../../utils/services/data_store.dart';
 
 /// Registers the lessons module (lesson plans, online tests, certificates) and the More hub.
@@ -20,7 +22,9 @@ void registerLessonsModule(GetIt getIt) {
   getIt.registerLazySingleton<ICertificateRepository>(() => LocalCertificateRepository(getIt<DataStore>()));
   getIt.registerLazySingleton<IMoreRepository>(() => LocalMoreRepository(getIt<DataStore>()));
 
-  getIt.registerFactory<LessonPlansBloc>(() => LessonPlansBloc(getIt<ILessonPlanRepository>()));
+  getIt.registerFactory<LessonPlansBloc>(
+    () => LessonPlansBloc(getIt<ILessonPlanRepository>(), getIt<ITimetableRepository>(), getIt<IChatMediaRepository>()),
+  );
   getIt.registerFactory<OnlineTestsBloc>(() => OnlineTestsBloc(getIt<IOnlineTestRepository>()));
   getIt.registerFactory<CertificatesBloc>(() => CertificatesBloc(getIt<ICertificateRepository>()));
   getIt.registerFactory<MoreBloc>(() => MoreBloc(getIt<IMoreRepository>()));

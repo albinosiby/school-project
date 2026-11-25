@@ -244,8 +244,13 @@ class _NotifTile extends StatelessWidget {
         child: Icon(Icons.delete_outline_rounded, color: C.danger, size: 22.r),
       ),
       onDismissed: (_) {
-        context.read<NotificationsBloc>().add(NotificationDeleted(n.id));
-        AppDialogs.showSnackBar(context, message: 'Notification deleted');
+        final bloc = context.read<NotificationsBloc>()..add(NotificationDeleted(n.id));
+        AppDialogs.showSnackBar(
+          context,
+          message: 'Notification deleted',
+          action: 'Undo',
+          onAction: () => bloc.add(NotificationRestored(n)),
+        );
       },
       child: Material(
         color: fresh ? C.primarySoft.withValues(alpha: .45) : C.bg,

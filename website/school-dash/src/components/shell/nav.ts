@@ -7,6 +7,7 @@ export const NAV = [
   { href: "/certificates", label: "Certificates", icon: Award },
   { href: "/staff", label: "Staff & HR", icon: Briefcase },
   { href: "/classes", label: "Classes & Assignments", icon: School },
+  { href: "/lesson-plans", label: "Lesson Plans", icon: BookOpenCheck },
   { href: "/transport", label: "Transport", icon: Bus },
   { href: "/exams", label: "Exams & Results", icon: GraduationCap },
   { href: "/fees", label: "Fees & Payments", icon: Banknote },
@@ -22,4 +23,3 @@ export const EXTRA_PAGES = [
   { href: "/communication", label: "Circulars & Notices" },
   { href: "/profile", label: "My Profile" },
 ] as const;
-export { BookOpenCheck };

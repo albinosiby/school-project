@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:teacher_app/design_system/design_system.dart' show AppTextField;
+import 'package:teacher_app/design_system/design_system.dart' show AppButton, AppTextField;
 import 'package:teacher_app/config/routes/modules/lessons_routes.dart';
 import 'package:teacher_app/config/routes/routes.dart';
 import 'package:teacher_app/di/injection.dart';
@@ -11,6 +11,7 @@ import 'package:teacher_app/modules/lessons/bloc/certificates_states.dart';
 import 'package:teacher_app/modules/lessons/bloc/lesson_plans_bloc.dart';
 import 'package:teacher_app/modules/lessons/bloc/lesson_plans_events.dart';
 import 'package:teacher_app/modules/lessons/bloc/lesson_plans_states.dart';
+import 'package:teacher_app/modules/lessons/models/lesson_plan_models.dart';
 import 'package:teacher_app/modules/lessons/bloc/online_tests_bloc.dart';
 import 'package:teacher_app/modules/lessons/bloc/online_tests_events.dart';
 import 'package:teacher_app/modules/lessons/bloc/online_tests_states.dart';
@@ -44,7 +45,7 @@ void main() {
       final bloc = getIt<MoreBloc>()..add(const MoreLoadRequested());
       await expectLater(bloc.stream, emitsThrough(predicate<MoreState>((s) => s.status == MoreStatus.loaded)));
       expect(bloc.state.summary.activePlans, 3);
-      expect(bloc.state.summary.draftPlans, 1);
+      expect(bloc.state.summary.draftPlans, 2);
       expect(bloc.state.summary.upcomingTests, 2);
       expect(bloc.state.summary.pendingCertificates, 4);
       final unread = db.list('ms_messages').fold<int>(0, (a, m) => a + (m['unread'] as int? ?? 0));
@@ -54,20 +55,39 @@ void main() {
       await bloc.close();
     });
 
-    test('lesson plans bloc toggles milestones, creates and deletes', () async {
+    test('lesson plans bloc: mark taught with a note, save, copy to a section, send for review, delete', () async {
       final bloc = getIt<LessonPlansBloc>()..add(const LessonPlansLoadRequested());
       await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.status == LessonPlansStatus.loaded)));
       expect(bloc.state.plans.length, 6);
-      bloc.add(const LessonMilestoneToggled('lp_1', 3));
-      await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.byId('lp_1')!.milestones[3].done)));
+      bloc.add(const LessonSessionMarked('lp_1', 's3', SessionStatus.taught, note: 'Ran out of time for pair practice'));
+      await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.byId('lp_1')!.sessions[2].taught)));
+      expect(bloc.state.byId('lp_1')!.sessions[2].note, 'Ran out of time for pair practice');
+      expect(bloc.state.byId('lp_1')!.taughtCount, 3);
       bloc.add(LessonPlanSaved(bloc.state.byId('lp_2')!.copyWith(id: '', code: '', title: 'Copy plan')));
       await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.plans.length == 7)));
-      expect(bloc.state.plans.first.code, 'LP-P8-07');
+      bloc.add(const LessonPlanCopied('lp_1', cls: '10-A', classId: 'cls_10A'));
+      await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.plans.any((p) => p.copiedFrom == 'lp_1'))));
+      final copy = bloc.state.plans.firstWhere((p) => p.copiedFrom == 'lp_1');
+      expect((copy.cls, copy.draft, copy.taughtCount, copy.sessions.length), ('10-A', true, 0, 5));
+      bloc.add(const LessonPlanReviewRequested('lp_3'));
+      await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.byId('lp_3')!.review.state == ReviewState.submitted)));
       bloc.add(const LessonPlanDeleted('lp_6'));
       await expectLater(bloc.stream, emitsThrough(predicate<LessonPlansState>((s) => s.byId('lp_6') == null)));
       await bloc.close();
     });
 
+    test('old plans (milestones) read as sessions; dates come from the timetable', () {
+      final old = LessonPlan.fromJson({
+        'id': 'x', 'cls': '10-B', 'subject': 'Mathematics', 'title': 'Old', 'date': '2026-11-20', 'outcome': 'Solve quadratics',
+        'milestones': [{'title': 'Formula', 'done': true}, {'title': 'Graphs', 'done': false}],
+        'objectives': [{'title': 'Derive the formula'}],
+      });
+      expect([for (final s in old.sessions) (s.focus, s.status)], [('Formula', SessionStatus.taught), ('Graphs', SessionStatus.planned)]);
+      expect(old.outcomes, ['Derive the formula', 'Solve quadratics']);
+      // Mon P2 and Wed P4 from Thu 2026-11-20: next Mon, Wed, Mon
+      final d = suggestSessionDates(periods: const [(day: 1, slot: 'P2'), (day: 3, slot: 'P4')], from: '2026-11-20', count: 3);
+      expect(d.map((e) => '${e.date} ${e.slot}'), ['2026-11-23 P2', '2026-11-25 P4', '2026-11-30 P2']);
+    });
     test('online tests bloc starts, ends, reuses and saves', () async {
       final bloc = getIt<OnlineTestsBloc>()..add(const OnlineTestsLoadRequested());
       await expectLater(bloc.stream, emitsThrough(predicate<OnlineTestsState>((s) => s.status == OnlineTestsStatus.loaded)));
@@ -108,42 +128,41 @@ void main() {
     expect(find.byTooltip('New lesson plan'), findsOneWidget);
   });
 
-  testWidgets('lesson plans list, milestone, edit validation + create', (t) async {
+  testWidgets('lesson plans: today, list, edit validation + create', (t) async {
     await open(t, RoutePaths.lessonPlans);
-    expect(find.textContaining('Quadratic Equations'), findsWidgets);
-    await see(t, find.text('Group Problem Solving Drill'));
-    await t.tap(find.text('Group Problem Solving Drill'));
-    await t.pumpAndSettle();
-    expect((db.byId('ls_plans', 'lp_1')!['milestones'] as List)[3]['done'], true);
-    await see(t, find.text('Edit Plan').first);
-    await t.tap(find.text('Edit Plan').first);
-    await t.pumpAndSettle();
-    expect(find.text('Edit Lesson Plan'), findsWidgets);
-    await t.tap(find.byTooltip('Back'));
-    await t.pumpAndSettle();
+    expect(find.text("TODAY'S LESSONS"), findsOneWidget);
+    expect(find.text('Discriminant and nature of roots'), findsOneWidget);
+    expect(find.text('Quadratic Equations'), findsWidgets);
     await t.tap(find.byTooltip('New lesson plan'));
     await t.pumpAndSettle();
-    await t.tap(find.text('Save & Publish'));
+    await t.tap(find.text('Save Plan'));
     await t.pumpAndSettle();
     expect(find.textContaining('Enter a title'), findsOneWidget);
-    await t.enterText(find.byType(TextFormField).first, 'Chapter 9 Circles');
-    await see(t, find.text('Primary Learning Outcome'));
-    await t.enterText(find.widgetWithText(TextFormField, 'Students will…'), 'Students will compute chord lengths.');
-    await t.tap(find.text('Save & Publish'));
+    await t.enterText(find.descendant(of: find.widgetWithText(AppTextField, 'Title'), matching: find.byType(TextFormField)), 'Circles');
+    await see(t, find.text('Add 1'));
+    await t.tap(find.text('Add 1'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Save Plan'));
     await t.pumpAndSettle();
     expect(db.list('ls_plans').length, 7);
-    expect(db.list('ls_plans').first['title'], 'Chapter 9 Circles');
-    expect(find.text('Lesson Plans'), findsOneWidget);
+    expect(db.list('ls_plans').first['title'], 'Circles');
+    expect((db.list('ls_plans').first['sessions'] as List).length, 1);
   });
 
-  testWidgets('lesson view shares and deletes', (t) async {
+  testWidgets('lesson view marks a session taught and deletes', (t) async {
     await open(t, RoutePaths.lessonPlan('lp_1'));
-    expect(find.text('Chapter 4: Quadratic Equations & Applications'), findsOneWidget);
-    await see(t, find.text('Lesson Breakdown'));
-    await t.tap(find.text('Share Plan'));
+    expect(find.text('Quadratic Equations'), findsOneWidget);
+    await see(t, find.text('Mark as taught'));
+    await t.tap(find.text('Mark as taught').first);
     await t.pumpAndSettle();
-    expect(db.list('ls_shares'), isNotEmpty);
-    await t.tap(find.byTooltip('Delete plan'));
+    await t.enterText(find.descendant(of: find.byType(BottomSheet), matching: find.byType(TextFormField)), 'Good pace');
+    await t.tap(find.widgetWithText(AppButton, 'Mark as taught').last);
+    await t.pumpAndSettle();
+    final s3 = (db.byId('ls_plans', 'lp_1')!['sessions'] as List)[2] as Map;
+    expect((s3['status'], s3['note']), ('taught', 'Good pace'));
+    await t.tap(find.byTooltip('More'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Delete plan'));
     await t.pumpAndSettle();
     await t.tap(find.text('Delete'));
     await t.pumpAndSettle();

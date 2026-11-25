@@ -48,13 +48,12 @@ class AppTabHeader extends StatelessWidget {
             button: true, label: hasUnread ? 'Notifications, unread' : 'Notifications',
             child: InkResponse(
               onTap: onBell,
-              child: Container(
+              child: SizedBox(
                 width: 44.r, height: 44.r,
-                decoration: BoxDecoration(color: C.panel, shape: BoxShape.circle, border: Border.all(color: C.panelBorder)),
                 child: Stack(alignment: Alignment.center, children: [
-                  Icon(Icons.notifications_none_rounded, color: C.primary, size: 24.r),
+                  Icon(Icons.notifications_none_rounded, color: C.ink, size: 26.r),
                   if (hasUnread)
-                    Positioned(right: 10.r, top: 10.r, child: Container(width: 9.r, height: 9.r, decoration: BoxDecoration(color: C.danger, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))),
+                    Positioned(right: 11.r, top: 10.r, child: Container(width: 9.r, height: 9.r, decoration: BoxDecoration(color: C.danger, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)))),
                 ]),
               ),
             ),

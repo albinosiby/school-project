@@ -22,7 +22,7 @@ abstract class IChatMediaRepository {
 
   /// Uploads a worksheet / notes file for a live class (Storage `schools/{sid}/live-classes/{uid}/…`, readable by the
   /// school's parents and teachers) and returns its reference.
-  Future<FileRef> uploadMaterial({required String path, required String name});
+  Future<FileRef> uploadMaterial({required String path, required String name, String folder = 'live-classes'});
 
   /// Marks the login as reading [threadId] (null = left the chat). Best effort, never throws.
   Future<void> setPresence(String? threadId);
@@ -51,7 +51,7 @@ class LocalChatMediaRepository implements IChatMediaRepository {
   }
 
   @override
-  Future<FileRef> uploadMaterial({required String path, required String name}) =>
+  Future<FileRef> uploadMaterial({required String path, required String name, String folder = 'live-classes'}) =>
       upload(threadId: 'material', path: path, name: name, kind: 'file');
 
   @override
@@ -95,12 +95,13 @@ class FirebaseChatMediaRepository implements IChatMediaRepository {
   }
 
   @override
-  Future<FileRef> uploadMaterial({required String path, required String name}) async {
+  Future<FileRef> uploadMaterial({required String path, required String name, String folder = 'live-classes'}) async {
     final me = _identity();
     if (me == null) throw StateError('Sign in to attach files.');
     final file = File(path);
     final contentType = contentTypeOf(name, fallback: 'application/octet-stream');
-    final storagePath = 'schools/${me.schoolId}/live-classes/${me.uid}/${uid('mat')}';
+    // live-classes (class notes) or lesson-plans (plan attachments): same rules, one folder per teacher
+    final storagePath = 'schools/${me.schoolId}/$folder/${me.uid}/${uid('mat')}';
     final url = await _storage.uploadLocalFile(storagePath, file, contentType: contentType);
     return FileRef(
       name: name,
