@@ -35,11 +35,13 @@ module.exports = ({ db, notify, shared }) => {
       if (!sid) continue;
       const start = Date.parse(m.startsAt ?? "");
       if (!Number.isFinite(start)) continue;
-      const key = dueReminder(start, now, m.reminders ?? {});
+      // reminders already sent belong to the time they were sent for: a rescheduled meeting gets them again
+      const sentFor = m.remindersFor === undefined || m.remindersFor === m.startsAt ? (m.reminders ?? {}) : {};
+      const key = dueReminder(start, now, sentFor);
       if (!key) continue;
       const when = `${label[key]} at ${fmtTime(m.time)}`;
       const route = `/messages/${m.threadId}`;
-      await doc.ref.set({ reminders: { ...(m.reminders ?? {}), [key]: true }, updatedAt: new Date(now).toISOString() }, { merge: true });
+      await doc.ref.set({ reminders: { ...sentFor, [key]: true }, remindersFor: m.startsAt, updatedAt: new Date(now).toISOString() }, { merge: true });
       try {
         if (m.teacherId) {
           await notify(sid, [m.teacherId], { type: "meeting", category: "Messages", tag: "Meeting", urgent: key === "m10",

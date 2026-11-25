@@ -15,7 +15,7 @@ async function compose() {
   seed(roster);
   const r = renderUI(<NoticesView />);
   await r.user.click(screen.getByRole("button", { name: /New Circular/ }));
-  return { ...r, d: dialog("Compose Notice") };
+  return { ...r, d: dialog("New Circular") };
 }
 
 describe("Notice composer validation", () => {
@@ -98,7 +98,7 @@ describe("Notice composer writes (contract 10 / 13.6)", () => {
     expect(writesTo("com_log")).toHaveLength(0);
 
     await user.click(screen.getByRole("button", { name: /New Circular/ }));
-    const d2 = dialog("Compose Notice");
+    const d2 = dialog("New Circular");
     await user.type(field("Title", d2), "Idea");
     await user.click(within(d2).getByRole("button", { name: "Save Draft" }));
     expect(await screen.findByText("Draft saved")).toBeInTheDocument();
@@ -109,8 +109,9 @@ describe("Notice composer writes (contract 10 / 13.6)", () => {
     seed({ com_notices: [{ id: "ntc_1", title: "Fog", category: "General", audience: "All School", recipients: 4, sentAt: "2026-11-01T08:00:00.000Z", status: "Published", pinned: false,
       urgent: false, author: "Dr. Rao", channels: ["Mobile App"], delivered: 4, acked: 3, read: 3, body: "Old", parentVisible: true }] });
     const { user } = renderUI(<NoticesView />);
+    await user.click(await screen.findByRole("button", { name: /Fog/ }));
     await user.click(screen.getByRole("button", { name: "Edit Notice" }));
-    const d = dialog("Edit Notice");
+    const d = dialog("Edit Circular");
     await user.clear(field("Message", d));
     await user.type(field("Message", d), "New text");
     await user.click(within(d).getByRole("button", { name: "Send Now" }));
@@ -132,9 +133,68 @@ describe("Scheduled notices", () => {
       { id: "later", title: "Later", category: "General", audience: "All School", recipients: 5, sentAt: "2099-01-01T08:00:00.000Z", status: "Scheduled", pinned: false, urgent: false, author: "A", channels: ["Mobile App"], delivered: 0, acked: 0, read: 0, body: "x" },
     ] });
     renderUI(<NoticesView />);
-    await screen.findByText("Due");
+    await screen.findAllByText("Due");
     await expect.poll(() => getRow("com_notices", "due")).toMatchObject({ status: "Published", delivered: 0 });
     expect(getRow("com_notices", "later")).toMatchObject({ status: "Scheduled" });
     await expect.poll(() => writesTo("com_log").map((w) => w.data?.action)).toEqual(["Sent (scheduled)"]);
+  });
+});
+
+describe("Selected classes or people", () => {
+  it("searches classes and people, and saves who they resolve to", async () => {
+    seed({ ...roster,
+      students: [...roster.students.map((s) => ({ ...s, classId: `cls_${s.grade}${s.section}` }))],
+      classes: [{ id: "cls_8A", grade: "8", section: "A", classTeacherId: "stf_1", classTeacher: "Mrs. A" }, { id: "cls_9A", grade: "9", section: "A" }],
+      assignments: [{ id: "asg_1", classId: "cls_8A", teacherId: "stf_9" }] });
+    const r = renderUI(<NoticesView />);
+    await r.user.click(screen.getByRole("button", { name: /New Circular/ }));
+    const d = dialog("New Circular");
+    await r.user.type(field("Title", d), "Lab safety");
+    await r.user.type(field("Message", d), "Wear goggles.");
+    await r.user.selectOptions(field("Audience", d), "Selected classes or people");
+    await r.user.click(within(d).getByRole("button", { name: "Send Now" }));
+    expect(within(d).getByText("Add at least one class or person")).toBeInTheDocument();
+
+    const search = within(d).getByLabelText(/Search a class, student or staff member/);
+    await r.user.type(search, "8-a");
+    await r.user.click(within(d).getByRole("option", { name: /Class 8-A/ }));
+    await r.user.type(search, "meera");
+    expect(within(d).getByRole("option", { name: /Meera.*Student · 9-A/ })).toBeInTheDocument();
+    await r.user.keyboard("{Enter}");
+    await r.user.click(within(d).getByRole("button", { name: "Send Now" }));
+    expect(await screen.findByText("Notice published. Firebase push notifications are queued for registered devices.")).toBeInTheDocument();
+    const [n] = rowsOf<Record<string, unknown>>("com_notices");
+    expect(n).toMatchObject({ audience: "Selected classes or people", targetClassIds: ["cls_8A"], targetSummary: "Class 8-A, Meera (9-A)", grades: [] });
+    // Asha is the only active 8-A student (Ravi is 8-B, "Old" left); Meera is picked by name
+    expect((n!.targetStudentIds as string[]).sort()).toEqual(["stu_1", "stu_3"]);
+    expect((n!.targetStaffIds as string[]).sort()).toEqual(["stf_1", "stf_9"]);
+    expect(n!.recipients).toBe(4);
+  });
+});
+
+describe("Who read a circular", () => {
+  it("lists readers, acknowledgements and who has not read it yet", async () => {
+    seed({
+      com_notices: [{ id: "ntc_r", title: "Fog", category: "General", audience: "All School", recipients: 3, sentAt: "2026-11-01T08:00:00.000Z", status: "Published", pinned: false,
+        urgent: false, author: "Dr. Rao", channels: ["Mobile App"], delivered: 3, acked: 1, read: 2, body: "Late start" }],
+      "com_notices/ntc_r/receipts": [
+        { id: "u1", uid: "u1", role: "teacher", name: "Meena Rao", readAt: "2026-11-01T09:00:00.000Z" },
+        { id: "u2", uid: "u2", role: "parent", name: "Arun Nair", readAt: "2026-11-01T09:30:00.000Z", ackAt: "2026-11-01T09:31:00.000Z" },
+      ],
+      push_deliveries: [
+        { id: "d1", uid: "u1", role: "teacher", name: "Meena Rao", source: "notice:ntc_r" }, { id: "d2", uid: "u2", role: "parent", name: "Arun Nair", source: "notice:ntc_r" },
+        { id: "d3", uid: "u3", role: "parent", name: "Divya K", source: "notice:ntc_r" },
+      ],
+    });
+    const { user } = renderUI(<NoticesView />);
+    await user.click(await screen.findByRole("button", { name: /Fog/ }));
+    expect(await screen.findByText("Meena Rao")).toBeInTheDocument();
+    expect(screen.getByText("Arun Nair")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Not read yet/ }));
+    expect(screen.getByText("Divya K")).toBeInTheDocument();
+    expect(screen.queryByText("Meena Rao")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /^Acknowledged/ }));
+    expect(screen.getByText("Arun Nair")).toBeInTheDocument();
+    expect(screen.queryByText("Meena Rao")).not.toBeInTheDocument();
   });
 });

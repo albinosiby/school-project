@@ -5,7 +5,7 @@ export function Tabs({ items, value, onChange, variant = "pill", className }: {
   items: TabItem[]; value: string; onChange: (id: string) => void; variant?: "pill" | "underline"; className?: string;
 }) {
   return (
-    <div role="tablist" className={cn("flex gap-1 overflow-x-auto", variant === "underline" && "border-b border-outline-variant gap-5", className)}>
+    <div role="tablist" className={cn("flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden", variant === "underline" && "border-b border-outline-variant gap-5", className)}>
       {items.map((t) => {
         const on = t.id === value;
         return (

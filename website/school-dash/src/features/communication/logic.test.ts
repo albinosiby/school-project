@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { audienceCount, audienceReach, dueScheduled, gradeLabel, gradeOfLabel, pct1, reachLabel, statusOf, validateNotice, type NoticeForm } from "./logic";
+import { audienceCount, audienceReach, dueScheduled, gradeLabel, gradeOfLabel, pct1, reachLabel, statusOf, validateNotice, type NoticeForm, placeholders } from "./logic";
 import { AUDIENCES } from "./types";
 
 describe("audienceReach (same tests as functions/index.js, functions/parent.js and the driver app)", () => {
@@ -13,8 +13,12 @@ describe("audienceReach (same tests as functions/index.js, functions/parent.js a
     expect(reachLabel("Parents by Grade")).toBe("Shown in: Parent app");
     expect(reachLabel("Board members")).toBe("Not shown in any app");
   });
-  it("the stored audience strings are exactly the four labels", () => {
-    expect(AUDIENCES.map((a) => a.label)).toEqual(["All School", "Parents by Grade", "Staff & Teachers", "Transport Routes"]);
+  it("the stored audience strings are exactly these labels", () => {
+    expect(AUDIENCES.map((a) => a.label)).toEqual(["All School", "Parents by Grade", "Staff & Teachers", "Transport Routes", "Selected classes or people"]);
+  });
+
+  it("a selected classes / people circular matches no broadcast audience (only its targets get it, never the public notice board)", () => {
+    expect(audienceReach("Selected classes or people")).toEqual({ staff: false, parents: false, crew: false });
   });
 });
 
@@ -86,5 +90,15 @@ describe("dueScheduled / pct1", () => {
   it("pct1 rounds to one decimal and is 0 for 0 recipients", () => {
     expect(pct1(1, 3)).toBe(33.3);
     expect(pct1(5, 0)).toBe(0);
+  });
+});
+
+describe("circular placeholders", () => {
+  it("blocks sending while {Placeholders} from a template are left in", () => {
+    const f = { title: "Fee reminder", body: "Dear parent of {StudentName}, {GradeSection} fees are due.", audience: "All School", grades: [], channels: ["Mobile App"], when: "" };
+    expect(placeholders(f.body)).toEqual(["{StudentName}", "{GradeSection}"]);
+    expect(validateNotice(f, "now").body).toMatch(/Replace \{StudentName\}, \{GradeSection\}/);
+    expect(validateNotice(f, "draft").body).toBeUndefined();
+    expect(validateNotice({ ...f, body: "Fees are due on Friday." }, "now").body).toBeUndefined();
   });
 });

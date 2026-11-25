@@ -117,7 +117,8 @@ exports.onNoticePublished = onDocumentWritten({ document: "schools/{sid}/com_not
   const recipients = await appMessaging().broadcast(e.params.sid, `notice:${e.params.id}`, {
     type: "notice", title: after.urgent && !/^urgent\b/i.test(after.title || "") ? `Urgent: ${after.title}` : String(after.title || "School notice"),
     body: String(after.body || "").replace(/\s+/g, " ").slice(0, 240), route: "/notifications", urgent: after.urgent === true,
-  }, after.audience || "", after.grades || []);
+  }, after.audience || "", after.grades || [],
+  { classIds: after.targetClassIds || [], studentIds: after.targetStudentIds || [], staffIds: after.targetStaffIds || [] });
   // Availability in the app feed is counted separately from FCM device acceptance.
   await e.data.after.ref.update({ recipients, delivered: recipients, deliveryStatus: "Queued", deliveryUpdatedAt: new Date().toISOString() });
 });
@@ -416,7 +417,9 @@ exports.onRegularizationWithdrawn = onDocumentDeleted("schools/{sid}/staff_regul
 const shared = {};
 Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));
 { const { sendChatMeetingReminders } = require("./chatMeetings")({ db, notify, shared }); Object.assign(exports, { sendChatMeetingReminders }); }
+{ const { sendClassReminders } = require("./classReminders")({ db, notify, shared }); Object.assign(exports, { sendClassReminders }); }
 Object.assign(exports, require("./parentLogin"));
+{ const { onCircularStateForReceipts, onParentNoticeRead } = require("./noticeReceipts"); Object.assign(exports, { onCircularStateForReceipts, onParentNoticeRead }); }
 
 // ---------------------------------------------------------------------------
 // Transport (DATA_CONTRACT section 14): bus attendance alerts to parents, crew leave requests in the admin bell. See transport.js.

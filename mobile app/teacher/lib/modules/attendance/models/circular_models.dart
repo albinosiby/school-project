@@ -18,7 +18,8 @@ class Circular extends Equatable {
   final CircularAttachment? attachment;
   final String? ackAt;
 
-  String get catLabel => switch (cat) { 'Admin' => 'Staff & Admin', 'Events' => 'Events & Sports', _ => cat };
+  String get catLabel => labelOf(cat);
+  static String labelOf(String cat) => switch (cat) { 'Admin' => 'Staff & Admin', 'Events' => 'Events & Sports', _ => cat };
 
   factory Circular.fromJson(Map<String, dynamic> j) => Circular(
         id: j['id'] as String, ref: j['ref'] as String? ?? '', cat: j['cat'] as String? ?? 'General', title: j['title'] as String? ?? '',

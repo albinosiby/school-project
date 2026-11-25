@@ -321,6 +321,17 @@ void main() {
       expect(w.data['ack'], true);
       expect(w.data.containsKey('title'), isFalse);
     });
+
+    test('circulars: a selected classes / people circular shows only for the teachers it lists', () {
+      List<Map<String, dynamic>> notice(List<String> staff) => [
+        {'id': 'ntc_t', 'status': 'Published', 'audience': 'Selected classes or people', 'title': 'Lab safety', 'category': 'General',
+          'sentAt': '2026-11-20T08:00:00Z', 'targetStaffIds': staff, 'targetStudentIds': ['stu_1'], 'targetSummary': 'Class 8-A'},
+      ];
+      final mine = const CircularsAdapter().build(ctx, {...fake, 'com_notices': notice([ctx.staffId])});
+      expect(mine.where((r) => r['id'] == 'ntc_t').single['audience'], 'Class 8-A');
+      final others = const CircularsAdapter().build(ctx, {...fake, 'com_notices': notice(['stf_someone_else'])});
+      expect(others.where((r) => r['id'] == 'ntc_t'), isEmpty);
+    });
     test('settings are one document per teacher (hm_settings/settings_{staffId})', () {
       const a = PrivateAdapter('settings', 'hm_settings');
       final w = a.write(ctx, fake, {'id': 'settings', 'classUpdates': false, 'dnd': true}).single;

@@ -10,7 +10,7 @@ export const NAV = [
   { href: "/transport", label: "Transport", icon: Bus },
   { href: "/exams", label: "Exams & Results", icon: GraduationCap },
   { href: "/fees", label: "Fees & Payments", icon: Banknote },
-  { href: "/communication", label: "Communication & Reports", icon: MessagesSquare },
+  { href: "/communication", label: "Communication", icon: MessagesSquare },
   { href: "/settings", label: "Settings & Year End", icon: Settings2 },
 ] as const;
 

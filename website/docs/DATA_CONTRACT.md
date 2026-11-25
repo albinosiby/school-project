@@ -219,6 +219,7 @@ Everything else in the teacher app (`tt_*` extras, `tk_*` tasks/duties/syllabus,
   | Trigger | Who is notified | Opens |
   |---|---|---|
   | `com_notices` becomes `Published` with a staff/all audience | every teacher of the school | `/circulars` |
+  | `com_notices` `Published` with audience `Selected classes or people` | only its targets: parents of `targetStudentIds` / of children in `targetClassIds`, and `targetStaffIds` (the admin web resolves a class's class teacher and subject teachers into it when saving; `targets` keeps what was picked, `targetSummary` the label). Never `parentVisible`: parents get it in their notification feed only | `/circulars` (teachers), `/notifications` (parents) |
   | `ops_substitutions` gets (or changes) `substituteTeacherId` | the substitute | `/timetable` |
   | `staff_leaves.status` → `Approved` / `Rejected` | the teacher who applied | `/leave-management` |
   | `assignments` created | the assigned teacher | `/classes` |
@@ -384,7 +385,8 @@ Projection shapes (written only by functions):
   studentId, teacherId, parentUids, from:"parent"|"teacher", uid, name, text, at}`. Either side creates the thread and adds
   messages; only the function updates `last*` and the unread counters (on message create). Reading resets your own counter.
   The teacher app shows them in Messages (local `ms_messages`), the parent app in Messages.
-- `com_notices/{id}/acks/{uid}` = `{at, studentIds}`; the function increments the notice's `acked` / `read`.
+- `com_notices/{id}/acks/{uid}` = `{at, studentIds}`; `onNoticeAck` records it as a receipt (below).
+- **Read receipts** `com_notices/{id}/receipts/{uid}` = `{uid, role, name, readAt, ackAt?}` — written only by functions (`functions/noticeReceipts.js`), one per person, so `read` / `acked` on the notice go up once per person. Teachers: opening / acknowledging in the app writes their `att_circulars/{noticeId}` overlay (`read` / `ack`, `updatedBy` = auth uid) and `onCircularStateForReceipts` records it. Parents: opening the notice marks their `par_notifications` row read (the row carries `noticeId`; `onParentNoticeRead`), and acknowledging writes `acks/{uid}`. Acknowledging counts as read when nothing was read before. The admin web lists readers from `receipts` and "not read yet" from `push_deliveries` (`source == "notice:{id}"`, with `name` and `role`).
 - `consents/{uid}` = `{uid, studentIds, version, acceptedAt, items: {dataProcessing, photos, notifications}}`, written at
   first sign-in; the admin web shows each student's consent state.
 - `par_notifications/{id}`: parent may only set `read`.

@@ -29,6 +29,9 @@ class MockNoticeRepository implements INoticeRepository {
   );
 
   @override
+  Future<void> markOpened(String noticeId) async {}
+
+  @override
   Future<void> acknowledge(String noticeId) async {
     await MockLatency.wait();
     _acked.add(noticeId);

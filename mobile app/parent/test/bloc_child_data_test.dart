@@ -305,6 +305,8 @@ class _Notices implements INoticeRepository {
   @override
   Stream<List<Notice>> watchNotices(String childId) => f(childId);
   @override
+  Future<void> markOpened(String noticeId) async {}
+  @override
   Future<void> acknowledge(String noticeId) async => acked.add(noticeId);
 }
 

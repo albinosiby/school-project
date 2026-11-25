@@ -23,15 +23,25 @@ class CircularsScreen extends StatelessWidget {
   );
 }
 
-class _CircularsView extends StatelessWidget {
+class _CircularsView extends StatefulWidget {
   const _CircularsView();
+  @override
+  State<_CircularsView> createState() => _CircularsViewState();
+}
+
+class _CircularsViewState extends State<_CircularsView> {
+  /// All | Unread | To acknowledge
+  String view = 'All';
 
   @override
   Widget build(BuildContext context) {
     final s = context.watch<CircularsBloc>().state;
     final bloc = context.read<CircularsBloc>();
     if (s.status != LoadStatus.loaded) return DetailScaffold(title: 'Circulars', body: attLoading());
-    final list = s.shown;
+    final list = [
+      for (final c in s.shown)
+        if (view == 'All' || (view == 'Unread' && !c.read) || (view == 'To acknowledge' && !c.ack)) c,
+    ];
     final weekAgo = dkey(todayDate().subtract(const Duration(days: 6)));
     final pinned = [
       for (final c in list)
@@ -46,6 +56,11 @@ class _CircularsView extends StatelessWidget {
         if (!c.pinned && c.date.compareTo(weekAgo) < 0) c,
     ];
     final toAck = s.items.where((c) => !c.ack).length;
+    // categories that have circulars (the filter row only shows them when there is a choice)
+    final cats = [
+      for (final c in circularCategories)
+        if (c == 'All' || s.count(c) > 0) c,
+    ];
     Widget tile(Circular c) => CircularTile(
       c,
       onPin: () {
@@ -56,7 +71,7 @@ class _CircularsView extends StatelessWidget {
     List<Widget> group(String title, List<Circular> rows) => [
       if (rows.isNotEmpty) ...[
         Padding(
-          padding: EdgeInsets.fromLTRB(2.w, 10.h, 2.w, 8.h),
+          padding: EdgeInsets.fromLTRB(2.w, 12.h, 2.w, 8.h),
           child: Text(title.toUpperCase(), style: T.capsMuted.copyWith(fontSize: 11.sp, letterSpacing: .6)),
         ),
         for (final c in rows) tile(c),
@@ -64,52 +79,51 @@ class _CircularsView extends StatelessWidget {
     ];
     return DetailScaffold(
       title: 'Circulars',
-      subtitle: s.unread > 0 ? '${s.unread} unread' : 'All caught up',
+      subtitle: s.unread > 0
+          ? '${s.unread} unread • $toAck to acknowledge'
+          : (toAck > 0 ? '$toAck to acknowledge' : 'All caught up'),
       body: AttBody(
         children: [
-          if (s.items.isNotEmpty) _Overview(unread: s.unread, toAck: toAck, total: s.items.length),
-          SizedBox(height: 12.h),
-          AppSearchField(
-            hint: 'Search circulars, ref no…',
-            onChanged: (v) => bloc.add(CircularsQueryChanged(v)),
-            trailing: Semantics(
-              button: true,
-              selected: s.unreadOnly,
-              label: s.unreadOnly ? 'Show all circulars' : 'Show unread only',
-              child: InkWell(
-                borderRadius: BorderRadius.circular(R.lg),
-                onTap: () => bloc.add(const CircularsUnreadToggled()),
-                child: Container(
-                  width: 52.r,
-                  height: 52.r,
-                  decoration: BoxDecoration(
-                    color: s.unreadOnly ? C.primarySoft : C.bg,
-                    borderRadius: BorderRadius.circular(R.lg),
-                    border: Border.all(color: s.unreadOnly ? C.primary : C.panelBorder),
+          AppSearchField(hint: 'Search circulars, ref no…', onChanged: (v) => bloc.add(CircularsQueryChanged(v))),
+          SizedBox(height: 10.h),
+          // one row: what to show, then the categories that have circulars
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final v in const ['All', 'Unread', 'To acknowledge'])
+                  _Chip(
+                    label: v,
+                    count: v == 'Unread' ? s.unread : (v == 'To acknowledge' ? toAck : null),
+                    on: view == v,
+                    onTap: () => setState(() => view = v),
                   ),
-                  child: Icon(
-                    s.unreadOnly ? Icons.mark_email_unread_rounded : Icons.mark_email_unread_outlined,
-                    color: s.unreadOnly ? C.primary : C.ink,
-                    size: 22.r,
+                if (cats.length > 1) ...[
+                  Container(
+                    width: 1,
+                    height: 20.h,
+                    margin: EdgeInsets.symmetric(horizontal: 6.w),
+                    color: C.border,
                   ),
-                ),
-              ),
+                  for (final c in cats)
+                    _Chip(
+                      label: Circular.labelOf(c),
+                      on: s.category == c,
+                      soft: true,
+                      onTap: () => bloc.add(CircularsCategoryChanged(s.category == c ? 'All' : c)),
+                    ),
+                ],
+              ],
             ),
           ),
-          SizedBox(height: 8.h),
-          FilterChips(
-            items: [for (final c in circularCategories) '$c ${s.count(c)}'],
-            value: '${s.category} ${s.count(s.category)}',
-            onChanged: (v) => bloc.add(CircularsCategoryChanged(v.split(' ').first)),
-          ),
-          SizedBox(height: 4.h),
+          SizedBox(height: 6.h),
           if (list.isEmpty)
             Padding(
               padding: EdgeInsets.only(top: 24.h),
               child: AppEmptyState(
-                s.unreadOnly ? 'You are all caught up' : (s.items.isEmpty ? 'No circulars yet' : 'No circulars found'),
-                hint: s.unreadOnly
-                    ? 'No unread circulars in this category.'
+                view != 'All' ? 'You are all caught up' : (s.items.isEmpty ? 'No circulars yet' : 'No circulars found'),
+                hint: view != 'All'
+                    ? 'Nothing ${view == 'Unread' ? 'unread' : 'to acknowledge'} in this category.'
                     : (s.items.isEmpty
                           ? 'Circulars from the school office appear here.'
                           : 'Try a different search or category.'),
@@ -125,51 +139,64 @@ class _CircularsView extends StatelessWidget {
   }
 }
 
-/// Unread / to acknowledge summary at the top.
-class _Overview extends StatelessWidget {
-  const _Overview({required this.unread, required this.toAck, required this.total});
-  final int unread, toAck, total;
+/// Small filter pill: label (and a count), filled when selected.
+class _Chip extends StatelessWidget {
+  const _Chip({required this.label, required this.on, required this.onTap, this.count, this.soft = false});
+  final String label;
+  final bool on;
+  final int? count;
+  final VoidCallback onTap;
+
+  /// category chips: a light fill when selected, so only the view chip reads as the main choice
+  final bool soft;
   @override
-  Widget build(BuildContext context) {
-    Widget stat(String v, String l) => Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(v, style: T.h2.copyWith(color: Colors.white, height: 1.1)),
-          Text(
-            l,
-            style: T.small.copyWith(color: Colors.white.withValues(alpha: .8), fontSize: 11.sp),
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(right: 6.w),
+    child: Semantics(
+      button: true,
+      selected: on,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(R.pill),
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 34.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.w),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: on ? (soft ? C.primarySoft : C.primary) : C.bg,
+            borderRadius: BorderRadius.circular(R.pill),
+            border: Border.all(color: on ? (soft ? C.primary.withValues(alpha: .4) : C.primary) : C.border),
           ),
-        ],
-      ),
-    );
-    return Container(
-      padding: EdgeInsets.all(14.w),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [C.primary, C.primaryDark],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: T.smallStrong.copyWith(fontSize: 12.5.sp, color: on ? Colors.white : C.ink),
+              ),
+              if (count != null && count! > 0) ...[
+                SizedBox(width: 6.w),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 1.h),
+                  decoration: BoxDecoration(
+                    color: on ? Colors.white24 : C.primarySoft,
+                    borderRadius: BorderRadius.circular(R.pill),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: T.small.copyWith(
+                      fontSize: 11.sp,
+                      fontWeight: FontWeight.w700,
+                      color: on ? Colors.white : C.primary,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
-        borderRadius: BorderRadius.circular(R.xl),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 42.r,
-            height: 42.r,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .18),
-              borderRadius: BorderRadius.circular(R.md),
-            ),
-            child: Icon(Icons.campaign_rounded, color: Colors.white, size: 22.r),
-          ),
-          SizedBox(width: 14.w),
-          stat('$unread', 'Unread'),
-          stat('$toAck', 'To acknowledge'),
-          stat('$total', 'Total'),
-        ],
-      ),
-    );
-  }
+    ),
+  );
 }

@@ -18,18 +18,28 @@ function createAppMessaging({ db, send = (message) => getMessaging().sendEachFor
     const uid = user.id, role = user.get("role"), now = new Date(clock()).toISOString();
     const payload = { ...message, title: message.title.slice(0, 120), route: role === "teacher" && message.type === "notice" ? "/circulars" : message.route };
     const id = hash(`${source}:${uid}`), job = school(sid).collection("push_deliveries").doc(id);
+    // the feed row names its notice so opening it can count as a read (noticeReceipts.js)
+    const noticeId = source.startsWith("notice:") ? source.slice(7) : "";
     const feed = role === "parent" ? school(sid).collection("par_notifications").doc(`app_${id}`)
       : role === "teacher" ? school(sid).collection("hm_notifications").doc(`app_${id}`) : null;
     await db.runTransaction(async (tx) => {
       if ((await tx.get(job)).exists) return;
       if (feed) tx.create(feed, role === "parent"
-        ? { uid, studentId: "", type: message.type, title: message.title, body: message.body, route: payload.route, read: false, at: now, ord: clock() }
-        : { teacherId: user.get("staffId"), type: message.type === "notice" ? "circular" : "event", category: "Academic", tag: message.urgent ? "Urgent" : "School update", title: message.title, body: message.body, route: payload.route, read: false, at: now, ord: clock() * 1000, updatedAt: now, source: "push" });
-      tx.create(job, { uid, role, source, message: payload, status: push ? "Pending" : "Muted", createdAt: now, attempts: 0, accepted: 0, failed: 0, outcomes: {} });
+        ? { uid, studentId: "", type: message.type, title: message.title, body: message.body, route: payload.route, read: false, at: now, ord: clock(), ...(noticeId ? { noticeId } : {}) }
+        : { teacherId: user.get("staffId"), ...(noticeId ? { noticeId } : {}), type: message.type === "notice" ? "circular" : "event", category: "Academic", tag: message.urgent ? "Urgent" : "School update", title: message.title, body: message.body, route: payload.route, read: false, at: now, ord: clock() * 1000, updatedAt: now, source: "push" });
+      tx.create(job, { uid, role, name: String(user.get("name") ?? ""), ...(user.get("staffId") ? { staffId: user.get("staffId") } : {}), source, message: payload, status: push ? "Pending" : "Muted", createdAt: now, attempts: 0, accepted: 0, failed: 0, outcomes: {} });
     });
   }
-  async function broadcast(sid, source, message, audience, grades = []) {
+  /**
+   * Queues a notice for its audience. `targets` ({classIds, studentIds, staffIds}, resolved by the admin web when it is
+   * saved) narrows it to the selected classes and people: parents of those students or of children in those classes,
+   * and those staff (the classes' class and subject teachers are already in staffIds). Nobody else gets it.
+   */
+  async function broadcast(sid, source, message, audience, grades = [], targets = null) {
     const tests = grades.map(audienceClassTest).filter(Boolean);
+    const set = (v) => new Set(Array.isArray(v) ? v.map(String) : []);
+    const tClasses = set(targets?.classIds), tStudents = set(targets?.studentIds), tStaff = set(targets?.staffIds);
+    const targeted = tClasses.size + tStudents.size + tStaff.size > 0;
     const regional = await school(sid).collection("set_config").doc("regional").get();
     let count = 0, last;
     for (;;) {
@@ -40,10 +50,13 @@ function createAppMessaging({ db, send = (message) => getMessaging().sendEachFor
       for (let offset = 0; offset < page.docs.length; offset += 15) {
         await Promise.all(page.docs.slice(offset, offset + 15).map(async (user) => {
           const role = user.get("role");
-          const parent = role === "parent" && /parent|guardian|all school|whole school|everyone/i.test(audience)
+          const targetedParent = targeted && role === "parent" && ((user.get("studentIds") || []).some((id) => tStudents.has(String(id)))
+            || (user.get("classIds") || []).some((id) => tClasses.has(String(id))));
+          const targetedTeacher = targeted && role === "teacher" && tStaff.has(String(user.get("staffId") || ""));
+          const parent = targeted ? targetedParent : role === "parent" && /parent|guardian|all school|whole school|everyone/i.test(audience)
             && (user.get("studentIds") || []).length > 0 && (!grades.length || (user.get("classIds") || []).some((id) => tests.some((test) => test.test(id))));
-          const teacher = role === "teacher" && user.get("staffId") && /staff|teacher|faculty|all school/i.test(audience);
-          const crew = ["driver", "attendant"].includes(role) && /transport|staff|driver|bus|all|everyone|whole/i.test(audience);
+          const teacher = targeted ? targetedTeacher : role === "teacher" && user.get("staffId") && /staff|teacher|faculty|all school/i.test(audience);
+          const crew = !targeted && ["driver", "attendant"].includes(role) && /transport|staff|driver|bus|all|everyone|whole/i.test(audience);
           if (!parent && !teacher && !crew) return;
           let push = true;
           if (teacher && !message.urgent) {

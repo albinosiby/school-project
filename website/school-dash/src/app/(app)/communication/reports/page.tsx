@@ -1,12 +1,4 @@
-"use client";
-import { LoadingSkeleton } from "@/components/ui";
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { ReportsView } from "@/features/communication/ReportsView";
+import { redirect } from "next/navigation";
 
-// Reads ?run= on the client so the page stays static (see students/page.tsx)
-function Reports() {
-  const run = useSearchParams().get("run") ?? undefined;
-  return <ReportsView key={run ?? ""} runId={run} />;
-}
-export default function Page() { return <Suspense fallback={<LoadingSkeleton variant="page" />}><Reports /></Suspense>; }
+// Standard Reports was removed from Communication; old links land on Circulars & Notices.
+export default function Page() { redirect("/communication"); }

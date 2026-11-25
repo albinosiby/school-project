@@ -95,7 +95,7 @@ class NoticesList extends StatelessWidget {
       );
 
   void _open(BuildContext context, Notice n) {
-    final bloc = context.read<NoticesBloc>();
+    final bloc = context.read<NoticesBloc>()..add(NoticeOpened(n.id));
     showAppSheet<void>(
       context,
       title: n.title,

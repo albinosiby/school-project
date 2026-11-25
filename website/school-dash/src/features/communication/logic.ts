@@ -11,6 +11,7 @@ export const CREW_AUDIENCE = /transport|staff|driver|bus|all|everyone|whole/i;
 /** which apps show a Published notice with this audience */
 export const audienceReach = (audience: string) => ({ staff: STAFF_AUDIENCE.test(audience), parents: PARENT_AUDIENCE.test(audience), crew: CREW_AUDIENCE.test(audience) });
 export const reachLabel = (audience: string) => {
+  if (audience === "Selected classes or people") return "Shown in: Parent app · Teacher app (only the people selected)";
   const r = audienceReach(audience);
   const apps = [r.parents && "Parent app", r.staff && "Teacher app", r.crew && "Driver app"].filter(Boolean);
   return apps.length ? `Shown in: ${apps.join(" · ")}` : "Not shown in any app";
@@ -46,10 +47,13 @@ export function audienceCount(audience: string, ctx: AudienceCtx, grades: string
 
 /* ---------- composer ---------- */
 export type ComposeMode = "now" | "schedule" | "draft";
-export type NoticeForm = { title: string; body: string; audience: string; grades: string[]; channels: string[]; when: string };
+export type NoticeForm = { title: string; body: string; audience: string; grades: string[]; channels: string[]; when: string; targets?: unknown[] };
 /** the stored status strings the functions and apps match on (contract 10 / 13.6) */
 export const statusOf = (mode: ComposeMode): Notice["status"] => (mode === "now" ? "Published" : mode === "schedule" ? "Scheduled" : "Draft");
 /** field errors of the composer ({} when valid). A draft needs only a title. */
+/** {Placeholder} tokens left in a text, e.g. from a template. */
+export const placeholders = (text: string) => [...new Set(text.match(/\{[A-Za-z][A-Za-z0-9]*\}/g) ?? [])];
+
 export function validateNotice(f: NoticeForm, mode: ComposeMode, now = Date.now()) {
   const e: Record<string, string> = {};
   if (!f.title.trim()) e.title = "Title is required";
@@ -58,6 +62,10 @@ export function validateNotice(f: NoticeForm, mode: ComposeMode, now = Date.now(
     if (!f.body.trim()) e.body = "Message body is required";
     if (f.channels.length === 0) e.channels = "Select at least one channel";
     if (f.audience === "Parents by Grade" && f.grades.length === 0) e.grades = "Select at least one grade";
+    if (f.audience === "Selected classes or people" && !(f.targets ?? []).length) e.targets = "Add at least one class or person";
+    // a circular goes to everyone: per-student placeholders ({StudentName}) would reach the apps as raw text
+    const left = placeholders(`${f.title} ${f.body}`);
+    if (left.length) e.body = `Replace ${left.join(", ")} with real text: a circular is the same for everyone, so these are not filled in`;
   }
   if (mode === "schedule") {
     const t = f.when ? new Date(f.when).getTime() : NaN;

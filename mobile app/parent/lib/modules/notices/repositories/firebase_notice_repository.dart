@@ -73,6 +73,23 @@ class FirebaseNoticeRepository implements INoticeRepository {
     _ackChanges.add(null);
   }
 
+  /// Marks this guardian's notification row for the notice read; a Cloud Function turns that into one read
+  /// receipt on the notice (functions/noticeReceipts.js). Best effort: reading never fails because of it.
+  @override
+  Future<void> markOpened(String noticeId) async {
+    try {
+      final q = await _session
+          .col('par_notifications')
+          .where('uid', isEqualTo: _session.uid)
+          .where('noticeId', isEqualTo: noticeId)
+          .where('read', isEqualTo: false)
+          .get();
+      for (final d in q.docs) {
+        await d.reference.update({'read': true});
+      }
+    } catch (_) {}
+  }
+
   /// The notice's `grades` labels ("Grade 8-A", "Grade 9", "10-B") include the child's class; no labels = whole school.
   /// Same rule as the function that sends the push (functions/parent.js `schoolParents`).
   static bool forClass(List<String> grades, String grade, String section) {

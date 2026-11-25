@@ -2213,7 +2213,12 @@ class CircularsAdapter extends StoreAdapter {
   List<Rec> build(AdapterContext ctx, Remote remote) {
     final rows = <Rec>[];
     for (final n in _docs(remote, 'com_notices')) {
-      if (n['status'] != 'Published' || !_staffAudience.hasMatch('${n['audience'] ?? ''}')) continue;
+      // a "Selected classes or people" circular lists its teachers in targetStaffIds (class + subject teachers resolved)
+      final targeted = (n['targetStaffIds'] as List? ?? const []).isNotEmpty || (n['targetStudentIds'] as List? ?? const []).isNotEmpty;
+      final forMe = targeted
+          ? (n['targetStaffIds'] as List? ?? const []).contains(ctx.staffId)
+          : _staffAudience.hasMatch('${n['audience'] ?? ''}');
+      if (n['status'] != 'Published' || !forMe) continue;
       final st = _byId(remote, 'att_circulars', '${n['id']}') ?? const {};
       final category = '${n['category'] ?? ''}';
       final sent = '${n['sentAt'] ?? ''}';
@@ -2231,7 +2236,7 @@ class CircularsAdapter extends StoreAdapter {
         'ack': st['ack'] == true,
         'pinned': st['pinned'] ?? n['pinned'] == true,
         'urgent': n['urgent'] == true,
-        'audience': '${n['audience'] ?? ''}',
+        'audience': '${(n['targetSummary'] ?? '').toString().isNotEmpty ? n['targetSummary'] : n['audience'] ?? ''}',
         'points': const <String>[],
         'attachment': att == null || '$att'.isEmpty ? null : {'name': '$att', 'size': '${n['attachmentSize'] ?? ''}'},
         'ackAt': st['ackAt'],

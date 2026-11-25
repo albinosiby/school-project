@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 /// A push message reduced to what the app shows: title, body and the screen to open.
 typedef PushMessage = ({String title, String body, String? route});
@@ -18,6 +19,18 @@ class PushNotificationService {
   FirebaseFirestore? _fs;
   FirebaseMessaging get _messaging => _m ??= FirebaseMessaging.instance;
   FirebaseFirestore get _db => _fs ??= FirebaseFirestore.instance;
+
+  /// High-importance Android channel: pushes pop up on screen with sound (the FCM fallback channel only lands quietly
+  /// in the tray). The manifest makes it the default for pushes received in the background.
+  static const channel = AndroidNotificationChannel(
+    'school_updates',
+    'School updates',
+    description: 'Circulars, messages, meetings and other school updates',
+    importance: Importance.high,
+  );
+  final _local = FlutterLocalNotificationsPlugin();
+  bool _localReady = false;
+  int _nextId = 0;
 
   final _foreground = StreamController<PushMessage>.broadcast();
   final _opened = StreamController<String>.broadcast();
@@ -67,17 +80,61 @@ class PushNotificationService {
       final settings = await _messaging.requestPermission(alert: true, badge: true, sound: true);
       if (settings.authorizationStatus == AuthorizationStatus.denied) return;
       await _messaging.setForegroundNotificationPresentationOptions(alert: true, badge: true, sound: true);
+      await _initLocal();
       final token = await _messaging.getToken();
       if (token != null) await _save(token);
       _subs
         ..add(_messaging.onTokenRefresh.listen(_save))
-        ..add(FirebaseMessaging.onMessage.listen((m) => _foreground.add(toMessage(m))))
+        ..add(FirebaseMessaging.onMessage.listen(_onForeground))
         ..add(FirebaseMessaging.onMessageOpenedApp.listen(_open));
       final initial = await _messaging.getInitialMessage();
       if (initial != null) _open(initial);
     } catch (e) {
       debugPrint('push setup skipped: $e');
     }
+  }
+
+  Future<void> _initLocal() async {
+    if (_localReady || defaultTargetPlatform != TargetPlatform.android) return;
+    await _local.initialize(
+      settings: const InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher')),
+      onDidReceiveNotificationResponse: (r) {
+        final route = r.payload;
+        if (route != null && route.isNotEmpty) _opened.add(route);
+      },
+    );
+    await _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(channel);
+    _localReady = true;
+  }
+
+  /// Android shows nothing for a push while the app is open: post it as a real notification (iOS shows it already
+  /// through the presentation options). Falls back to the in-app banner when that is not possible.
+  Future<void> _onForeground(RemoteMessage m) async {
+    final msg = toMessage(m);
+    if (_localReady) {
+      try {
+        await _local.show(
+          id: _nextId++,
+          title: msg.title,
+          body: msg.body,
+          payload: msg.route,
+          notificationDetails: NotificationDetails(
+            android: AndroidNotificationDetails(
+              channel.id,
+              channel.name,
+              channelDescription: channel.description,
+              importance: Importance.high,
+              priority: Priority.high,
+              styleInformation: BigTextStyleInformation(msg.body),
+            ),
+          ),
+        );
+        return;
+      } catch (e) {
+        debugPrint('local notification failed: $e');
+      }
+    }
+    if (defaultTargetPlatform == TargetPlatform.android) _foreground.add(msg);
   }
 
   void _open(RemoteMessage m) {

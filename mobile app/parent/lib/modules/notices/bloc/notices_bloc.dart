@@ -10,6 +10,7 @@ class NoticesBloc extends ChildDataBloc<List<Notice>> {
   NoticesBloc(this._repo) : super(_repo.watchNotices) {
     // The repository stream pushes the updated list, so the UI updates itself.
     on<AcknowledgeNotice>((event, emit) => _repo.acknowledge(event.noticeId));
+    on<NoticeOpened>((event, emit) => _repo.markOpened(event.noticeId));
   }
 
   final INoticeRepository _repo;

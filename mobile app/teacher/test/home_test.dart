@@ -242,17 +242,17 @@ void main() {
       expect(find.text('Awaiting response'), findsOneWidget);
     });
 
-    testWidgets('notifications filter, mark all read, open and delete', (t) async {
+    testWidgets('notifications: opening marks all read, new ones stay highlighted, filter, open and delete', (t) async {
       await _pump(t, RoutePaths.notifications);
       expect(find.text('3 new'), findsOneWidget);
-      await t.tap(find.text('Unread (3)'));
+      // opening the page marks everything read at once (no mark-all button any more)
+      expect(getIt<LocalDatabaseService>().list('notifications').where((n) => n['read'] != true), isEmpty);
+      expect(find.byTooltip('Mark all as read'), findsNothing);
+      await t.tap(find.text('New  3'));
       await t.pumpAndSettle();
       expect(find.text('Ananya Reddy (#02 • 10-B)'), findsOneWidget);
       expect(find.text('Circular CIR-2024-089 Published'), findsNothing);
-      await t.tap(find.byTooltip('Mark all as read'));
-      await t.pumpAndSettle();
-      expect(getIt<LocalDatabaseService>().list('notifications').where((n) => n['read'] != true), isEmpty);
-      await t.tap(find.text('All (8)'));
+      await t.tap(find.text('All  8'));
       await t.pumpAndSettle();
       await t.tap(find.text('Ananya Reddy (#02 • 10-B)'));
       await t.pumpAndSettle();

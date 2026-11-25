@@ -121,7 +121,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
 
   /** [{uid, student}] for every guardian login of these students */
   const guardiansOf = (students) => students.flatMap((s) => uniq(s?.guardianUids).map((uid) => ({ uid, student: s })));
-  Object.assign(shared, { notifyParents, guardiansOf, istToday, safe });
+  Object.assign(shared, { notifyParents, guardiansOf, istToday, safe, classRoster });
 
   // ---------------------------------------------------------------------------
   // 13.1 accounts: users/{uid}.studentIds / classIds / grns follow students.guardianUids
@@ -433,9 +433,9 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
 
   // a parent acknowledges a notice: com_notices/{id}/acks/{uid}
   const onNoticeAck = onDocumentCreated("schools/{sid}/com_notices/{id}/acks/{uid}", safe("onNoticeAck", async (e) => {
-    const ref = S(e.params.sid).collection("com_notices").doc(e.params.id);
-    if (!(await ref.get()).exists) return;
-    await ref.update({ acked: FieldValue.increment(1), read: FieldValue.increment(1) });
+    // one receipt per parent: counts the acknowledgement (and the read, if not counted yet) once
+    const { recordReceipt, nameOf } = require("./noticeReceipts");
+    await recordReceipt(db, e.params.sid, e.params.id, e.params.uid, { role: "parent", name: await nameOf(db, e.params.uid), ack: true });
   }));
 
   // ---------------------------------------------------------------------------
@@ -521,8 +521,11 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
       return (text ? `${kind} · ${text}` : kind).slice(0, 140);
     }
     if (m.meeting && typeof m.meeting === "object") {
-      const mt = m.meeting, st = mt.status === "cancelled" ? "Meeting cancelled" : "Meeting";
-      return `📅 ${st}: ${mt.date ?? ""} ${mt.time ?? ""}`.trim().slice(0, 140);
+      // "📅 Meeting rescheduled to 27 Nov 2026, 04:00 PM" — the new time, readable, in the push itself
+      const mt = m.meeting;
+      const when = [fmtDay(mt.date), mt.time ? t12(mt.time) : ""].filter(Boolean).join(", ");
+      const st = mt.status === "cancelled" ? "Meeting cancelled" : /reschedul/i.test(text) ? "Meeting rescheduled to" : "Meeting on";
+      return `📅 ${st} ${when}`.trim().slice(0, 140);
     }
     return text.slice(0, 140);
   }
@@ -579,7 +582,9 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
       if (m.invite === false) return;
       title = `Meeting invitation: ${name}`; body = `${when} · ${meetingWhere(m)}`; key = "new";
     } else if (now === "scheduled" && was === "scheduled" && ["date", "time", "venue", "link", "format"].some(moved)) {
-      title = `Meeting updated: ${name}`; body = `Now ${when} · ${meetingWhere(m)}`; key = `u${String(after.updatedAt ?? Date.now()).replace(/[^0-9A-Za-z]/g, "")}`;
+      const retimed = moved("date") || moved("time");
+      title = retimed ? `Meeting rescheduled: ${name}` : `Meeting updated: ${name}`;
+      body = retimed ? `New time: ${when} · ${meetingWhere(m)}` : `${when} · ${meetingWhere(m)}`; key = `u${String(after.updatedAt ?? Date.now()).replace(/[^0-9A-Za-z]/g, "")}`;
     } else if (now === "cancelled" && was === "scheduled") {
       title = `Meeting cancelled: ${name}`; body = when; key = "cancel";
     } else return;
