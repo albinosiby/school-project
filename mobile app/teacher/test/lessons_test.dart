@@ -87,6 +87,14 @@ void main() {
       // Mon P2 and Wed P4 from Thu 2026-11-20: next Mon, Wed, Mon
       final d = suggestSessionDates(periods: const [(day: 1, slot: 'P2'), (day: 3, slot: 'P4')], from: '2026-11-20', count: 3);
       expect(d.map((e) => '${e.date} ${e.slot}'), ['2026-11-23 P2', '2026-11-25 P4', '2026-11-30 P2']);
+      // a period that is already over today is skipped
+      final later = suggestSessionDates(
+        periods: const [(day: 1, slot: 'P2'), (day: 3, slot: 'P4')],
+        from: '2026-11-23',
+        count: 2,
+        skip: (date, slot) => date == '2026-11-23' && slot == 'P2',
+      );
+      expect(later.map((e) => '${e.date} ${e.slot}'), ['2026-11-25 P4', '2026-11-30 P2']);
     });
     test('online tests bloc starts, ends, reuses and saves', () async {
       final bloc = getIt<OnlineTestsBloc>()..add(const OnlineTestsLoadRequested());
@@ -135,18 +143,37 @@ void main() {
     expect(find.text('Quadratic Equations'), findsWidgets);
     await t.tap(find.byTooltip('New lesson plan'));
     await t.pumpAndSettle();
-    await t.tap(find.text('Save Plan'));
+    await t.tap(find.text('Save plan'));
     await t.pumpAndSettle();
     expect(find.textContaining('Enter a title'), findsOneWidget);
-    await t.enterText(find.descendant(of: find.widgetWithText(AppTextField, 'Title'), matching: find.byType(TextFormField)), 'Circles');
-    await see(t, find.text('Add 1'));
-    await t.tap(find.text('Add 1'));
+    await t.enterText(find.widgetWithText(TextFormField, 'Chapter title, e.g. Quadratic Equations'), 'Circles');
+    await see(t, find.text('Add a session'));
+    await t.tap(find.text('Add a session'));
     await t.pumpAndSettle();
-    await t.tap(find.text('Save Plan'));
+    await t.tap(find.text('Save plan'));
     await t.pumpAndSettle();
     expect(db.list('ls_plans').length, 7);
     expect(db.list('ls_plans').first['title'], 'Circles');
     expect((db.list('ls_plans').first['sessions'] as List).length, 1);
+  });
+
+  testWidgets('editor: tapping a session opens its sheet and saves the focus', (t) async {
+    await open(t, RoutePaths.lessonPlanEdit('lp_1'));
+    await see(t, find.text('Discriminant and nature of roots'));
+    await t.tap(find.text('Discriminant and nature of roots'));
+    await t.pumpAndSettle();
+    expect(find.text('Session 3'), findsWidgets);
+    expect(find.text('Save session'), findsOneWidget);
+  });
+
+  testWidgets('plan page sends an active plan for review', (t) async {
+    await open(t, RoutePaths.lessonPlan('lp_3'));
+    expect(find.text('Send for review'), findsOneWidget);
+    await t.tap(find.text('Send for review'));
+    await t.pumpAndSettle();
+    expect((db.byId('ls_plans', 'lp_3')!['review'] as Map)['state'], 'submitted');
+    expect(find.text('Send for review'), findsNothing);
+    expect(find.text('In review'), findsWidgets);
   });
 
   testWidgets('lesson view marks a session taught and deletes', (t) async {

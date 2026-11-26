@@ -1,3 +1,8 @@
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:teacher_app/design_system/design_system.dart' show AppTheme;
+import 'package:teacher_app/modules/home/screens/widgets/timetable_date_sheet.dart';
+import 'package:teacher_app/modules/attendance/repositories/attendance_repository_interface.dart';
+import 'package:teacher_app/modules/attendance/models/attendance_models.dart' show AttendanceRecord, dkey, todayDate;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -81,6 +86,78 @@ void main() {
       getIt<LocalDatabaseService>().update('tt_subs', 'sub_1', {'status': 'declined'});
       await expectLater(bloc.stream, emitsThrough(predicate<TimetableState>((s) => s.periodsOf(1).firstWhere((p) => p.slot == 'P5').kind == PeriodKind.prep)));
       await bloc.close();
+    });
+  });
+
+  group('timetable attendance', () {
+    test('a submitted register shows on its day and period; a draft is kept apart', () async {
+      final bloc = getIt<TimetableBloc>()..add(const TimetableLoadRequested());
+      await expectLater(bloc.stream, emitsThrough(predicate<TimetableState>((s) => s.status == TimetableStatus.loaded)));
+      expect(RoutePaths.markAttendance(classId: 'cls_tt', period: 2, date: '2026-11-20'), '/attendance/mark?class=cls_tt&period=2&date=2026-11-20');
+      final repo = getIt<IAttendanceRepository>();
+      final day = dkey(todayDate());
+      await repo.saveRecord(AttendanceRecord(id: 'tt_att_1', classId: 'cls_tt', date: day, period: 2, total: 30, marks: const {'s1': 'A'}, submitted: true));
+      await repo.saveRecord(AttendanceRecord(id: 'tt_att_2', classId: 'cls_tt', date: day, period: 3, total: 30));
+      await expectLater(bloc.stream, emitsThrough(predicate<TimetableState>((s) => s.attendance.containsKey(TimetableState.attKey(day, 'cls_tt', 2)))));
+      expect(bloc.state.attendance[TimetableState.attKey(day, 'cls_tt', 2)]!.present, 29);
+      expect(bloc.state.attDrafts, contains(TimetableState.attKey(day, 'cls_tt', 3)));
+      expect(bloc.state.attDrafts, isNot(contains(TimetableState.attKey(day, 'cls_tt', 2))));
+      await bloc.close();
+    });
+  });
+
+  group('timetable calendar', () {
+    Future<List<TimetablePick?>> open(WidgetTester t) async {
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      final out = <TimetablePick?>[];
+      await t.pumpWidget(ScreenUtilInit(
+        designSize: const Size(390, 844),
+        builder: (_, _) => MaterialApp(
+          theme: AppTheme.light,
+          home: Builder(
+            builder: (ctx) => TextButton(
+              onPressed: () async => out.add(await showTimetableDateSheet(
+                ctx,
+                from: DateTime(2026, 11, 26),
+                today: DateTime(2026, 11, 26),
+                missing: (d) => d.day == 24 || d.day == 30,
+              )),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await t.tap(find.text('open'));
+      await t.pumpAndSettle();
+      return out;
+    }
+
+    testWidgets('one tap picks a day; dots only on past unmarked days', (t) async {
+      final out = await open(t);
+      expect(find.text('November 2026'), findsOneWidget);
+      expect(find.byKey(const ValueKey('cal-dot-2026-11-24')), findsOneWidget);
+      expect(find.byKey(const ValueKey('cal-dot-2026-11-30')), findsNothing); // future
+      await t.tap(find.byKey(const ValueKey('cal-2026-11-24')));
+      await t.pumpAndSettle();
+      expect(find.text('Tue, 24 Nov'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('date-sheet-apply')));
+      await t.pumpAndSettle();
+      expect(out.single, (from: DateTime(2026, 11, 24), to: null));
+    });
+
+    testWidgets('a second tap picks the range', (t) async {
+      final out = await open(t);
+      await t.tap(find.byKey(const ValueKey('cal-2026-11-17')));
+      await t.tap(find.byKey(const ValueKey('cal-2026-11-21')));
+      await t.pumpAndSettle();
+      expect(find.text('Tue, 17 Nov – Sat, 21 Nov'), findsOneWidget);
+      expect(find.text('5 school days'), findsOneWidget);
+      expect(find.text('Show these days'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('date-sheet-apply')));
+      await t.pumpAndSettle();
+      expect(out.single, (from: DateTime(2026, 11, 17), to: DateTime(2026, 11, 21)));
     });
   });
 
@@ -222,6 +299,8 @@ void main() {
       await t.tap(find.text('Daily View'));
       await t.pumpAndSettle();
       await t.scrollUntilVisible(find.text('Open full weekly grid'), 300);
+      await t.ensureVisible(find.text('Open full weekly grid'));
+      await t.pumpAndSettle();
       await t.tap(find.text('Open full weekly grid'));
       await t.pumpAndSettle();
       expect(find.text('Weekly Timetable'), findsOneWidget);

@@ -27,12 +27,13 @@ Color _bg(AttCode c) => switch (c) {
 
 /// 1.1.1 Mark Attendance (Figma 1153:14602).
 class MarkAttendanceScreen extends StatelessWidget {
-  const MarkAttendanceScreen({super.key, this.classId, this.period});
+  const MarkAttendanceScreen({super.key, this.classId, this.period, this.date});
   final String? classId;
   final int? period;
+  final String? date;
   @override
   Widget build(BuildContext context) => BlocProvider(
-    create: (_) => getIt<MarkAttendanceBloc>()..add(MarkAttendanceLoadRequested(classId: classId, period: period)),
+    create: (_) => getIt<MarkAttendanceBloc>()..add(MarkAttendanceLoadRequested(classId: classId, period: period, date: date)),
     child: const _MarkView(),
   );
 }

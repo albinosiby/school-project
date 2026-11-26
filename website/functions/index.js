@@ -312,10 +312,27 @@ exports.onLessonPlanReview = onDocumentWritten("schools/{sid}/ls_plans/{id}", as
   if (!after || was === now) return;
   const sid = e.params.sid, what = `“${after.title ?? "Lesson plan"}” (${after.cls ?? ""} ${after.subject ?? ""})`.replace(/\s+\)/, ")");
   if (now === "submitted") {
+    const who = await staffName(sid, after.teacherId);
     await notifyAdmin(sid, {
       category: "approvals", title: "Lesson plan to review", href: `/lesson-plans?id=${e.params.id}`,
-      body: `${await staffName(sid, after.teacherId)} sent ${what} for review: ${after.sessionCount ?? 0} sessions.`,
+      body: `${who} sent ${what} for review: ${after.sessionCount ?? 0} sessions.`,
     });
+    // the principal / vice principal, and the HODs of the teacher's department, on their teacher-app accounts
+    const staff = db.collection("schools").doc(sid).collection("staff");
+    const [mine, heads] = await Promise.all([
+      after.teacherId ? staff.doc(after.teacherId).get() : null,
+      staff.where("staffRole", "in", ["principal", "vice_principal", "hod"]).get(),
+    ]);
+    const dept = String(mine?.get("department") ?? "");
+    const reviewers = heads.docs
+      .filter((d) => d.id !== after.teacherId && (d.get("staffRole") !== "hod" || !dept || String(d.get("department") ?? "") === dept))
+      .map((d) => d.id);
+    if (reviewers.length) {
+      await notify(sid, reviewers, {
+        type: "lesson", category: "Academic", tag: "Lesson Plan", title: "Lesson plan to review",
+        body: `${who} sent ${what}. Review it in the staff portal → Lesson plan reviews.`, route: "/notifications",
+      });
+    }
   } else if ((now === "approved" || now === "changes") && after.teacherId) {
     const note = String(after.review?.note ?? "").trim();
     await notify(sid, [after.teacherId], {

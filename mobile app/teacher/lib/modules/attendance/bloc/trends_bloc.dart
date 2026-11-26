@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../../engage/repositories/message_repository_interface.dart';
 import '../../school/repositories/school_repository_interface.dart';
 import '../models/attendance_models.dart';
 import '../repositories/attendance_repository_interface.dart';
@@ -9,7 +10,7 @@ import 'trends_states.dart';
 
 /// Attendance trends of a class (1.1.2) incl. at-risk students and parent notifications.
 class TrendsBloc extends Bloc<TrendsEvent, TrendsState> {
-  TrendsBloc(this._repo, this._school) : super(const TrendsState()) {
+  TrendsBloc(this._repo, this._school, [this._messages]) : super(const TrendsState()) {
     on<TrendsLoadRequested>((e, emit) async {
       emit(state.copyWith(status: LoadStatus.loading));
       final classes = await _school.getClasses();
@@ -19,7 +20,11 @@ class TrendsBloc extends Bloc<TrendsEvent, TrendsState> {
     });
     on<TrendsClassChanged>((e, emit) => _load(emit, e.classId));
     on<TrendsRangeChanged>((e, emit) => emit(state.copyWith(range: e.range)));
-    on<TrendsNoticeSent>((e, _) => _repo.addNotice(e.notice));
+    on<TrendsNoticeSent>((e, _) async {
+      // the notice reaches the parent app through the server (att_notices -> parent notification + push)
+      await _repo.addNotice(e.notice);
+      if (e.chat) await _messages?.send(to: ['g_${e.notice.studentId}'], text: e.notice.message);
+    });
     _sub = _repo.watch().listen((_) {
       if (state.classId.isNotEmpty) add(TrendsClassChanged(state.classId));
     });
@@ -27,6 +32,7 @@ class TrendsBloc extends Bloc<TrendsEvent, TrendsState> {
 
   final IAttendanceRepository _repo;
   final ISchoolRepository _school;
+  final IMessageRepository? _messages;
   late final StreamSubscription<void> _sub;
 
   Future<void> _load(Emitter<TrendsState> emit, String classId) async {

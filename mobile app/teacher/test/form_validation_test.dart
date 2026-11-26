@@ -423,13 +423,13 @@ void main() {
       ignoreOverflow();
       final id = '${db.list('ls_plans').first['id']}';
       await open(t, RoutePaths.lessonPlanEdit(id));
-      await type(t, field('Title'), 'ab');
-      await tapText(t, 'Save Plan');
+      await type(t, hinted('Chapter title, e.g. Quadratic Equations'), 'ab');
+      await tapText(t, 'Save plan');
       expect(await seen(t, 'Enter a title (min 3 characters)'), findsOneWidget);
       // the title field sat above the fold when Save was tapped: it is still validated, nothing is saved
       expect(db.byId('ls_plans', id)!['title'], isNot('ab'));
-      await type(t, field('Title'), 'abc');
-      await tapText(t, 'Save Plan');
+      await type(t, hinted('Chapter title, e.g. Quadratic Equations'), 'abc');
+      await tapText(t, 'Save plan');
       expect(find.text('Enter a title (min 3 characters)'), findsNothing);
     });
 

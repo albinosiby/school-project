@@ -1,15 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../design_system/design_system.dart';
+import '../../../../di/injection.dart';
+import '../../../engage/repositories/message_repository_interface.dart';
 import '../../../school/models/school_models.dart';
 import '../../models/attendance_models.dart';
 import 'att_widgets.dart';
 
-/// 1.1.2 Notify Parent popup (Figma 1153:16163). Pops with the [ParentNotice] to store (or null).
-Future<ParentNotice?> showNotifySheet(BuildContext context, Student st, {SchoolClass? cls, int absentCount = 0, int mondays = 0}) =>
-    showAppSheet<ParentNotice>(
+/// What the sheet returns: the notice to store (the server delivers it to the parent app with a push) and whether to
+/// also post the message in the guardian's chat.
+typedef NotifyResult = ({ParentNotice notice, bool chat});
+
+/// Notify Parent / Guardian: pick a preset, edit the message, optionally copy it into the parent chat, send.
+/// "Call" opens the phone dialer and is logged as a call (nothing is sent to the app).
+Future<NotifyResult?> showNotifySheet(BuildContext context, Student st, {SchoolClass? cls, int absentCount = 0, int mondays = 0}) =>
+    showAppSheet<NotifyResult>(
       context,
       title: 'Notify Parent / Guardian',
-      subtitle: '${st.name} • Roll #${st.roll} (Grade ${cls?.label ?? ''})',
+      subtitle: '${st.name} • Roll #${st.roll}${cls == null ? '' : ' • Class ${cls.label}'}',
       builder: (ctx) => _NotifyForm(st: st, cls: cls, absent: absentCount, mondays: mondays),
     );
 
@@ -23,27 +31,38 @@ class _NotifyForm extends StatefulWidget {
 }
 
 class _NotifyFormState extends State<_NotifyForm> {
-  static const channels = [
-    ('SMS Alert', 'Direct Carrier', Icons.sms_outlined),
-    ('WhatsApp Bot', 'School Portal', Icons.chat_outlined),
-    ('App Push', 'Parent App v2.0', Icons.notifications_outlined),
-  ];
-  static const templates = ['Monday Absenteeism Follow-up', 'Low Attendance Warning', 'Consecutive Absence Welfare Check'];
-  final Set<String> picked = {'SMS Alert'};
-  late String tpl = widget.mondays >= 2 ? templates.first : templates[1];
-  bool ack = true;
+  static const templates = ['Low attendance', 'Monday absences', 'Welfare check'];
+  static const maxLen = 500;
+  late String tpl = widget.mondays >= 2 ? templates[1] : templates.first;
   late final TextEditingController msg = TextEditingController(text: _text(tpl));
+  bool chat = false;
+
+  /// Why the chat copy is not possible ('' = it is), from the guardian's parent-app login.
+  String chatBlocked = '';
   String? error;
 
+  @override
+  void initState() {
+    super.initState();
+    _checkChat();
+  }
+
+  Future<void> _checkChat() async {
+    if (!getIt.isRegistered<IMessageRepository>()) return;
+    final r = await getIt<IMessageRepository>().resolveRecipient('g_${widget.st.id}');
+    if (!mounted) return;
+    setState(() => chatBlocked = r == null ? 'Guardian not found' : r.blocked);
+  }
+
   String _text(String t) {
-    final n = widget.st.name, g = widget.st.guardian, cn = widget.cls?.label ?? '';
+    final n = widget.st.name, g = widget.st.guardian.isEmpty ? 'Parent' : widget.st.guardian, cn = widget.cls?.label ?? '';
+    final who = '$n (Roll #${widget.st.roll}${cn.isEmpty ? '' : ', Class $cn'})';
     return switch (t) {
-      'Low Attendance Warning' =>
-        'Dear $g, $n (Roll #${widget.st.roll}, Grade $cn) has attendance below the required $attendanceThresholdLabel%. Regular attendance is critical for academic progress. Please review and acknowledge.',
-      'Consecutive Absence Welfare Check' =>
-        'Dear $g, $n (Roll #${widget.st.roll}, Grade $cn) has missed 3 consecutive school days. Please let us know if everything is fine.',
+      'Monday absences' =>
+        'Dear $g, $who has missed ${widget.mondays == 0 ? 'several' : widget.mondays} Monday classes recently. Regular attendance matters for progress — please let us know if anything is affecting Mondays.',
+      'Welfare check' => 'Dear $g, $who has been absent for the last few school days. Please let us know if everything is fine.',
       _ =>
-        'Dear $g, $n (Roll #${widget.st.roll}, Grade $cn) has missed ${widget.mondays == 0 ? 3 : widget.mondays} Monday sessions this month. Regular attendance is critical for academic progress. Please review and acknowledge.',
+        'Dear $g, $who has attendance below the required $attendanceThresholdLabel%${widget.absent > 0 ? ' with ${widget.absent} absences' : ''}. Regular attendance is important for progress — please make sure they attend every day.',
     };
   }
 
@@ -59,188 +78,128 @@ class _NotifyFormState extends State<_NotifyForm> {
     channels: ch,
     message: text,
     template: ch.contains('Call') ? null : tpl,
-    ackRequested: !ch.contains('Call') && ack,
     at: DateTime.now().toIso8601String(),
   );
 
   void _send() {
-    if (picked.isEmpty) return setState(() => error = 'Select at least one channel');
-    if (msg.text.trim().isEmpty) return setState(() => error = 'Message cannot be empty');
-    if (msg.text.length > 320) return setState(() => error = 'Message exceeds 320 characters');
-    toast(context, 'Notification sent via ${picked.join(', ')}');
-    Navigator.pop(context, _notice(picked.toList(), msg.text.trim()));
+    final text = msg.text.trim();
+    if (text.isEmpty) return setState(() => error = 'Write a message');
+    if (text.length > maxLen) return setState(() => error = 'Keep it under $maxLen characters');
+    final withChat = chat && chatBlocked.isEmpty;
+    toast(context, withChat ? 'Sent to the parent app and chat' : 'Sent to the parent app');
+    Navigator.pop(context, (notice: _notice(['App', if (withChat) 'Chat'], text), chat: withChat));
+  }
+
+  Future<void> _call() async {
+    final digits = widget.st.phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (digits.isEmpty) return setState(() => error = 'No phone number on file');
+    final nav = Navigator.of(context);
+    final ok = await launchUrl(Uri(scheme: 'tel', path: digits));
+    if (!mounted) return;
+    if (!ok) return setState(() => error = 'Could not open the dialer');
+    nav.pop((notice: _notice(const ['Call'], 'Phone call placed to ${widget.st.guardian} ($digits)'), chat: false));
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Container(
-        padding: EdgeInsets.all(12.r),
-        decoration: BoxDecoration(
-          color: C.panel,
-          borderRadius: BorderRadius.circular(R.lg),
-          border: Border.all(color: C.panelBorder),
-        ),
-        child: Column(
-          children: [
-            AttBanner(
-              icon: Icons.error_rounded,
-              tone: Tone.danger,
-              text: widget.mondays >= 2
-                  ? 'Alert Trigger: Flagged ${widget.mondays} Monday Absences this month'
-                  : 'Alert Trigger: ${widget.absent} absences in this period',
-            ),
-            SizedBox(height: 10.h),
-            Row(
-              children: [
-                Icon(Icons.person_outline_rounded, size: 16.r, color: C.slate),
-                SizedBox(width: 4.w),
-                Expanded(
-                  child: Text('Parent: ${widget.st.guardian}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+  Widget build(BuildContext context) {
+    final st = widget.st;
+    final len = msg.text.trim().length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // who it goes to
+        Container(
+          padding: EdgeInsets.all(12.r),
+          decoration: BoxDecoration(color: C.panel, borderRadius: BorderRadius.circular(R.lg), border: Border.all(color: C.panelBorder)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (widget.absent > 0 || widget.mondays >= 2) ...[
+                AttBanner(
+                  icon: Icons.error_rounded,
+                  tone: Tone.danger,
+                  text: widget.mondays >= 2 ? '${widget.mondays} Monday absences recently' : '${widget.absent} absences in this period',
                 ),
-                Icon(Icons.call_outlined, size: 16.r, color: C.primary),
-                SizedBox(width: 4.w),
-                Text(widget.st.phone, style: T.smallStrong.copyWith(color: C.primary)),
+                SizedBox(height: 10.h),
               ],
-            ),
-          ],
-        ),
-      ),
-      SizedBox(height: 14.h),
-      const CapsLabel('Multi-channel dispatch'),
-      Row(
-        children: [
-          for (final c in channels) ...[
-            if (c != channels.first) SizedBox(width: 8.w),
-            Expanded(
-              child: _Channel(
-                title: c.$1,
-                sub: c.$2,
-                icon: c.$3,
-                on: picked.contains(c.$1),
-                onTap: () => setState(() {
-                  picked.contains(c.$1) ? picked.remove(c.$1) : picked.add(c.$1);
-                  error = null;
-                }),
+              Row(
+                children: [
+                  Icon(Icons.person_outline_rounded, size: 16.r, color: C.slate),
+                  SizedBox(width: 4.w),
+                  Expanded(
+                    child: Text(st.guardian.isEmpty ? 'Guardian' : st.guardian, style: T.bodyStrong.copyWith(fontSize: 13.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+                  if (st.phone.isNotEmpty) Text(st.phone, style: T.small),
+                ],
               ),
-            ),
-          ],
-        ],
-      ),
-      SizedBox(height: 14.h),
-      const CapsLabel('Message preset'),
-      DropdownButtonFormField<String>(
-        initialValue: tpl,
-        isExpanded: true,
-        items: [
-          for (final t in templates)
-            DropdownMenuItem(
-              value: t,
-              child: Text(
-                'Template: $t',
-                overflow: TextOverflow.ellipsis,
-                style: T.bodyStrong.copyWith(fontSize: 13.sp),
-              ),
-            ),
-        ],
-        onChanged: (v) => setState(() {
-          tpl = v!;
-          msg.text = _text(v);
-          error = null;
-        }),
-      ),
-      SizedBox(height: 14.h),
-      CapsLabel(
-        'Message preview',
-        trailing: const Pill('Auto-filled', tone: Tone.brand, icon: Icons.auto_fix_high_rounded),
-      ),
-      TextField(
-        controller: msg,
-        maxLines: 5,
-        style: T.body.copyWith(color: C.ink),
-        onChanged: (_) => setState(() => error = null),
-      ),
-      SizedBox(height: 4.h),
-      Row(
-        children: [
-          Text('Characters: ${msg.text.length} / 320', style: T.small.copyWith(color: msg.text.length > 320 ? C.danger : C.slate)),
-          const Spacer(),
-          Text(msg.text.length > 160 ? 'Standard 2-part SMS' : 'Single SMS', style: T.small),
-        ],
-      ),
-      SizedBox(height: 8.h),
-      SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        value: ack,
-        onChanged: (v) => setState(() => ack = v),
-        title: Text('Request Read Acknowledgement from Parent', style: T.bodyStrong.copyWith(fontSize: 13.5.sp)),
-        subtitle: Text('Parent must confirm receipt via SMS or App portal', style: T.small),
-      ),
-      if (error != null)
-        Padding(
-          padding: EdgeInsets.only(bottom: 8.h),
-          child: Text(error!, style: T.small.copyWith(color: C.danger)),
+            ],
+          ),
         ),
-      AppButton('Send Notification Now', icon: Icons.send_rounded, onPressed: _send),
-      SizedBox(height: 8.h),
-      AppButton(
-        'Call Parent Directly',
-        icon: Icons.call_outlined,
-        kind: BtnKind.outline,
-        onPressed: () {
-          toast(context, 'Calling ${widget.st.guardian} • ${widget.st.phone}');
-          Navigator.pop(context, _notice(const ['Call'], 'Phone call placed to ${widget.st.guardian}'));
-        },
-      ),
-      SizedBox(height: 4.h),
-      Center(
-        child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel / Close')),
-      ),
-    ],
-  );
-}
-
-class _Channel extends StatelessWidget {
-  const _Channel({required this.title, required this.sub, required this.icon, required this.on, required this.onTap});
-  final String title, sub;
-  final IconData icon;
-  final bool on;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Semantics(
-    button: true,
-    selected: on,
-    label: title,
-    child: InkWell(
-      borderRadius: BorderRadius.circular(R.md),
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 6.w, vertical: 10.h),
-        decoration: BoxDecoration(
-          color: on ? C.primarySoft : C.surface,
-          borderRadius: BorderRadius.circular(R.md),
-          border: Border.all(color: on ? C.primary : C.border, width: on ? 1.5 : 1),
+        SizedBox(height: 14.h),
+        const CapsLabel('Message'),
+        AppChoiceChips(
+          items: templates,
+          value: tpl,
+          dense: true,
+          onChanged: (v) => setState(() {
+            tpl = v;
+            msg.text = _text(v);
+            error = null;
+          }),
         ),
-        child: Column(
+        SizedBox(height: 10.h),
+        TextField(
+          key: const ValueKey('notify-message'),
+          controller: msg,
+          minLines: 4,
+          maxLines: 7,
+          style: T.body.copyWith(color: C.ink),
+          decoration: const InputDecoration(hintText: 'Write to the parent…'),
+          onChanged: (_) => setState(() => error = null),
+        ),
+        SizedBox(height: 4.h),
+        Align(
+          alignment: Alignment.centerRight,
+          child: Text('$len / $maxLen', style: T.small.copyWith(fontSize: 11.sp, color: len > maxLen ? C.danger : C.slate)),
+        ),
+        SizedBox(height: 4.h),
+        // copy into the chat thread with this guardian
+        Material(
+          color: C.surface,
+          borderRadius: BorderRadius.circular(R.lg),
+          clipBehavior: Clip.antiAlias,
+          child: SwitchListTile(
+            key: const ValueKey('notify-chat'),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12.w),
+            secondary: IconTile(Icons.chat_bubble_outline_rounded, size: 36, tone: chatBlocked.isEmpty ? Tone.brand : Tone.neutral),
+            value: chat && chatBlocked.isEmpty,
+            onChanged: chatBlocked.isEmpty ? (v) => setState(() => chat = v) : null,
+            title: Text('Also send in chat', style: T.bodyStrong.copyWith(fontSize: 13.5.sp)),
+            subtitle: Text(
+              chatBlocked.isEmpty ? 'Posts the same message in your chat with ${st.guardian.isEmpty ? 'the guardian' : st.guardian}' : '$chatBlocked — chat not available',
+              style: T.small.copyWith(fontSize: 11.5.sp),
+            ),
+          ),
+        ),
+        if (error != null)
+          Padding(
+            padding: EdgeInsets.only(top: 8.h),
+            child: Text(error!, style: T.small.copyWith(color: C.danger)),
+          ),
+        SizedBox(height: 14.h),
+        Row(
           children: [
-            Container(
-              width: 32.r,
-              height: 32.r,
-              decoration: BoxDecoration(color: on ? C.primary : C.bg, borderRadius: BorderRadius.circular(R.sm)),
-              child: Icon(icon, size: 18.r, color: on ? Colors.white : C.slate),
+            Expanded(
+              child: AppButton('Call', icon: Icons.call_outlined, kind: BtnKind.outline, onPressed: st.phone.isEmpty ? null : _call),
             ),
-            SizedBox(height: 6.h),
-            Text(title, style: T.smallStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-            Text(
-              sub,
-              style: T.small.copyWith(fontSize: 10.5.sp, color: on ? C.primary : C.slate),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            SizedBox(width: 10.w),
+            Expanded(
+              flex: 2,
+              child: AppButton('Send Notification Now', icon: Icons.send_rounded, onPressed: _send),
             ),
           ],
         ),
-      ),
-    ),
-  );
+      ],
+    );
+  }
 }

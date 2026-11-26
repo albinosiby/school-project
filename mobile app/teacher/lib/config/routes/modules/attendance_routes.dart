@@ -16,7 +16,11 @@ import '../routes.dart';
 final List<RouteBase> attendanceRoutes = [
   GoRoute(
     path: RoutePaths.attendanceMark,
-    builder: (_, st) => MarkAttendanceScreen(classId: st.uri.queryParameters['class'], period: int.tryParse(st.uri.queryParameters['period'] ?? '')),
+    builder: (_, st) => MarkAttendanceScreen(
+      classId: st.uri.queryParameters['class'],
+      period: int.tryParse(st.uri.queryParameters['period'] ?? ''),
+      date: st.uri.queryParameters['date'],
+    ),
   ),
   GoRoute(path: RoutePaths.attendanceTrends, builder: (_, _) => const TrendsScreen()),
   GoRoute(path: RoutePaths.attendanceSelfLog, builder: (_, _) => const SelfLogScreen()),

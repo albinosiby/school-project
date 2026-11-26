@@ -59,8 +59,13 @@ class RoutePaths {
   static const String attendanceMark = '/attendance/mark';
   /// The marking screen opened on one class and period (both optional): the live period from Home and the
   /// timetable, a class from the attention list, or nothing for the quick action (the screen then picks the first).
-  static String markAttendance({String? classId, int? period}) {
-    final query = {if (classId != null && classId.isNotEmpty) 'class': classId, if (period != null) 'period': '$period'};
+  /// [date] (yyyy-MM-dd) opens a past day's register from the timetable.
+  static String markAttendance({String? classId, int? period, String? date}) {
+    final query = {
+      if (classId != null && classId.isNotEmpty) 'class': classId,
+      if (period != null) 'period': '$period',
+      if (date != null && date.isNotEmpty) 'date': date,
+    };
     return query.isEmpty ? attendanceMark : Uri(path: attendanceMark, queryParameters: query).toString();
   }
   static const String attendanceTrends = '/attendance/trends';

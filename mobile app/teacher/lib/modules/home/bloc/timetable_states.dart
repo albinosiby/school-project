@@ -1,5 +1,6 @@
 import 'package:school_sync/school_sync.dart';
 import 'package:equatable/equatable.dart';
+import '../../attendance/models/attendance_models.dart';
 import '../models/timetable_models.dart';
 
 enum TimetableStatus { initial, loading, loaded, failure }
@@ -13,6 +14,8 @@ class TimetableState extends Equatable {
     this.syncing = false,
     this.syncCount = 0,
     this.error,
+    this.attendance = const {},
+    this.attDrafts = const {},
   });
   final String policyVersion;
   final TimetableStatus status;
@@ -21,6 +24,14 @@ class TimetableState extends Equatable {
   final bool syncing;
   final int syncCount;
   final String? error;
+
+  /// Submitted attendance, keyed by [attKey] (latest record per day, class and period).
+  final Map<String, AttCounts> attendance;
+
+  /// [attKey]s of periods that only have a saved draft.
+  final Set<String> attDrafts;
+
+  static String attKey(String date, String classId, int period) => '$date|$classId|$period';
 
   List<Period> periodsOf(int day) => periodsFor(periods, subs, day);
   List<Period> get week => [for (final d in schoolWorkingDays) ...periodsOf(d)];
@@ -35,6 +46,8 @@ class TimetableState extends Equatable {
     bool? syncing,
     int? syncCount,
     String? error,
+    Map<String, AttCounts>? attendance,
+    Set<String>? attDrafts,
   }) => TimetableState(
     policyVersion: SchoolPolicyRuntime.current.version,
     status: status ?? this.status,
@@ -43,8 +56,10 @@ class TimetableState extends Equatable {
     syncing: syncing ?? this.syncing,
     syncCount: syncCount ?? this.syncCount,
     error: error,
+    attendance: attendance ?? this.attendance,
+    attDrafts: attDrafts ?? this.attDrafts,
   );
 
   @override
-  List<Object?> get props => [policyVersion, status, periods, subs, syncing, syncCount, error];
+  List<Object?> get props => [policyVersion, status, periods, subs, syncing, syncCount, error, attendance, attDrafts];
 }

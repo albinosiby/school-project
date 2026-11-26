@@ -5,15 +5,26 @@ import { Badge, Button, Card, EmptyState, LoadingSkeleton, PageHeader, ProgressB
 import { cn } from "@/lib/cn";
 import { useCollection } from "@/lib/useCollection";
 import { useMyName } from "@/lib/useMe";
+import { useStaffProfile } from "@/lib/portal/useStaffProfile";
 import { reviewPatch, reviewTone, type Plan, type ReviewState } from "./logic";
 
 const label: Record<ReviewState, string> = { none: "Not sent", submitted: "To review", approved: "Approved", changes: "Changes asked" };
 const fmt = (iso?: string) => (iso && !isNaN(+new Date(iso)) ? new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "");
 
-/** Lesson plans teachers sent for review (ls_plans.review): approve, or ask for changes with a note. */
-export function LessonPlansView() {
-  const { rows, ready, update } = useCollection<Plan>("ls_plans");
-  const staff = useCollection<{ id: string; name?: string }>("staff").rows;
+const SENT = ["submitted", "approved", "changes"] as const;
+
+/** Lesson plans teachers sent for review (ls_plans.review): approve, or ask for changes with a note.
+ * Admin dashboard: every plan. Staff portal (`portal`): the principal and vice principal see the school's plans, an HOD
+ * the plans of teachers in their department; nobody reviews their own plan (firestore.rules planReviewer). */
+export function LessonPlansView({ portal = false }: { portal?: boolean }) {
+  const { rows: all, ready, update } = useCollection<Plan>("ls_plans", true, portal ? [["review.state", "in", SENT]] : []);
+  const staff = useCollection<{ id: string; name?: string; department?: string }>("staff").rows;
+  const me = useStaffProfile();
+  const myDept = staff.find((s) => s.id === me.staffId)?.department ?? "";
+  const deptOf = useMemo(() => new Map(staff.map((s) => [s.id, s.department ?? ""])), [staff]);
+  const rows = portal
+    ? all.filter((p) => p.teacherId !== me.staffId && (me.staffRole !== "hod" || !myDept || deptOf.get(p.teacherId ?? "") === myDept))
+    : all;
   const [tab, setTab] = useState<ReviewState | "all">("submitted");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(() => (typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("id")));
@@ -28,7 +39,9 @@ export function LessonPlansView() {
 
   return (
     <div>
-      <PageHeader title="Lesson Plans" subtitle="Plans teachers sent for review. Approve them or ask for changes — the teacher is notified." />
+      <PageHeader title={portal ? "Lesson plan reviews" : "Lesson Plans"}
+        subtitle={portal && me.staffRole === "hod" && myDept ? `Plans from ${myDept} teachers. Approve them or ask for changes — the teacher is notified.`
+          : "Plans teachers sent for review. Approve them or ask for changes — the teacher is notified."} />
       <Card className="mb-4 flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
         <div className="min-w-0 lg:w-80"><SearchBox value={q} onChange={setQ} placeholder="Search title, class, subject or teacher…" /></div>
         <Tabs value={tab} onChange={(t) => setTab(t as ReviewState | "all")} items={[

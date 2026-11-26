@@ -108,8 +108,12 @@ void main() {
       await expectLater(bloc.stream, emitsThrough(predicate<TrendsState>((s) => s.status == LoadStatus.loaded && s.history.isNotEmpty)));
       expect(averageRate(bloc.state.history), inInclusiveRange(85, 96));
       expect(bloc.state.atRisk.map((s) => s.id), contains('stu_103'));
-      bloc.add(const TrendsRangeChanged('Term 2'));
-      await expectLater(bloc.stream, emitsThrough(predicate<TrendsState>((s) => s.range == 'Term 2')));
+      expect(bloc.state.students.first.rate, lessThanOrEqualTo(bloc.state.students.last.rate));
+      final t = bloc.state.totals;
+      expect(t.present + t.late + t.absent + t.excused, t.total);
+      bloc.add(const TrendsRangeChanged('This year'));
+      await expectLater(bloc.stream, emitsThrough(predicate<TrendsState>((s) => s.range == 'This year')));
+      expect(bloc.state.records.length, greaterThanOrEqualTo(bloc.state.trend.length));
       await bloc.close();
     });
 
@@ -187,23 +191,45 @@ void main() {
         expect(find.text('Update'), findsOneWidget);
       }));
 
-  testWidgets('trends shows chart and sends a parent notification', (t) => quiet(() async {
+  testWidgets('trends shows the average, chart and sends a parent notification', (t) => quiet(() async {
         await open(t, RoutePaths.attendanceTrends);
-        expect(find.text('Daily Attendance Trend'), findsOneWidget);
-        await t.scrollUntilVisible(find.text('Notify Parent'), 300, scrollable: scroll);
+        expect(find.textContaining('CLASS AVERAGE'), findsOneWidget);
+        expect(find.text('Daily trend'), findsOneWidget);
+        // opens on the latest day; tapping another bar moves the day card to it
+        final bars = find.byWidgetPredicate((w) => w.key is ValueKey<String> && (w.key! as ValueKey<String>).value.startsWith('trend-bar-'));
+        expect(bars, findsWidgets);
+        expect(find.text('Absent'), findsWidgets);
+        await t.tap(bars.first);
         await t.pumpAndSettle();
-        await t.tap(find.text('Notify Parent').first);
+        expect(find.textContaining(RegExp(r'^\d+%$')), findsWidgets);
+        final row = find.byKey(const ValueKey('trend-student-stu_103'));
+        await t.scrollUntilVisible(row, 300, scrollable: scroll);
+        await t.pumpAndSettle();
+        await t.tap(row);
+        await t.pumpAndSettle();
+        await t.tap(find.text('Notify Parent'));
         await t.pumpAndSettle();
         expect(find.text('Send Notification Now'), findsOneWidget);
+        expect(find.text('Multi-channel dispatch'), findsNothing);
+        await t.tap(find.byKey(const ValueKey('notify-chat')));
+        await t.pumpAndSettle();
         await tapText(t, 'Send Notification Now');
-        expect(db.list('att_notices'), isNotEmpty);
+        await t.pumpAndSettle();
+        final notice = db.list('att_notices').single;
+        expect(notice['channels'], ['App', 'Chat']);
+        // the same text lands in the guardian's chat thread
+        final text = '${notice['message']}';
+        expect(db.list('ms_messages').any((th) => '${th['msgs']}'.contains(text.substring(0, 20))), isTrue);
       }));
 
   testWidgets('trends view log sheet filters absences', (t) => quiet(() async {
         await open(t, RoutePaths.attendanceTrends);
-        await t.scrollUntilVisible(find.text('View Log'), 300, scrollable: scroll);
+        final row = find.byKey(const ValueKey('trend-student-stu_103'));
+        await t.scrollUntilVisible(row, 300, scrollable: scroll);
         await t.pumpAndSettle();
-        await t.tap(find.text('View Log').first);
+        await t.tap(row);
+        await t.pumpAndSettle();
+        await t.tap(find.text('View Log'));
         await t.pumpAndSettle();
         expect(find.text('Student Attendance Log'), findsOneWidget);
         await t.tap(find.textContaining('Absences Only'));

@@ -39,7 +39,10 @@ class MarkAttendanceBloc extends Bloc<MarkAttendanceEvent, MarkAttendanceState> 
     }
     final period = periodTimes.containsKey(e.period) ? e.period! : periodTimes.keys.first;
     emit(state.copyWith(classes: classes, empId: teacher.empId));
-    await _select(emit, classId: classId, period: period, date: dkey(todayDate()));
+    final today = dkey(todayDate());
+    // a past day from the timetable; never a future one
+    final date = e.date != null && DateTime.tryParse(e.date!) != null && e.date!.compareTo(today) <= 0 ? e.date! : today;
+    await _select(emit, classId: classId, period: period, date: date);
   }
 
   /// Changes the selection and reloads the sheet (unsaved marks are replaced).

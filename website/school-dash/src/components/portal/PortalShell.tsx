@@ -16,8 +16,8 @@ type School = { id: string; academicYear?: string };
 
 export function PortalNavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
-  const { teaching, canAddStaff, crew } = useStaffProfile();
-  const links = PORTAL_NAV.filter((item) => (crew ? item.href === "/me" : (!("teaching" in item) || teaching) && (!("addStaff" in item) || canAddStaff)));
+  const { teaching, canAddStaff, crew, reviewer } = useStaffProfile();
+  const links = PORTAL_NAV.filter((item) => (crew ? item.href === "/me" : (!("teaching" in item) || teaching) && (!("addStaff" in item) || canAddStaff) && (!("reviewer" in item) || reviewer)));
   return (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2" aria-label="Staff portal">
       {links.map(({ href, label, icon: Icon }) => {

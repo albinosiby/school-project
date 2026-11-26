@@ -301,6 +301,7 @@ List<({String date, String slot})> suggestSessionDates({
   required int count,
   Set<String> taken = const {},
   int maxDays = 120,
+  bool Function(String date, String slot)? skip,
 }) {
   final out = <({String date, String slot})>[];
   final start = DateTime.tryParse(from);
@@ -311,7 +312,7 @@ List<({String date, String slot})> suggestSessionDates({
     final day = DateTime(start.year, start.month, start.day + d);
     final iso = '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}';
     for (final p in sorted) {
-      if (p.day != day.weekday || taken.contains('$iso|${p.slot}')) continue;
+      if (p.day != day.weekday || taken.contains('$iso|${p.slot}') || (skip?.call(iso, p.slot) ?? false)) continue;
       out.add((date: iso, slot: p.slot));
       if (out.length >= count) break;
     }

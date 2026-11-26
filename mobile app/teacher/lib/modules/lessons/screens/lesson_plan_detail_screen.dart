@@ -123,6 +123,7 @@ class _DetailView extends StatelessWidget {
               'Edit',
               icon: Icons.edit_outlined,
               kind: canSubmit ? BtnKind.outline : BtnKind.primary,
+              small: true,
               onPressed: () => context.push(RoutePaths.lessonPlanEdit(p.id)),
             ),
           ),
@@ -132,6 +133,7 @@ class _DetailView extends StatelessWidget {
               child: AppButton(
                 p.review.state == ReviewState.changes ? 'Send again' : 'Send for review',
                 icon: Icons.send_rounded,
+                small: true,
                 onPressed: () => context.read<LessonPlansBloc>().add(LessonPlanReviewRequested(p.id)),
               ),
             ),

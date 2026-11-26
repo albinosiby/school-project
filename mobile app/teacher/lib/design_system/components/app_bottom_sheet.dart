@@ -3,12 +3,14 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../tokens/app_tokens.dart';
 
 /// Standard modal bottom sheet with drag handle and title (used for every "Popup" frame).
+/// Opens on the root navigator so it covers the floating tab bar, and keeps its content above the system
+/// navigation bar (or the keyboard, when open).
 Future<V?> showAppSheet<V>(BuildContext context, {required String title, String? subtitle, required Widget Function(BuildContext) builder}) =>
     showModalBottomSheet<V>(
-      context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: C.bg,
+      context: context, isScrollControlled: true, useSafeArea: true, useRootNavigator: true, backgroundColor: C.bg,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(R.xxl))),
       builder: (ctx) => Padding(
-        padding: EdgeInsets.fromLTRB(20.w, 10.h, 20.w, 20.h + MediaQuery.of(ctx).viewInsets.bottom),
+        padding: EdgeInsets.fromLTRB(20.w, 10.h, 20.w, 20.h + sheetBottomInset(ctx)),
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Center(child: Container(width: 40.w, height: 4.h, margin: EdgeInsets.only(bottom: 14.h), decoration: BoxDecoration(color: C.border, borderRadius: BorderRadius.circular(2.r)))),
@@ -20,3 +22,9 @@ Future<V?> showAppSheet<V>(BuildContext context, {required String title, String?
         ),
       ),
     );
+
+/// Space a sheet keeps at its bottom: the keyboard when open, else the system navigation bar.
+double sheetBottomInset(BuildContext context) {
+  final mq = MediaQuery.of(context);
+  return mq.viewInsets.bottom > 0 ? mq.viewInsets.bottom : mq.viewPadding.bottom;
+}

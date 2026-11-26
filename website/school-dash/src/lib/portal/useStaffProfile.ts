@@ -22,5 +22,8 @@ export function useStaffProfile() {
     name: record?.name || user?.name || user?.email || "",
     designation: record?.designation || record?.staffRole || user?.staffRole || (crew ? (user?.role === "driver" ? "Driver" : "Bus attendant") : ""),
     canAddStaff: assignableStaffRoles(user).length > 0,
+    /** principal, vice principal and HODs review lesson plans (firestore.rules planReviewer) */
+    reviewer: ['principal', 'vice_principal', 'hod'].includes(user?.staffRole ?? ''),
+    staffRole: user?.staffRole ?? '',
   };
 }

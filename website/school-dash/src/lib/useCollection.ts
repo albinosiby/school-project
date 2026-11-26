@@ -7,7 +7,7 @@ import { collection, deleteDoc, doc, onSnapshot, query, where, setDoc, updateDoc
 import { auth, db } from "./firebase";
 
 type Row = { id: string };
-export type CollectionFilter = readonly [field: string, operator: WhereFilterOp, value: string | number | boolean | null];
+export type CollectionFilter = readonly [field: string, operator: WhereFilterOp, value: string | number | boolean | null | readonly string[]];
 const cache = new Map<string, Row[]>();
 const listeners = new Map<string, Unsubscribe>();
 const subs = new Map<string, Set<() => void>>();

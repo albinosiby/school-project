@@ -8,13 +8,13 @@ sealed class MarkAttendanceEvent extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Initial load for [classId] (default: the homeroom class) and [period] (default 3).
+/// Initial load for [classId] (default: the homeroom class), [period] (default 3) and [date] (yyyy-MM-dd, default today).
 class MarkAttendanceLoadRequested extends MarkAttendanceEvent {
-  const MarkAttendanceLoadRequested({this.classId, this.period});
-  final String? classId;
+  const MarkAttendanceLoadRequested({this.classId, this.period, this.date});
+  final String? classId, date;
   final int? period;
   @override
-  List<Object?> get props => [classId, period];
+  List<Object?> get props => [classId, period, date];
 }
 
 class MarkAttendanceClassChanged extends MarkAttendanceEvent {

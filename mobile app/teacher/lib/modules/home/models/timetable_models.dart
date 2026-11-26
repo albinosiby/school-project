@@ -69,6 +69,12 @@ int termWeek(DateTime d) {
   return DateTime(d.year, d.month, d.day).difference(start).inDays ~/ 7 + 1;
 }
 
+/// First day the timetable flags unmarked attendance: the academic year start, else 30 days back.
+DateTime attendanceFlagsFrom(DateTime today) {
+  final start = AppConfig.isFirebase ? SchoolPolicyRuntime.current.rangeStart : null;
+  return start == null ? DateTime(today.year, today.month, today.day - 30) : DateTime(start.year, start.month, start.day);
+}
+
 String termWeekLabel(DateTime date) => AppConfig.isFirebase ? SchoolPolicyRuntime.current.termWeekLabel(date) : 'Term 2 · Week ${termWeek(date)}';
 
 /// The moment the UI treats as "now". During school hours on a school day it is the

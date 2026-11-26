@@ -246,6 +246,30 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
     }
   }));
 
+  // A teacher's "Notify Parent" from the teacher app (att_notices, teacher-private): the guardians of that student get
+  // it in the parent app's notifications with a push, once per notice and parent. Call logs are not delivered.
+  // The notice is stamped with how many parents it reached so the teacher app can say so.
+  const onTeacherNoticeForParents = onDocumentCreated("schools/{sid}/att_notices/{id}", safe("onTeacherNoticeForParents", async (e) => {
+    const sid = e.params.sid, n = e.data?.data();
+    if (!n?.studentId || !n.teacherId) return;
+    const channels = Array.isArray(n.channels) ? n.channels.map(String) : [];
+    const text = String(n.message ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+    if (!text || (channels.length && channels.every((c) => c === "Call"))) return;
+    const [stSnap, staff] = await Promise.all([
+      S(sid).collection("students").doc(String(n.studentId)).get(),
+      S(sid).collection("staff").doc(String(n.teacherId)).get(),
+    ]);
+    const student = stSnap.exists && stSnap.get("deleted") !== true ? { id: stSnap.id, ...stSnap.data() } : null;
+    const teacher = staff.exists ? String(staff.get("name") ?? "").trim() : "";
+    const rows = student ? guardiansOf([student]).map(({ uid }) => ({
+      id: `attn_${e.params.id}_${uid}`, uid, studentId: student.id, type: "attendance",
+      title: teacher ? `Message from ${teacher}` : "Message from school", body: text, route: "/academics?section=attendance",
+    })) : [];
+    const sent = rows.length ? await notifyParents(sid, rows) : 0;
+    await e.data.ref.set({ deliveredTo: rows.length, deliveredAt: nowIso(), ...(rows.length ? {} : { undelivered: student ? "no-parent-login" : "no-student" }) }, { merge: true });
+    return sent;
+  }));
+
   // ---------------------------------------------------------------------------
   // 13.2 homework: par_homework/{studentId}_{homeworkId}
   // ---------------------------------------------------------------------------
@@ -780,7 +804,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   }));
 
   return {
-    onStudentWritten, onClassTeacherNameSync, onStaffRenamed, onAttendanceForParents, onHomeworkForParents, onPaperForParents,
+    onStudentWritten, onClassTeacherNameSync, onStaffRenamed, onAttendanceForParents, onTeacherNoticeForParents, onHomeworkForParents, onPaperForParents,
     onMarkForParents, onNoticeForParents, onCalendarForParents, onNoticeAck, onStudentLeaveRequested, onStudentLeaveDecided,
     onMessageCreated, onLiveClassForParents, onClassMeetingForParents, onFeeInvoiceCreated, onFeePaymentCreated, onConsentWritten, onPtmBookingWritten,
     onPtmSlotDeleted, onCertificateWritten, onFeeClaimWritten, onFeeReminderCreated, feeDueReminders,

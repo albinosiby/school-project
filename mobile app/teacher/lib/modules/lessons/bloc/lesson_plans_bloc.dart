@@ -7,6 +7,7 @@ import '../../engage/repositories/chat_media_repository.dart';
 import '../../home/repositories/timetable_repository_interface.dart';
 import '../models/lesson_plan_models.dart';
 import '../repositories/lesson_plan_repository_interface.dart';
+import '../screens/widgets/lesson_plan_widgets.dart' show periodPassed;
 import 'lesson_plans_events.dart';
 import 'lesson_plans_states.dart';
 import 'lessons_notice.dart';
@@ -103,6 +104,7 @@ class LessonPlansBloc extends Bloc<LessonPlansEvent, LessonPlansState> {
       periods: state.slotsFor(e.cls, p.subject),
       from: todayIso(),
       count: p.sessions.length,
+      skip: periodPassed,
     );
     final sessions = [
       for (var i = 0; i < p.sessions.length; i++)

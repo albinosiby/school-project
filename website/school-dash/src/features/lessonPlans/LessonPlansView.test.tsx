@@ -36,3 +36,25 @@ describe("Lesson plan review", () => {
     await expect.poll(() => getRow("ls_plans", "lp_1")).toMatchObject({ review: { state: "changes", note: "Add an activity on inertia" } });
   });
 });
+
+describe("Lesson plan reviews in the staff portal", () => {
+  it("an HOD sees the sent plans of their department's teachers, not their own", async () => {
+    const { authState } = await import("@/test/render");
+    authState.user = { id: "u_hod", email: "hod@school.test", organizationName: "Test School", schoolId: authState.user!.schoolId, role: "teacher", staffRole: "hod", staffId: "stf_hod" };
+    seed({
+      staff: [{ id: "stf_hod", name: "Mrs. Hod", department: "Languages" }, { id: "stf_1", name: "Fathima", department: "Languages" }, { id: "stf_2", name: "Ravi", department: "Science" }],
+      ls_plans: [
+        { ...plan("lp_1", "submitted", "Nouns and Pronouns"), teacherId: "stf_1" },
+        { ...plan("lp_2", "submitted", "Motion"), teacherId: "stf_2" },
+        { ...plan("lp_3", "submitted", "My own plan"), teacherId: "stf_hod" },
+        { ...plan("lp_4", "none", "Unsent"), teacherId: "stf_1" },
+      ],
+    });
+    renderUI(<LessonPlansView portal />);
+    expect(await screen.findByText("Nouns and Pronouns")).toBeInTheDocument();
+    expect(screen.queryByText("Motion")).not.toBeInTheDocument();
+    expect(screen.queryByText("My own plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Unsent")).not.toBeInTheDocument();
+    expect(screen.getByText(/Plans from Languages teachers/)).toBeInTheDocument();
+  });
+});

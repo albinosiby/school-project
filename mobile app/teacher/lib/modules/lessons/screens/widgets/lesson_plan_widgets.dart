@@ -12,6 +12,16 @@ String slotLabel(String slot) {
   return s.start.isEmpty ? name : '$name · ${fmtTime(s.start)}';
 }
 
+/// True for a period of today that has already started (new sessions should not land on it).
+bool periodPassed(String date, String slot) {
+  if (date != todayIso()) return false;
+  final start = bell.slotOf(slot).start;
+  final p = start.split(':');
+  if (p.length < 2) return false;
+  final now = DateTime.now();
+  return now.hour * 60 + now.minute >= (int.tryParse(p[0]) ?? 0) * 60 + (int.tryParse(p[1]) ?? 0);
+}
+
 /// "Today", "Tomorrow", "Tue 25 Nov", or "No date".
 String sessionDay(String iso) {
   if (iso.isEmpty) return 'No date';

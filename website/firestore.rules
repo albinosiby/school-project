@@ -67,6 +67,13 @@ service cloud.firestore {
     function teacherSession(sid, p) {
       return p.get('role', '') == 'teacher' && p.get('staffId', '') != '' && p.get('schoolId', '') == sid && validSession(p) && schoolActiveFor(sid, p);
     }
+    // lesson plan reviewers (DATA_CONTRACT section 5): the principal, vice principal and HODs of the school, signed in to the
+    // staff portal (users.role staff or teacher, users.staffRole set by the admin)
+    function planReviewer(sid, p) {
+      return p.get('role', '') in ['staff', 'teacher'] && p.get('staffId', '') != '' && p.get('schoolId', '') == sid
+        && p.get('staffRole', '') in ['principal', 'vice_principal', 'hod'] && validSession(p) && schoolActiveFor(sid, p);
+    }
+    function sentForReview(d) { return d.get('review', {}).get('state', 'none') in ['submitted', 'approved', 'changes']; }
     // parent: users/{uid}.studentIds / classIds / grns are kept by the onStudentWritten function (contract 13.1)
     function isParentIn(sid) { return hasRole('parent') && inSchool(sid); }
     function myStudents() { return me().get('studentIds', []); }
@@ -626,6 +633,16 @@ service cloud.firestore {
           || (col == 'fee_claims' && resource.data.get('parentUid', '') == request.auth.uid && resource.data.get('status', '') == 'Pending')
           // withdraw a certificate request before the office handles it
           || (col == 'certificates' && isParent(sid, resource.data.get('studentId', '')) && resource.data.get('status', '') == 'Requested'));
+
+        // lesson plan review: reviewers read the plans sent for review and write only the decision (never on their own plan)
+        allow read: if col == 'ls_plans' && signedIn() && planReviewer(sid, profile()) && sentForReview(resource.data);
+        allow update: if col == 'ls_plans' && signedIn() && sentForReview(resource.data) && planReviewer(sid, profile())
+          && resource.data.get('teacherId', '') != profile().staffId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['review', 'updatedAt', 'updatedBy'])
+          && request.resource.data.review.keys().hasOnly(['state', 'note', 'by', 'at', 'submittedAt'])
+          && request.resource.data.review.state in ['approved', 'changes']
+          && request.resource.data.review.get('note', '') is string && request.resource.data.review.get('note', '').size() <= 1000
+          && request.resource.data.review.get('by', '') is string && request.resource.data.review.get('by', '').size() <= 120;
 
         // non-teaching staff (staff portal, STAFF_PORTAL_CONTRACT.md §4): the school, the staff directory and classes, published
         // notices, the calendar, the leave policy, and their own leave requests, check-in days and regularizations

@@ -28,10 +28,12 @@ class TrendsRangeChanged extends TrendsEvent {
   List<Object?> get props => [range];
 }
 
-/// A parent notification or call was made (Notify Parent sheet / Call Parent).
+/// A parent notification or call was made (Notify Parent sheet / Call Parent). [chat] also posts the message in the
+/// guardian's chat thread.
 class TrendsNoticeSent extends TrendsEvent {
-  const TrendsNoticeSent(this.notice);
+  const TrendsNoticeSent(this.notice, {this.chat = false});
   final ParentNotice notice;
+  final bool chat;
   @override
-  List<Object?> get props => [notice];
+  List<Object?> get props => [notice, chat];
 }

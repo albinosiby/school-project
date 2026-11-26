@@ -32,7 +32,7 @@ void registerHomeModule(GetIt getIt) {
   // BLoCs
   getIt.registerFactory<NotificationsBloc>(() => NotificationsBloc(getIt<INotificationRepository>()));
   getIt.registerFactory<HomeBloc>(() => HomeBloc(getIt<IHomeRepository>(), getIt<ITimetableRepository>(), getIt<ISettingsRepository>(), getIt<IAttendanceRepository>(), getIt<ICircularsRepository>(), getIt<ILessonPlanRepository>()));
-  getIt.registerFactory<TimetableBloc>(() => TimetableBloc(getIt<ITimetableRepository>(), getIt<ISettingsRepository>()));
+  getIt.registerFactory<TimetableBloc>(() => TimetableBloc(getIt<ITimetableRepository>(), getIt<ISettingsRepository>(), getIt<IAttendanceRepository>()));
   getIt.registerFactory<SubstitutionBloc>(() => SubstitutionBloc(getIt<ITimetableRepository>()));
   getIt.registerFactory<ProfileBloc>(() => ProfileBloc(getIt<IProfileRepository>()));
   getIt.registerFactory<SettingsBloc>(() => SettingsBloc(getIt<ISettingsRepository>()));

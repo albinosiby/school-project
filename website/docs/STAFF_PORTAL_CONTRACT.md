@@ -41,6 +41,8 @@ Admin pages stay admin-only. This document is the contract the portal builders f
 | `/me/profile` | `portal/profile` | Own `staff` record (read-only) and app login details |
 | `/me/add-staff` | (page only) | `AddStaffFields` for designations that may add staff |
 
+- `/me/lesson-plans` (principal, vice principal, HOD): lesson plans sent for review; approve or ask for changes (DATA_CONTRACT section 5).
+
 ## 3. Document shapes (write exactly what the app writes)
 
 The teacher app's adapters are the source of truth: `mobile app/teacher/lib/utils/services/firebase/store_adapters.dart`

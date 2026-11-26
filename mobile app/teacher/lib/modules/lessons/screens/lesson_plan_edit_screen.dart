@@ -7,8 +7,6 @@ import '../../../di/injection.dart';
 import '../../../utils/helpers/date_helper.dart';
 import '../../engage/models/attachment_models.dart';
 import '../../engage/screens/widgets/attachment_sheet.dart';
-import '../../engage/screens/widgets/engage_widgets.dart' show FieldLabel;
-import '../../engage/screens/widgets/form_steps.dart';
 import '../../home/models/timetable_models.dart' as bell;
 import '../../school/bloc/school_bloc.dart';
 import '../bloc/lesson_plans_bloc.dart';
@@ -46,6 +44,7 @@ class _EditViewState extends State<_EditView> {
   final _form = GlobalKey<FormState>();
   final _title = TextEditingController(), _chapter = TextEditingController(), _summary = TextEditingController();
   final _outcome = TextEditingController();
+  final _outcomeFocus = FocusNode();
   String _cls = '', _subject = '';
   bool _loaded = false, _showErrors = false;
   List<String> _outcomes = [];
@@ -80,6 +79,7 @@ class _EditViewState extends State<_EditView> {
     for (final c in [_title, _chapter, _summary, _outcome]) {
       c.dispose();
     }
+    _outcomeFocus.dispose();
     super.dispose();
   }
 
@@ -101,7 +101,13 @@ class _EditViewState extends State<_EditView> {
         .where((d) => d.isNotEmpty)
         .fold<String>('', (a, b) => b.compareTo(a) > 0 ? b : a);
     final from = last.isEmpty || last.compareTo(todayIso()) < 0 ? todayIso() : last;
-    final dates = suggestSessionDates(periods: st.slotsFor(_cls, _subject), from: from, count: n, taken: taken);
+    final dates = suggestSessionDates(
+      periods: st.slotsFor(_cls, _subject),
+      from: from,
+      count: n,
+      taken: taken,
+      skip: periodPassed,
+    );
     setState(() {
       for (var i = 0; i < n; i++) {
         _sessions.add(
@@ -130,7 +136,12 @@ class _EditViewState extends State<_EditView> {
       for (final s in _sessions)
         if (s.open) s,
     ];
-    final dates = suggestSessionDates(periods: st.slotsFor(_cls, _subject), from: todayIso(), count: open.length);
+    final dates = suggestSessionDates(
+      periods: st.slotsFor(_cls, _subject),
+      from: todayIso(),
+      count: open.length,
+      skip: periodPassed,
+    );
     if (dates.isEmpty) {
       AppDialogs.showSnackBar(context, message: 'No $_subject periods for $_cls in your timetable.');
       return;
@@ -151,6 +162,7 @@ class _EditViewState extends State<_EditView> {
       _outcomes = [..._outcomes, t];
       _outcome.clear();
     });
+    _outcomeFocus.requestFocus(); // ready for the next one
   }
 
   void _save({required bool draft}) {
@@ -188,13 +200,39 @@ class _EditViewState extends State<_EditView> {
   }
 
   Future<void> _editSession(int i) async {
+    // drop focus first, or the outcome field takes it back (and opens the keyboard) when the sheet closes
+    FocusScope.of(context).unfocus();
     final s = _sessions[i];
     final next = await showAppSheet<LessonSession>(
       context,
       title: 'Session ${i + 1}',
+      subtitle: [if (s.date.isNotEmpty) sessionDay(s.date), if (s.slot.isNotEmpty) slotLabel(s.slot)].join(' · '),
       builder: (ctx) => _SessionEditor(session: s),
     );
     if (next != null) setState(() => _sessions[i] = next);
+  }
+
+  Future<void> _pick(String title, List<String> items, String value, ValueChanged<String> onPick) async {
+    final v = await showAppSheet<String>(
+      context,
+      title: title,
+      builder: (ctx) => Column(
+        children: [
+          for (final it in items)
+            ListTile(
+              contentPadding: EdgeInsets.symmetric(horizontal: 4.w),
+              minTileHeight: 46.h,
+              title: Text(
+                it,
+                style: T.body.copyWith(color: C.ink, fontWeight: it == value ? FontWeight.w700 : FontWeight.w500),
+              ),
+              trailing: it == value ? Icon(Icons.check_rounded, color: C.primary, size: 20.r) : null,
+              onTap: () => Navigator.pop(ctx, it),
+            ),
+        ],
+      ),
+    );
+    if (v != null) setState(() => onPick(v));
   }
 
   @override
@@ -227,18 +265,22 @@ class _EditViewState extends State<_EditView> {
     if (_cls.isEmpty && classes.isNotEmpty) _cls = classes.first;
     final subjects = subjectsOf(_cls);
     if (!subjects.contains(_subject)) _subject = subjects.firstOrNull ?? _subject;
-    final timetableSlots = st.slotsFor(_cls, _subject);
+    final slots = st.slotsFor(_cls, _subject);
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final periods = ([...slots]..sort((a, b) => a.day != b.day ? a.day.compareTo(b.day) : a.slot.compareTo(b.slot)))
+        .map((s) => '${days[(s.day - 1).clamp(0, 6)]} ${s.slot}')
+        .join(' · ');
     final mins = _sessions.fold<int>(0, (a, s) => a + s.mins);
 
     return DetailScaffold(
       title: title,
-      subtitle: _isNew ? 'Plan a chapter as sessions' : _existing!.code,
+      subtitle: _isNew ? null : _existing!.code,
       fallbackRoute: RoutePaths.lessonPlans,
       bottom: Row(
         children: [
           Expanded(
             child: AppButton(
-              'Save Draft',
+              'Save draft',
               kind: BtnKind.outline,
               onPressed: st.uploading ? null : () => _save(draft: true),
             ),
@@ -247,7 +289,7 @@ class _EditViewState extends State<_EditView> {
           Expanded(
             flex: 2,
             child: AppButton(
-              st.uploading ? 'Uploading files…' : 'Save Plan',
+              st.uploading ? 'Uploading…' : 'Save plan',
               icon: Icons.check_rounded,
               busy: st.uploading,
               onPressed: () => _save(draft: false),
@@ -260,185 +302,181 @@ class _EditViewState extends State<_EditView> {
         autovalidateMode: _showErrors ? AutovalidateMode.onUserInteraction : AutovalidateMode.disabled,
         child: ListView(
           scrollCacheExtent: kFormScrollCache,
-          padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h),
+          padding: EdgeInsets.fromLTRB(S.page, 14.h, S.page, 24.h),
           children: [
-            FormStep(
-              n: 1,
-              title: 'Class & Subject',
-              subtitle: timetableSlots.isEmpty
-                  ? 'Not in your timetable — sessions need dates'
-                  : '${timetableSlots.length} period${timetableSlots.length == 1 ? '' : 's'} a week in your timetable',
-              icon: Icons.groups_2_outlined,
+            // ---- class & subject
+            Row(
               children: [
-                if (classes.isEmpty)
-                  Text('No classes assigned to you yet.', style: T.small)
-                else ...[
-                  AppChoiceChips(
-                    items: classes,
-                    value: _cls,
-                    solid: true,
-                    dense: true,
-                    onChanged: (v) => setState(() => _cls = v.isEmpty ? _cls : v),
+                Expanded(
+                  child: _Picker(
+                    label: 'Class',
+                    value: _cls.isEmpty ? 'Choose' : _cls,
+                    onTap: classes.isEmpty ? null : () => _pick('Class', classes, _cls, (v) => _cls = v),
                   ),
-                  SizedBox(height: 10.h),
-                  AppChoiceChips(
-                    items: subjects,
-                    value: _subject,
-                    solid: true,
-                    dense: true,
-                    onChanged: (v) => setState(() => _subject = v.isEmpty ? _subject : v),
+                ),
+                SizedBox(width: 10.w),
+                Expanded(
+                  child: _Picker(
+                    label: 'Subject',
+                    value: _subject.isEmpty ? 'Choose' : _subject,
+                    onTap: subjects.isEmpty ? null : () => _pick('Subject', subjects, _subject, (v) => _subject = v),
+                  ),
+                ),
+              ],
+            ),
+            Padding(
+              padding: EdgeInsets.fromLTRB(4.w, 8.h, 4.w, 0),
+              child: Row(
+                children: [
+                  Icon(
+                    slots.isEmpty ? Icons.event_busy_outlined : Icons.schedule_rounded,
+                    size: 14.r,
+                    color: slots.isEmpty ? C.warningDark : C.slate,
+                  ),
+                  SizedBox(width: 6.w),
+                  Expanded(
+                    child: Text(
+                      classes.isEmpty
+                          ? 'No classes assigned to you yet'
+                          : slots.isEmpty
+                          ? 'Not in your timetable — you will pick session dates'
+                          : 'Your periods: $periods',
+                      style: T.small.copyWith(fontSize: 12.sp, color: slots.isEmpty ? C.warningDark : C.slate),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ],
-              ],
+              ),
             ),
-            FormStep(
-              n: 2,
-              title: 'Chapter',
-              subtitle: 'What this plan covers',
-              icon: Icons.menu_book_outlined,
-              children: [
-                AppTextField(
-                  label: 'Title',
-                  controller: _title,
-                  hint: 'e.g. Quadratic Equations',
-                  validator: (v) => (v ?? '').trim().length < 3 ? 'Enter a title (min 3 characters)' : null,
+
+            // ---- chapter
+            const _Head('Chapter'),
+            _Box(
+              child: Column(
+                children: [
+                  _Field(
+                    controller: _title,
+                    hint: 'Chapter title, e.g. Quadratic Equations',
+                    strong: true,
+                    validator: (v) => (v ?? '').trim().length < 3 ? 'Enter a title (min 3 characters)' : null,
+                  ),
+                  Divider(height: 1, color: C.border),
+                  _Field(
+                    controller: _chapter,
+                    hint: 'Textbook reference, e.g. NCERT Ch 4',
+                    icon: Icons.menu_book_outlined,
+                  ),
+                  Divider(height: 1, color: C.border),
+                  _Field(
+                    controller: _summary,
+                    hint: 'Short summary (optional)',
+                    icon: Icons.notes_rounded,
+                    maxLines: 3,
+                  ),
+                ],
+              ),
+            ),
+
+            // ---- outcomes
+            _Head('Learning outcomes', trailing: _outcomes.isEmpty ? null : '${_outcomes.length}'),
+            for (var i = 0; i < _outcomes.length; i++)
+              _ListRow(
+                n: i + 1,
+                text: _outcomes[i],
+                onRemove: () => setState(() => _outcomes = [..._outcomes]..removeAt(i)),
+              ),
+            _InlineAdd(
+              key: const ValueKey('outcome-input'),
+              controller: _outcome,
+              focusNode: _outcomeFocus,
+              hint: 'Students will be able to…',
+              onAdd: _addOutcome,
+            ),
+
+            // ---- sessions
+            _Head(
+              'Sessions',
+              trailing: _sessions.isEmpty ? null : '${_sessions.length}${mins > 0 ? ' · $mins min' : ''}',
+            ),
+            if (_sessions.isEmpty)
+              Padding(
+                padding: EdgeInsets.only(bottom: 10.h),
+                child: Text(
+                  'One session = one class period of this chapter. Add as many as you need; each takes your next period. Tap one to plan it.',
+                  style: T.small.copyWith(fontSize: 12.5.sp, height: 1.45),
                 ),
-                AppTextField(label: 'Chapter / textbook reference', controller: _chapter, hint: 'e.g. NCERT Ch 4'),
-                AppTextField(label: 'Summary (optional)', controller: _summary, maxLines: 2, hint: 'One or two lines'),
-              ],
-            ),
-            FormStep(
-              n: 3,
-              title: 'Learning Outcomes',
-              subtitle: _outcomes.isEmpty ? 'What students will be able to do' : '${_outcomes.length} outcomes',
-              icon: Icons.flag_outlined,
-              children: [
-                for (var i = 0; i < _outcomes.length; i++)
-                  _ListRow(
-                    n: i + 1,
-                    text: _outcomes[i],
-                    onRemove: () => setState(() => _outcomes = [..._outcomes]..removeAt(i)),
-                  ),
-                _InlineAdd(controller: _outcome, hint: 'e.g. Solve quadratics by factoring', onAdd: _addOutcome),
-              ],
-            ),
-            FormStep(
-              n: 4,
-              title: 'Sessions',
-              subtitle: _sessions.isEmpty
-                  ? 'One per class period'
-                  : '${_sessions.length} session${_sessions.length == 1 ? '' : 's'}${mins > 0 ? ' • $mins min planned' : ''}',
-              icon: Icons.event_note_outlined,
-              children: [
-                for (var i = 0; i < _sessions.length; i++)
-                  _SessionRow(
-                    n: i + 1,
-                    session: _sessions[i],
-                    onTap: () => _editSession(i),
-                    onRemove: _sessions[i].taught
-                        ? null
-                        : () => setState(() => _sessions = [..._sessions]..removeAt(i)),
-                  ),
-                if (_sessionErr != null)
-                  Padding(
-                    padding: EdgeInsets.only(bottom: 8.h),
-                    child: Text(_sessionErr!, style: T.small.copyWith(color: C.danger)),
-                  ),
-                Wrap(
-                  spacing: 8.w,
-                  runSpacing: 8.h,
+              )
+            else
+              _Box(
+                child: Column(
                   children: [
-                    AppButton(
-                      'Add 1',
-                      icon: Icons.add_rounded,
-                      kind: BtnKind.soft,
-                      small: true,
-                      expand: false,
-                      onPressed: () => _addSessions(st, 1),
-                    ),
-                    AppButton(
-                      'Add 5',
-                      icon: Icons.playlist_add_rounded,
-                      kind: BtnKind.soft,
-                      small: true,
-                      expand: false,
-                      onPressed: () => _addSessions(st, 5),
-                    ),
-                    if (_sessions.any((s) => s.open) && timetableSlots.isNotEmpty)
-                      AppButton(
-                        'Re-date from timetable',
-                        icon: Icons.event_repeat_rounded,
-                        kind: BtnKind.outline,
-                        small: true,
-                        expand: false,
-                        onPressed: () => _refillDates(st),
+                    for (var i = 0; i < _sessions.length; i++) ...[
+                      if (i > 0) Divider(height: 1, indent: 58.w, color: C.border),
+                      _SessionRow(
+                        n: i + 1,
+                        session: _sessions[i],
+                        onTap: () => _editSession(i),
+                        onRemove: _sessions[i].taught
+                            ? null
+                            : () => setState(() => _sessions = [..._sessions]..removeAt(i)),
                       ),
+                    ],
                   ],
                 ),
-                SizedBox(height: 8.h),
-                const StepHint(
-                  icon: Icons.info_outline_rounded,
-                  text: 'Tap a session to set its focus, steps and homework',
-                ),
+              ),
+            if (_sessionErr != null)
+              Padding(
+                padding: EdgeInsets.only(top: 6.h),
+                child: Text(_sessionErr!, style: T.small.copyWith(color: C.danger)),
+              ),
+            SizedBox(height: 8.h),
+            Wrap(
+              spacing: 6.w,
+              runSpacing: 6.h,
+              children: [
+                _SmallAction(icon: Icons.add_rounded, label: 'Add a session', onTap: () => _addSessions(st, 1)),
+                _SmallAction(icon: Icons.playlist_add_rounded, label: 'Add 5', onTap: () => _addSessions(st, 5)),
+                if (_sessions.any((s) => s.open) && slots.isNotEmpty)
+                  _SmallAction(icon: Icons.event_repeat_rounded, label: 'Re-date', onTap: () => _refillDates(st)),
               ],
             ),
-            FormStep(
-              n: 5,
-              title: 'Attachments',
-              subtitle: 'Worksheets, slides, notes (15 MB each)',
-              icon: Icons.attach_file_rounded,
-              last: true,
-              children: [
-                for (var i = 0; i < _attachments.length; i++)
-                  Padding(
-                    padding: EdgeInsets.only(bottom: 8.h),
-                    child: AppFileChip(
-                      name: _attachments[i].name,
-                      size: _attachments[i].size,
-                      sub: 'Uploaded',
-                      trailing: IconButton(
-                        tooltip: 'Remove file',
-                        icon: Icon(Icons.close_rounded, size: 18.r),
-                        onPressed: () => setState(() => _attachments = [..._attachments]..removeAt(i)),
-                      ),
-                    ),
-                  ),
-                for (var i = 0; i < _files.length; i++)
-                  Padding(
-                    padding: EdgeInsets.only(bottom: 8.h),
-                    child: AppFileChip(
-                      name: _files[i].name,
-                      size: _files[i].sizeLabel,
-                      sub: 'Uploads when you save',
-                      icon: _files[i].isImage ? Icons.image_outlined : null,
-                      tone: _files[i].isImage ? Tone.purple : Tone.danger,
-                      trailing: IconButton(
-                        tooltip: 'Remove file',
-                        icon: Icon(Icons.close_rounded, size: 18.r),
-                        onPressed: () => setState(() => _files = [..._files]..removeAt(i)),
-                      ),
-                    ),
-                  ),
-                AppButton(
-                  'Attach files',
-                  icon: Icons.upload_file_rounded,
-                  kind: BtnKind.soft,
-                  small: true,
-                  expand: false,
-                  onPressed: () async {
-                    final picked = await pickDocuments();
-                    final ok = picked.where((f) => f.bytes <= kMaxAttachmentBytes).toList();
-                    if (!context.mounted) return;
-                    if (ok.length < picked.length) {
-                      AppDialogs.showSnackBar(
-                        context,
-                        message: '${picked.length - ok.length} file(s) over 15 MB were skipped',
-                      );
-                    }
-                    if (ok.isNotEmpty) setState(() => _files = [..._files, ...ok]);
-                  },
-                ),
-              ],
+
+            // ---- files
+            _Head(
+              'Files',
+              trailing: _attachments.length + _files.length == 0 ? null : '${_attachments.length + _files.length}',
+            ),
+            for (var i = 0; i < _attachments.length; i++)
+              _FileRow(
+                name: _attachments[i].name,
+                sub: _attachments[i].size,
+                onRemove: () => setState(() => _attachments = [..._attachments]..removeAt(i)),
+              ),
+            for (var i = 0; i < _files.length; i++)
+              _FileRow(
+                name: _files[i].name,
+                sub: '${_files[i].sizeLabel} · uploads on save',
+                onRemove: () => setState(() => _files = [..._files]..removeAt(i)),
+              ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _SmallAction(
+                icon: Icons.attach_file_rounded,
+                label: 'Attach files',
+                onTap: () async {
+                  final picked = await pickDocuments();
+                  final ok = picked.where((f) => f.bytes <= kMaxAttachmentBytes).toList();
+                  if (!context.mounted) return;
+                  if (ok.length < picked.length) {
+                    AppDialogs.showSnackBar(
+                      context,
+                      message: '${picked.length - ok.length} file(s) over 15 MB were skipped',
+                    );
+                  }
+                  if (ok.isNotEmpty) setState(() => _files = [..._files, ...ok]);
+                },
+              ),
             ),
           ],
         ),
@@ -447,7 +485,204 @@ class _EditViewState extends State<_EditView> {
   }
 }
 
-/// A numbered line (an outcome) with remove.
+/// Small grey section heading with an optional count.
+class _Head extends StatelessWidget {
+  const _Head(this.text, {this.trailing});
+  final String text;
+  final String? trailing;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.fromLTRB(4.w, 20.h, 4.w, 8.h),
+    child: Row(
+      children: [
+        Text(text.toUpperCase(), style: T.capsMuted.copyWith(fontSize: 11.sp, letterSpacing: .6)),
+        const Spacer(),
+        if (trailing != null) Text(trailing!, style: T.small.copyWith(fontSize: 11.5.sp)),
+      ],
+    ),
+  );
+}
+
+/// White rounded container for a group of rows.
+class _Box extends StatelessWidget {
+  const _Box({required this.child});
+  final Widget child;
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: C.bg,
+      borderRadius: BorderRadius.circular(R.lg),
+      border: Border.all(color: C.border),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: child,
+  );
+}
+
+/// Compact picker: small label over the value, opens a list.
+class _Picker extends StatelessWidget {
+  const _Picker({required this.label, required this.value, this.onTap});
+  final String label, value;
+  final VoidCallback? onTap;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: C.bg,
+    borderRadius: BorderRadius.circular(R.lg),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(R.lg),
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.fromLTRB(12.w, 8.h, 8.w, 8.h),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(R.lg),
+          border: Border.all(color: C.border),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: T.small.copyWith(fontSize: 11.sp)),
+                  Text(
+                    value,
+                    style: T.bodyStrong.copyWith(fontSize: 14.sp),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.expand_more_rounded, size: 20.r, color: C.slate),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// A borderless text field for use inside a [_Box] (the theme's own box is switched off).
+class _Field extends StatelessWidget {
+  const _Field({
+    required this.controller,
+    required this.hint,
+    this.icon,
+    this.strong = false,
+    this.maxLines = 1,
+    this.validator,
+  });
+  final TextEditingController controller;
+  final String hint;
+  final IconData? icon;
+  final bool strong;
+  final int maxLines;
+  final String? Function(String?)? validator;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.symmetric(horizontal: 12.w),
+    child: TextFormField(
+      controller: controller,
+      validator: validator,
+      minLines: 1,
+      maxLines: maxLines,
+      textCapitalization: TextCapitalization.sentences,
+      style: strong ? T.bodyStrong.copyWith(fontSize: 15.sp) : T.body.copyWith(color: C.ink, fontSize: 13.5.sp),
+      decoration: InputDecoration(
+        isDense: true,
+        filled: false,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        errorBorder: InputBorder.none,
+        focusedErrorBorder: InputBorder.none,
+        contentPadding: EdgeInsets.symmetric(vertical: 13.h),
+        prefixIcon: icon == null ? null : Icon(icon, size: 17.r, color: C.slate),
+        prefixIconConstraints: BoxConstraints(minWidth: 28.w),
+        hintText: hint,
+        hintStyle: (strong ? T.bodyStrong.copyWith(fontSize: 15.sp) : T.body.copyWith(fontSize: 13.5.sp)).copyWith(
+          color: C.muted,
+        ),
+      ),
+    ),
+  );
+}
+
+/// Small tinted action ("+ Add a session").
+class _SmallAction extends StatelessWidget {
+  const _SmallAction({required this.icon, required this.label, required this.onTap});
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Material(
+    color: C.primarySoft,
+    borderRadius: BorderRadius.circular(R.pill),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(R.pill),
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16.r, color: C.primary),
+            SizedBox(width: 6.w),
+            Flexible(
+              child: Text(
+                label,
+                style: T.smallStrong.copyWith(fontSize: 12.5.sp, color: C.primary),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _FileRow extends StatelessWidget {
+  const _FileRow({required this.name, required this.sub, required this.onRemove});
+  final String name, sub;
+  final VoidCallback onRemove;
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: EdgeInsets.only(bottom: 8.h),
+    padding: EdgeInsets.fromLTRB(12.w, 8.h, 2.w, 8.h),
+    decoration: BoxDecoration(
+      color: C.bg,
+      borderRadius: BorderRadius.circular(R.md),
+      border: Border.all(color: C.border),
+    ),
+    child: Row(
+      children: [
+        Icon(Icons.description_outlined, size: 18.r, color: C.danger),
+        SizedBox(width: 10.w),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: T.bodyStrong.copyWith(fontSize: 13.sp),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (sub.isNotEmpty) Text(sub, style: T.small.copyWith(fontSize: 11.sp)),
+            ],
+          ),
+        ),
+        IconButton(
+          tooltip: 'Remove file',
+          icon: Icon(Icons.close_rounded, size: 18.r, color: C.slate),
+          onPressed: onRemove,
+        ),
+      ],
+    ),
+  );
+}
+
 class _ListRow extends StatelessWidget {
   const _ListRow({required this.n, required this.text, required this.onRemove});
   final int n;
@@ -496,10 +731,11 @@ class _ListRow extends StatelessWidget {
 
 /// One plain input with a round add button: type and press it (or Done) to append a line.
 class _InlineAdd extends StatelessWidget {
-  const _InlineAdd({required this.controller, required this.hint, required this.onAdd});
+  const _InlineAdd({super.key, required this.controller, required this.hint, required this.onAdd, this.focusNode});
   final TextEditingController controller;
   final String hint;
   final VoidCallback onAdd;
+  final FocusNode? focusNode;
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<TextEditingValue>(
     valueListenable: controller,
@@ -517,9 +753,11 @@ class _InlineAdd extends StatelessWidget {
             Expanded(
               child: TextField(
                 controller: controller,
+                focusNode: focusNode,
                 textInputAction: TextInputAction.done,
                 textCapitalization: TextCapitalization.sentences,
-                onSubmitted: (_) => onAdd(),
+                // handling "done" here keeps the field focused (the default would close the keyboard): type, Done, type…
+                onEditingComplete: onAdd,
                 style: T.body.copyWith(color: C.ink, fontSize: 14.sp),
                 // the theme draws its own box around fields: this one sits inside ours, so none here
                 decoration: InputDecoration(
@@ -557,84 +795,104 @@ class _InlineAdd extends StatelessWidget {
   );
 }
 
-/// A session in the editor: number, when, focus; tap to edit.
+/// A session in the editor: date chip, "Session n · Period", focus; tap to plan it.
 class _SessionRow extends StatelessWidget {
   const _SessionRow({required this.n, required this.session, required this.onTap, this.onRemove});
   final int n;
   final LessonSession session;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
+  static const _wd = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
   @override
   Widget build(BuildContext context) {
     final s = session;
-    return Padding(
-      padding: EdgeInsets.only(bottom: 8.h),
-      child: Material(
-        color: C.surface,
-        borderRadius: BorderRadius.circular(R.md),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(R.md),
-          onTap: onTap,
-          child: Container(
-            padding: EdgeInsets.fromLTRB(10.w, 8.h, 0, 8.h),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(R.md),
-              border: Border.all(color: C.border),
-            ),
-            child: Row(
-              children: [
-                SessionDot(s, n),
-                SizedBox(width: 10.w),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        [sessionDay(s.date), if (s.slot.isNotEmpty) slotLabel(s.slot)].join(' • '),
-                        style: T.small.copyWith(
-                          fontSize: 11.5.sp,
-                          fontWeight: FontWeight.w700,
-                          color: s.date.isEmpty ? C.danger : C.primary,
-                        ),
-                      ),
-                      Text(
-                        s.focus.isEmpty ? 'Tap to add the focus' : s.focus,
-                        style: s.focus.isEmpty ? T.small : T.bodyStrong.copyWith(fontSize: 13.5.sp),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (s.activities.isNotEmpty || s.homework.isNotEmpty)
-                        Text(
-                          [
-                            if (s.activities.isNotEmpty) '${s.activities.length} steps • ${s.mins} min',
-                            if (s.homework.isNotEmpty) 'Homework',
-                          ].join(' • '),
-                          style: T.small.copyWith(fontSize: 11.sp),
-                        ),
-                    ],
+    final d = DateTime.tryParse(s.date);
+    final undated = d == null;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(10.w, 9.h, 0, 9.h),
+        child: Row(
+          children: [
+            Container(
+              width: 38.w,
+              padding: EdgeInsets.symmetric(vertical: 4.h),
+              decoration: BoxDecoration(
+                color: s.taught ? C.successSoft : (undated ? C.dangerSoft : C.primarySoft),
+                borderRadius: BorderRadius.circular(R.sm),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    undated ? 'NO' : _wd[d.weekday - 1],
+                    style: T.small.copyWith(
+                      fontSize: 9.sp,
+                      fontWeight: FontWeight.w800,
+                      color: undated ? C.danger : C.slate,
+                    ),
                   ),
-                ),
-                if (onRemove != null)
-                  IconButton(
-                    tooltip: 'Remove session',
-                    icon: Icon(Icons.close_rounded, size: 18.r, color: C.slate),
-                    onPressed: onRemove,
-                  )
-                else
-                  Padding(
-                    padding: EdgeInsets.only(right: 12.w),
-                    child: Icon(Icons.lock_outline_rounded, size: 16.r, color: C.muted),
+                  Text(
+                    undated ? 'DATE' : '${d.day}',
+                    style: undated
+                        ? T.small.copyWith(fontSize: 9.sp, fontWeight: FontWeight.w800, color: C.danger)
+                        : T.bodyStrong.copyWith(
+                            fontSize: 15.sp,
+                            height: 1.1,
+                            color: s.taught ? C.successDark : C.primary,
+                          ),
                   ),
-              ],
+                ],
+              ),
             ),
-          ),
+            SizedBox(width: 10.w),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ['Session $n', if (s.slot.isNotEmpty) slotLabel(s.slot), if (s.taught) 'Taught'].join(' · '),
+                    style: T.small.copyWith(fontSize: 11.sp),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    s.focus.isEmpty ? 'Tap to plan this session' : s.focus,
+                    style: s.focus.isEmpty
+                        ? T.small.copyWith(fontSize: 13.sp, color: C.primary, fontWeight: FontWeight.w600)
+                        : T.bodyStrong.copyWith(fontSize: 13.5.sp),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  if (s.activities.isNotEmpty || s.homework.isNotEmpty)
+                    Text(
+                      [
+                        if (s.activities.isNotEmpty) '${s.activities.length} steps · ${s.mins} min',
+                        if (s.homework.isNotEmpty) 'Homework',
+                      ].join(' · '),
+                      style: T.small.copyWith(fontSize: 11.sp),
+                    ),
+                ],
+              ),
+            ),
+            if (onRemove != null)
+              IconButton(
+                tooltip: 'Remove session',
+                icon: Icon(Icons.close_rounded, size: 17.r, color: C.muted),
+                onPressed: onRemove,
+              )
+            else
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 14.w),
+                child: Icon(Icons.lock_outline_rounded, size: 15.r, color: C.muted),
+              ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Bottom sheet that edits one session: focus, date, period, steps (minutes + what) and homework.
+/// Bottom sheet that plans one session: what (focus), when (date + period), the steps with minutes, and homework.
 class _SessionEditor extends StatefulWidget {
   const _SessionEditor({required this.session});
   final LessonSession session;
@@ -646,9 +904,12 @@ class _SessionEditorState extends State<_SessionEditor> {
   late final _focus = TextEditingController(text: widget.session.focus);
   late final _homework = TextEditingController(text: widget.session.homework);
   final _step = TextEditingController();
-  late String _date = widget.session.date, _slot = widget.session.slot;
+  final _stepFocus = FocusNode();
+  late String _date = widget.session.date;
+  late String _slot = _slots.contains(widget.session.slot) ? widget.session.slot : (_slots.firstOrNull ?? '');
   late List<SessionActivity> _steps = [...widget.session.activities];
   int _stepMins = 10;
+  static const _minutes = [5, 10, 15, 20, 25, 30, 40];
 
   static List<String> get _slots => [
     for (final s in bell.kSlots)
@@ -660,6 +921,7 @@ class _SessionEditorState extends State<_SessionEditor> {
     for (final c in [_focus, _homework, _step]) {
       c.dispose();
     }
+    _stepFocus.dispose();
     super.dispose();
   }
 
@@ -670,107 +932,191 @@ class _SessionEditorState extends State<_SessionEditor> {
       _steps = [..._steps, SessionActivity(title: t, mins: _stepMins)];
       _step.clear();
     });
+    _stepFocus.requestFocus();
+  }
+
+  Future<void> _pickDate() async {
+    final d = await showDatePicker(
+      context: context,
+      initialDate: DateTime.tryParse(_date) ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (d != null) setState(() => _date = isoOf(d));
+  }
+
+  Future<void> _pickPeriod() async {
+    final v = await showAppSheet<String>(
+      context,
+      title: 'Period',
+      builder: (ctx) => Column(
+        children: [
+          for (final p in _slots)
+            ListTile(
+              contentPadding: EdgeInsets.symmetric(horizontal: 4.w),
+              minTileHeight: 44.h,
+              title: Text(
+                slotLabel(p),
+                style: T.body.copyWith(color: C.ink, fontWeight: p == _slot ? FontWeight.w700 : FontWeight.w500),
+              ),
+              trailing: p == _slot ? Icon(Icons.check_rounded, color: C.primary, size: 20.r) : null,
+              onTap: () => Navigator.pop(ctx, p),
+            ),
+        ],
+      ),
+    );
+    if (v != null) setState(() => _slot = v);
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.stretch,
-    children: [
-      AppTextField(label: 'Focus', controller: _focus, hint: 'e.g. The quadratic formula'),
-      Row(
-        children: [
-          Expanded(
-            child: AppPickTile(
-              icon: Icons.event_outlined,
-              label: _date.isEmpty ? 'Pick a date' : sessionDay(_date),
-              caption: 'Date',
-              onTap: () async {
-                final d = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.tryParse(_date) ?? DateTime.now(),
-                  firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                  lastDate: DateTime.now().add(const Duration(days: 365)),
-                );
-                if (d != null) setState(() => _date = isoOf(d));
-              },
-            ),
+  Widget build(BuildContext context) {
+    final total = _steps.fold<int>(0, (a, e) => a + e.mins);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // what
+        _Box(
+          child: _Field(
+            controller: _focus,
+            hint: 'What will you teach? e.g. Personal pronouns',
+            strong: true,
+            maxLines: 2,
           ),
-          SizedBox(width: 10.w),
-          Expanded(
-            child: AppDropdown<String>(
-              label: 'Period',
-              value: _slots.contains(_slot) ? _slot : (_slots.firstOrNull ?? ''),
-              items: _slots,
-              labelOf: (v) => slotLabel(v),
-              onChanged: (v) => setState(() => _slot = v),
+        ),
+        SizedBox(height: 10.h),
+        // when
+        Row(
+          children: [
+            Expanded(
+              child: _Picker(label: 'Date', value: _date.isEmpty ? 'Pick a date' : sessionDay(_date), onTap: _pickDate),
             ),
-          ),
-        ],
-      ),
-      SizedBox(height: 12.h),
-      const FieldLabel('Steps'),
-      for (var i = 0; i < _steps.length; i++)
-        Container(
-          margin: EdgeInsets.only(bottom: 6.h),
-          padding: EdgeInsets.fromLTRB(10.w, 2.h, 0, 2.h),
-          decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md)),
+            SizedBox(width: 10.w),
+            Expanded(
+              child: _Picker(
+                label: 'Period',
+                value: _slot.isEmpty ? 'Pick' : slotLabel(_slot),
+                onTap: _slots.isEmpty ? null : _pickPeriod,
+              ),
+            ),
+          ],
+        ),
+        // steps
+        Padding(
+          padding: EdgeInsets.fromLTRB(4.w, 18.h, 4.w, 8.h),
           child: Row(
             children: [
-              Text('${_steps[i].mins}′', style: T.smallStrong.copyWith(color: C.primary)),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: Text(
-                  _steps[i].title,
-                  style: T.body.copyWith(color: C.ink, fontSize: 13.5.sp),
+              Text('STEPS', style: T.capsMuted.copyWith(fontSize: 11.sp, letterSpacing: .6)),
+              const Spacer(),
+              if (total > 0) Text('$total min', style: T.small.copyWith(fontSize: 11.5.sp)),
+            ],
+          ),
+        ),
+        if (_steps.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.only(bottom: 8.h),
+            child: _Box(
+              child: Column(
+                children: [
+                  for (var i = 0; i < _steps.length; i++) ...[
+                    if (i > 0) Divider(height: 1, color: C.border),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(12.w, 2.h, 0, 2.h),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 44.w,
+                            child: Text(
+                              '${_steps[i].mins} min',
+                              style: T.smallStrong.copyWith(fontSize: 12.sp, color: C.primary),
+                            ),
+                          ),
+                          Expanded(
+                            child: Text(
+                              _steps[i].title,
+                              style: T.body.copyWith(color: C.ink, fontSize: 13.5.sp),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Remove step',
+                            icon: Icon(Icons.close_rounded, size: 17.r, color: C.muted),
+                            onPressed: () => setState(() => _steps = [..._steps]..removeAt(i)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        Row(
+          key: const ValueKey('step-add-row'),
+          children: [
+            PopupMenuButton<int>(
+              tooltip: 'Minutes',
+              initialValue: _stepMins,
+              onSelected: (v) => setState(() => _stepMins = v),
+              itemBuilder: (_) => [for (final m in _minutes) PopupMenuItem(value: m, child: Text('$m min'))],
+              child: Container(
+                height: 46.h,
+                padding: EdgeInsets.symmetric(horizontal: 10.w),
+                decoration: BoxDecoration(color: C.primarySoft, borderRadius: BorderRadius.circular(R.md)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$_stepMins min',
+                      style: T.smallStrong.copyWith(fontSize: 12.5.sp, color: C.primary),
+                    ),
+                    Icon(Icons.arrow_drop_down_rounded, size: 20.r, color: C.primary),
+                  ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Remove step',
-                icon: Icon(Icons.close_rounded, size: 18.r, color: C.slate),
-                onPressed: () => setState(() => _steps = [..._steps]..removeAt(i)),
+            ),
+            SizedBox(width: 8.w),
+            Expanded(
+              child: _InlineAdd(
+                key: const ValueKey('step-input'),
+                controller: _step,
+                focusNode: _stepFocus,
+                hint: 'Step, e.g. Warm-up quiz',
+                onAdd: _addStep,
               ),
-            ],
+            ),
+          ],
+        ),
+        // homework
+        Padding(
+          padding: EdgeInsets.fromLTRB(4.w, 18.h, 4.w, 8.h),
+          child: Text('HOMEWORK', style: T.capsMuted.copyWith(fontSize: 11.sp, letterSpacing: .6)),
+        ),
+        _Box(
+          child: _Field(
+            controller: _homework,
+            hint: 'Optional, e.g. Workbook p. 12',
+            icon: Icons.home_work_outlined,
+            maxLines: 2,
           ),
         ),
-      Row(
-        children: [
-          AppDropdown<int>(
-            label: '',
-            value: _stepMins,
-            items: const [5, 10, 15, 20, 25, 30, 40],
-            labelOf: (v) => '$v min',
-            onChanged: (v) => setState(() => _stepMins = v),
-          ).wrapWidth(96.w),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: _InlineAdd(controller: _step, hint: 'e.g. Worked examples', onAdd: _addStep),
-          ),
-        ],
-      ),
-      SizedBox(height: 12.h),
-      AppTextField(label: 'Homework (optional)', controller: _homework, hint: 'e.g. Ex 4.3 Q1–5'),
-      SizedBox(height: 4.h),
-      AppButton(
-        'Done',
-        icon: Icons.check_rounded,
-        onPressed: () => Navigator.pop(
-          context,
-          widget.session.copyWith(
-            focus: _focus.text.trim(),
-            date: _date,
-            slot: _slots.contains(_slot) ? _slot : (_slots.firstOrNull ?? ''),
-            activities: [
-              ..._steps,
-              if (_step.text.trim().isNotEmpty) SessionActivity(title: _step.text.trim(), mins: _stepMins),
-            ],
-            homework: _homework.text.trim(),
+        SizedBox(height: 16.h),
+        AppButton(
+          'Save session',
+          icon: Icons.check_rounded,
+          onPressed: () => Navigator.pop(
+            context,
+            widget.session.copyWith(
+              focus: _focus.text.trim(),
+              date: _date,
+              slot: _slot,
+              activities: [
+                ..._steps,
+                if (_step.text.trim().isNotEmpty) SessionActivity(title: _step.text.trim(), mins: _stepMins),
+              ],
+              homework: _homework.text.trim(),
+            ),
           ),
         ),
-      ),
-    ],
-  );
-}
-
-extension on Widget {
-  Widget wrapWidth(double w) => SizedBox(width: w, child: this);
+      ],
+    );
+  }
 }
