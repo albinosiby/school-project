@@ -7,6 +7,7 @@ import 'package:parent_app/modules/fees/bloc/fee_payment_bloc.dart';
 import 'package:parent_app/modules/fees/models/fee_models.dart';
 import 'package:parent_app/modules/fees/repositories/mock_fee_repository.dart';
 import 'package:parent_app/modules/homework/models/homework_models.dart';
+import 'package:parent_app/modules/homework/screens/handin_sheet.dart';
 import 'package:parent_app/utils/exceptions/app_exception.dart';
 import 'package:parent_app/utils/helpers/date_helper.dart';
 import 'package:parent_app/utils/services/cache_service.dart';
@@ -149,6 +150,34 @@ void main() {
       }
       await _tap(tester, find.text('Message teacher'));
       expect(_location(tester), RoutePaths.messages);
+    });
+
+    testWidgets('Homework hand-in: add a PDF, submit, the detail shows what was handed in', (tester) async {
+      handinPickerOverride = (source) async => [
+        PickedHandin(name: source == HandinSource.pdf ? 'answers.pdf' : 'page.jpg', mime: source == HandinSource.pdf ? 'application/pdf' : 'image/jpeg', size: 2048, bytes: const [1, 2, 3]),
+      ];
+      addTearDown(() => handinPickerOverride = null);
+      final now = DateTime.now();
+      final open = DemoData.homework(DemoData.aarav.id).firstWhere((h) => h.canSubmit && !h.submitted && h.statusAt(now) != HomeworkStatus.reviewed);
+      await pumpApp(tester, location: RoutePaths.homework(open.id));
+      await _tap(tester, find.byKey(const Key('homework-submit')));
+      expect(find.text('Submit homework'), findsWidgets);
+      await _tap(tester, find.byKey(const Key('handin-pdf')));
+      expect(find.text('answers.pdf'), findsOneWidget);
+      await _tap(tester, find.byKey(const Key('handin-submit')));
+      expect(find.text('Homework handed in'), findsOneWidget);
+      await _reveal(tester, find.byKey(const Key('homework-handin')));
+      expect(find.textContaining('Submitted on'), findsOneWidget);
+      expect(find.text('answers.pdf'), findsOneWidget);
+      expect(find.text('Replace submission'), findsOneWidget);
+    });
+
+    testWidgets('Homework hand-in is not offered once graded', (tester) async {
+      final graded = DemoData.homework(DemoData.aarav.id).firstWhere((h) => h.reviewed);
+      await pumpApp(tester, location: RoutePaths.homework(graded.id));
+      await _reveal(tester, find.byKey(const Key('homework-handin')));
+      expect(find.byKey(const Key('homework-grade')), findsOneWidget);
+      expect(find.byKey(const Key('homework-submit')), findsNothing);
     });
 
     testWidgets('Homework detail back returns to the Academics tab', (

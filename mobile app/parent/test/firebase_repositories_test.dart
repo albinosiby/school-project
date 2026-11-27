@@ -8,6 +8,8 @@ import 'package:parent_app/modules/auth/repositories/firebase_auth_repository.da
 import 'package:parent_app/modules/family/repositories/firebase_family_repository.dart';
 import 'package:parent_app/modules/fees/repositories/firebase_fee_repository.dart';
 import 'package:parent_app/modules/homework/repositories/firebase_homework_repository.dart';
+import 'package:parent_app/modules/homework/models/homework_models.dart';
+import 'package:parent_app/modules/homework/repositories/homework_repository_interface.dart';
 import 'package:parent_app/modules/leave/models/leave_models.dart';
 import 'package:parent_app/modules/leave/repositories/firebase_leave_repository.dart';
 import 'package:parent_app/modules/live_classes/repositories/firebase_live_class_repository.dart';
@@ -86,6 +88,48 @@ void main() {
     expect(h.submitted, isTrue);
     expect(h.score, '18/20');
     expect(h.remark, 'Neat work');
+  });
+
+  test('homework: the hand-in (files, note, time, late) and when it can still be submitted', () async {
+    await school('par_homework').set('${child}_hw_2', {
+      'studentId': child, 'homeworkId': 'hw_2', 'title': 'Essay', 'subject': 'English', 'teacher': 'Ms. Priya Menon',
+      'assigned': '2026-10-20', 'due': '2026-10-25', 'maxMarks': 10, 'status': 'open',
+      'submission': {
+        'status': 'submitted', 'note': 'Page 2 is the conclusion', 'submittedAt': '2026-10-26T04:30:00.000Z', 'late': true,
+        'files': [{'name': 'page1.jpg', 'url': 'https://x/page1.jpg', 'path': 'schools/s/homework/hw_2/$child/1_page1.jpg', 'type': 'image/jpeg', 'size': 204800}],
+      },
+    });
+    await school('par_homework').set('${child}_hw_3', {
+      'studentId': child, 'homeworkId': 'hw_3', 'title': 'Closed', 'subject': 'Science', 'teacher': 'T', 'assigned': '2026-10-01', 'due': '2026-10-05',
+      'status': 'closed', 'submission': {'status': 'pending'},
+    });
+    final list = await FirebaseHomeworkRepository(session).watchHomework(child).first;
+    final h = list.firstWhere((x) => x.id == 'hw_2');
+    expect(h.studentId, child);
+    expect(h.submitted, isTrue);
+    expect(h.late, isTrue);
+    expect(h.note, 'Page 2 is the conclusion');
+    expect(h.submittedAt, DateTime.parse('2026-10-26T04:30:00.000Z').toLocal());
+    expect(h.files.single.name, 'page1.jpg');
+    expect(h.files.single.isImage, isTrue);
+    expect(h.files.single.sizeLabel, '200 KB');
+    expect(h.canSubmit, isTrue, reason: 'open and not graded: can be replaced');
+    final closed = list.firstWhere((x) => x.id == 'hw_3');
+    expect(closed.open, isFalse);
+    expect(closed.canSubmit, isFalse);
+  });
+
+  test('homework hand-in limits and storage-safe names', () {
+    const pdf = PickedHandin(name: 'work.pdf', mime: 'application/pdf', size: 1000, bytes: [1]);
+    expect(handinProblem(const [], ''), 'Add at least one photo or PDF.');
+    expect(handinProblem(const [pdf], ''), isNull);
+    expect(handinProblem(const [PickedHandin(name: 'big.pdf', mime: 'application/pdf', size: 16 * 1024 * 1024)], ''), contains('15 MB'));
+    expect(handinProblem(const [PickedHandin(name: 'a.docx', mime: 'application/msword', size: 10)], ''), contains('only photos and PDF'));
+    expect(handinProblem(List.filled(11, pdf), ''), contains('at most 10'));
+    expect(handinProblem(const [pdf], 'x' * 501), contains('500'));
+    expect(safeHandinName('/tmp/My Homework (1).jpg'), 'My_Homework__1_.jpg');
+    expect(safeHandinName('${'a' * 100}.pdf').length, 80);
+    expect(PickedHandin.mimeOf('scan.HEIC'), 'image/heic');
   });
 
   test('marks: published papers grouped per exam cycle', () async {

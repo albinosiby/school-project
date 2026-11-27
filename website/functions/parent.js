@@ -8,6 +8,7 @@
 // change (classes.classTeacher, com_notices / calendar_events.parentVisible); message counters are applied once per message
 // (msg_messages.counted, in a transaction). Projections (par_*) and users docs trigger nothing.
 const { assessMark } = require("./examAssessment");
+const { handinFrom, homeworkOpen, mergedSubmission } = require("./homeworkHandins");
 const { FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const { logger } = require("firebase-functions/v2");
@@ -274,17 +275,15 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   // 13.2 homework: par_homework/{studentId}_{homeworkId}
   // ---------------------------------------------------------------------------
 
-  const hwHidden = (h) => !h || h.deleted === true || /draft/i.test(String(h.status ?? ""));
+  // drafts and homework scheduled for later stay hidden; publishing them later counts as new (parents are told then)
+  const hwHidden = (h) => !h || h.deleted === true || /draft|scheduled/i.test(String(h.status ?? ""));
   const hwShared = (h, id) => clean({
     homeworkId: id, classId: h.classId, title: h.title ?? "", subject: h.subject ?? "", description: h.description ?? "",
     teacher: h.teacher ?? "", teacherId: h.teacherId ?? "", assigned: h.assigned ?? h.createdAt ?? null, due: h.due ?? null,
     maxMarks: h.maxMarks ?? null, status: h.status ?? "open", attachments: h.attachments,
   });
-  const hwSubmission = (h, sid) => {
-    const x = h?.submissions?.[sid];
-    if (!x || typeof x !== "object") return { status: "pending" };
-    return clean({ status: x.status ?? "pending", marks: x.marks, feedback: x.feedback, gradedAt: x.gradedAt });
-  };
+  // the teacher's grading merged with the parent's hand-in (homeworkHandins.js)
+  const hwSubmission = (h, sid) => mergedSubmission(h, sid, clean);
 
   async function deleteWhere(q) {
     const snap = await q.get();
@@ -334,6 +333,55 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
         body: `${student.name ?? "Your child"}${sub.marks != null ? `: ${sub.marks}${after.maxMarks ? `/${after.maxMarks}` : ""}` : ""}${sub.feedback ? ` · ${sub.feedback}` : ""}`,
         route: `/academics/homework/${id}` });
     }
+    if (rows.length) await notifyParents(sid, rows);
+  }));
+
+  // Parent hand-ins (par_hw_submissions/{studentId}_{homeworkId}): checked and copied to ops_homework.handins, which
+  // refreshes the parents' copy (onHomeworkForParents) and tells the teacher. Removing the doc withdraws the hand-in.
+  const onHomeworkHandin = onDocumentWritten("schools/{sid}/par_hw_submissions/{id}", safe("onHomeworkHandin", async (e) => {
+    const sid = e.params.sid, before = e.data?.before?.data(), after = e.data?.after?.data();
+    const doc = after ?? before;
+    if (!doc?.homeworkId || !doc?.studentId || e.params.id !== `${doc.studentId}_${doc.homeworkId}`) return;
+    const hwRef = S(sid).collection("ops_homework").doc(String(doc.homeworkId));
+    const [hwSnap, stSnap] = await Promise.all([hwRef.get(), S(sid).collection("students").doc(String(doc.studentId)).get()]);
+    const hw = hwSnap.data();
+    if (!hw || !stSnap.exists || stSnap.get("classId") !== hw.classId) return;
+    const key = `handins.${doc.studentId}`;
+    if (!after) {
+      if (hw.handins?.[doc.studentId]) await hwRef.update({ [key]: FieldValue.delete() });
+      return;
+    }
+    // a graded or closed homework keeps what it has
+    if (!homeworkOpen(hw) || hw.submissions?.[doc.studentId]?.status === "graded") return;
+    const handin = handinFrom(after, { sid, homeworkId: hwSnap.id, studentId: stSnap.id, due: hw.due, today: istToday() });
+    if (!handin) return;
+    const prev = hw.handins?.[doc.studentId];
+    if (prev && JSON.stringify(prev.files) === JSON.stringify(handin.files) && prev.note === handin.note) return;
+    await hwRef.update({ [key]: handin });
+    // on-time hand-ins are summed up in the due-day reminder (homeworkSchedule.js); a late one is told one by one
+    if (hw.teacherId && handin.late) {
+      await notify(sid, [hw.teacherId], {
+        type: "homework", category: "Homework", tag: handin.late ? "Late hand-in" : "Hand-in",
+        title: `${stSnap.get("name") ?? "A student"} ${prev ? "re-submitted" : "handed in"} ${hw.title ?? "homework"}`,
+        body: `${handin.files.length} ${handin.files.length === 1 ? "file" : "files"}${handin.late ? " · late" : ""}${handin.note ? ` · ${handin.note}` : ""}`.slice(0, 140),
+        route: `/homework/${hwSnap.id}`,
+      });
+    }
+  }));
+
+  // Class resources (cl_resources, teacher-written): when one becomes visible to parents (new, or switched from
+  // "only me"), the guardians of the class hear about it once.
+  const onResourceShared = onDocumentWritten("schools/{sid}/cl_resources/{id}", safe("onResourceShared", async (e) => {
+    const sid = e.params.sid, before = e.data?.before?.data(), after = e.data?.after?.data();
+    if (!after?.classId || after.visibility !== "parents" || before?.visibility === "parents") return;
+    const roster = await classRoster(sid, after.classId);
+    const kind = after.kind === "youtube" ? "Video" : after.kind === "link" ? "Link" : "File";
+    const rows = guardiansOf(roster).map(({ uid, student }) => ({
+      id: `res_${e.params.id}_${student.id}_${uid}`, uid, studentId: student.id, type: "resource",
+      title: `New resource: ${String(after.title ?? "Class resource").slice(0, 80)}`,
+      body: [after.subject, kind, after.teacher].filter(Boolean).join(" · ").slice(0, 140),
+      route: "/academics?section=resources",
+    }));
     if (rows.length) await notifyParents(sid, rows);
   }));
 
@@ -804,7 +852,7 @@ module.exports = ({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared = {} }) => {
   }));
 
   return {
-    onStudentWritten, onClassTeacherNameSync, onStaffRenamed, onAttendanceForParents, onTeacherNoticeForParents, onHomeworkForParents, onPaperForParents,
+    onStudentWritten, onClassTeacherNameSync, onStaffRenamed, onAttendanceForParents, onTeacherNoticeForParents, onHomeworkForParents, onHomeworkHandin, onResourceShared, onPaperForParents,
     onMarkForParents, onNoticeForParents, onCalendarForParents, onNoticeAck, onStudentLeaveRequested, onStudentLeaveDecided,
     onMessageCreated, onLiveClassForParents, onClassMeetingForParents, onFeeInvoiceCreated, onFeePaymentCreated, onConsentWritten, onPtmBookingWritten,
     onPtmSlotDeleted, onCertificateWritten, onFeeClaimWritten, onFeeReminderCreated, feeDueReminders,

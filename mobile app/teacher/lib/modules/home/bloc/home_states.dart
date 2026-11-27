@@ -19,6 +19,7 @@ class HomeState extends Equatable {
     this.error,
     this.today = const {},
     this.drafts = const {},
+    this.periodsMarked = const {},
     this.latestCircular,
     this.lessonPlans = const [],
   });
@@ -35,6 +36,12 @@ class HomeState extends Equatable {
 
   /// Classes with a saved but unsubmitted attendance draft today (and no submitted record).
   final Set<String> drafts;
+
+  /// Today's submitted registers by [periodKey] (class + period).
+  final Map<String, AttCounts> periodsMarked;
+  static String periodKey(String classId, int period) => '$classId|$period';
+  AttCounts? markedFor(String? classId, String periodNo) =>
+      classId == null ? null : periodsMarked[periodKey(classId, int.tryParse(periodNo) ?? 0)];
 
   /// The most recently published circular, for the home card.
   final Circular? latestCircular;
@@ -54,6 +61,7 @@ class HomeState extends Equatable {
     String? error,
     Map<String, AttCounts>? today,
     Set<String>? drafts,
+    Map<String, AttCounts>? periodsMarked,
     Circular? latestCircular,
     List<LessonPlan>? lessonPlans,
   }) => HomeState(
@@ -66,10 +74,11 @@ class HomeState extends Equatable {
     error: error,
     today: today ?? this.today,
     drafts: drafts ?? this.drafts,
+    periodsMarked: periodsMarked ?? this.periodsMarked,
     latestCircular: latestCircular ?? this.latestCircular,
     lessonPlans: lessonPlans ?? this.lessonPlans,
   );
 
   @override
-  List<Object?> get props => [policyVersion, status, pending, reminders, periods, subs, error, today, drafts, latestCircular, lessonPlans];
+  List<Object?> get props => [policyVersion, status, pending, reminders, periods, subs, error, today, drafts, periodsMarked, latestCircular, lessonPlans];
 }

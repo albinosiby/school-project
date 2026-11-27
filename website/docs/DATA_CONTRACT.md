@@ -373,6 +373,12 @@ Projection shapes (written only by functions):
   status is the student's mark in that class's newest record of the day (§9: newest `updatedAt`, ties higher period); no mark = `P`.
 - `par_homework/{studentId}_{homeworkId}`: `{studentId, homeworkId, classId, title, subject, description, teacher, teacherId, assigned,
   due, maxMarks, status, attachments?, submission: {status, marks?, feedback?, gradedAt?}, updatedAt}`; removed when the homework is.
+- `par_hw_submissions/{studentId}_{homeworkId}` (parent app hand-in): `{studentId, homeworkId, uid, files[{name, url, path, type, size}], note, submittedAt, updatedAt}`.
+  Written by the child's guardian while the homework is open and not graded (1–10 images/PDFs uploaded first to Storage
+  `schools/{sid}/homework/{homeworkId}/{studentId}/{millis}_{name}`, 15 MB each). `onHomeworkHandin` checks it and copies it to
+  `ops_homework.handins.{studentId}` = `{files, note, submittedAt, uid, late}` (server-only; the teacher app reads it and never writes
+  `handins`), notifies the teacher, and `par_homework.submission` then carries `files, note, submittedAt, late` with the grade.
+  Deleting the doc withdraws the hand-in. Teacher attachments on a homework (`attachments[]`) live in `homework-materials/{uid}/`.
 - `par_results/{studentId}_{paperId}`: `{studentId, paperId, cycleId, exam (cycle title), subject, code, date, theory, internal,
   theoryMax, internalMax, obtained, max, medical, updatedAt}`; written when `exm_papers.published` gains the child's class label and
   updated if marks change after that.

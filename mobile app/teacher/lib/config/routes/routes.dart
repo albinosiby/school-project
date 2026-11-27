@@ -7,6 +7,11 @@ class RoutePaths {
   static const String home = '/home';
   static const String timetable = '/timetable';
   static const String classes = '/classes';
+  /// The class teacher's class management page (opened from the Classes tab) and one student's progress in it.
+  static const String classManagePath = '/class-manage/:id';
+  static String classManage(String id) => '/class-manage/$id';
+  static const String classStudentPath = '/class-manage/:id/student/:sid';
+  static String classStudent(String id, String sid) => '/class-manage/$id/student/$sid';
   static const String tasks = '/tasks';
   static const String more = '/more';
 

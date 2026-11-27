@@ -13,6 +13,9 @@ import '../../modules/homework/repositories/mock_homework_repository.dart';
 import '../../modules/marks/bloc/marks_bloc.dart';
 import '../../modules/marks/repositories/marks_repository_interface.dart';
 import '../../modules/marks/repositories/mock_marks_repository.dart';
+import '../../modules/resources/bloc/resources_bloc.dart';
+import '../../modules/resources/repositories/mock_resource_repository.dart';
+import '../../modules/resources/repositories/resource_repository_interface.dart';
 import '../../modules/timetable/bloc/timetable_bloc.dart';
 import '../../modules/timetable/repositories/mock_timetable_repository.dart';
 import '../../modules/timetable/repositories/timetable_repository_interface.dart';
@@ -34,10 +37,12 @@ void registerAcademicsModule(GetIt getIt) {
     () => MockTimetableRepository(cache),
   );
   getIt.registerLazySingleton<IFeeRepository>(() => MockFeeRepository(cache));
+  getIt.registerLazySingleton<IResourceRepository>(() => MockResourceRepository());
   getIt.registerFactory<AttendanceBloc>(() => AttendanceBloc(getIt()));
   getIt.registerFactory<HomeworkBloc>(() => HomeworkBloc(getIt()));
   getIt.registerFactory<MarksBloc>(() => MarksBloc(getIt()));
   getIt.registerFactory<TimetableBloc>(() => TimetableBloc(getIt()));
+  getIt.registerFactory<ResourcesBloc>(() => ResourcesBloc(getIt()));
   getIt.registerFactory<FeesBloc>(() => FeesBloc(getIt()));
   getIt.registerFactory<FeePaymentBloc>(() => FeePaymentBloc(getIt()));
 }

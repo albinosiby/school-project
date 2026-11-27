@@ -14,26 +14,36 @@ class HomeworkLoadRequested extends HomeworkEvent {
   List<Object?> get props => [id];
 }
 
-/// Closes an open homework, or reopens a closed one.
+/// Closes an open homework (no more hand-ins), or reopens a closed one.
 class HomeworkStatusToggled extends HomeworkEvent {
   const HomeworkStatusToggled();
 }
 
-/// Records that a student handed in their paper.
+/// The teacher records a paper hand-in ([handedIn] true) or undoes it (back to pending).
 class HomeworkSubmissionMarked extends HomeworkEvent {
-  const HomeworkSubmissionMarked(this.studentId);
+  const HomeworkSubmissionMarked(this.studentId, {this.handedIn = true});
   final String studentId;
+  final bool handedIn;
   @override
-  List<Object?> get props => [studentId];
+  List<Object?> get props => [studentId, handedIn];
 }
 
-/// Saves rubric marks for one student. [rationale] is required when re-grading.
+/// Every student still pending is marked as handed in on paper.
+class HomeworkAllMarkedIn extends HomeworkEvent {
+  const HomeworkAllMarkedIn();
+}
+
+/// Grades one student: [marks] out of the homework's max (null for a not-graded homework = "done"), and feedback.
 class HomeworkGradeSaved extends HomeworkEvent {
-  const HomeworkGradeSaved({required this.studentId, required this.criteria, required this.feedback, this.rationale});
+  const HomeworkGradeSaved({required this.studentId, this.marks, this.feedback = ''});
   final String studentId;
-  final List<int> criteria;
+  final num? marks;
   final String feedback;
-  final String? rationale;
   @override
-  List<Object?> get props => [studentId, criteria, feedback, rationale];
+  List<Object?> get props => [studentId, marks, feedback];
+}
+
+/// Soft-deletes the homework (parents' copies are removed by the server).
+class HomeworkDeleted extends HomeworkEvent {
+  const HomeworkDeleted();
 }

@@ -1,3 +1,4 @@
+import 'package:teacher_app/modules/home/screens/widgets/home_now_card.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:teacher_app/design_system/design_system.dart' show AppTheme;
 import 'package:teacher_app/modules/home/screens/widgets/timetable_date_sheet.dart';
@@ -141,7 +142,9 @@ void main() {
       expect(find.byKey(const ValueKey('cal-dot-2026-11-30')), findsNothing); // future
       await t.tap(find.byKey(const ValueKey('cal-2026-11-24')));
       await t.pumpAndSettle();
-      expect(find.text('Tue, 24 Nov'), findsOneWidget);
+      expect(find.text('Tue, 24 Nov'), findsWidgets);
+      // the red-dot day is also offered in the "days to mark" strip
+      expect(find.byKey(const ValueKey('missed-2026-11-24')), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('date-sheet-apply')));
       await t.pumpAndSettle();
       expect(out.single, (from: DateTime(2026, 11, 24), to: null));
@@ -158,6 +161,43 @@ void main() {
       await t.tap(find.byKey(const ValueKey('date-sheet-apply')));
       await t.pumpAndSettle();
       expect(out.single, (from: DateTime(2026, 11, 17), to: DateTime(2026, 11, 21)));
+    });
+  });
+
+  group('home attendance', () {
+    const period = Period(id: 'pp1', day: 1, slot: 'P1', kind: PeriodKind.core, classId: 'cls_9A', label: '9-A', subject: 'Maths', short: 'MAT', room: 'R1');
+    final morning = schoolNow(DateTime(2026, 10, 26, 10, 20)); // Monday, after period 1 started
+
+    test('a started period without a register is flagged until it is marked', () {
+      final state = const HomeState(status: HomeStatus.loaded).copyWith(periods: [period]);
+      final items = attentionItems(state, const [], morning);
+      expect(items.map((i) => i.id), contains('att_cls_9A_1'));
+      expect(items.firstWhere((i) => i.id == 'att_cls_9A_1').route, '/attendance/mark?class=cls_9A&period=1');
+      final marked = state.copyWith(periodsMarked: {HomeState.periodKey('cls_9A', 1): (total: 30, present: 28, absent: 2, late: 0, excused: 0)});
+      expect(attentionItems(marked, const [], morning).map((i) => i.id), isNot(contains('att_cls_9A_1')));
+    });
+
+    testWidgets('the now card swaps Mark Attendance for the marked count', (t) async {
+      final at = schoolNow(DateTime(2026, 10, 26, 9, 10));
+      ({int total, int present, int absent, int late, int excused})? counts;
+      Widget card() => ScreenUtilInit(
+        designSize: const Size(390, 844),
+        builder: (_, _) => MaterialApp(
+          theme: AppTheme.light,
+          home: Scaffold(body: SingleChildScrollView(child: NowCard(now: at, today: const [period], classOf: (_) => null, markedFor: (c, n) => counts))),
+        ),
+      );
+      t.view.physicalSize = const Size(390, 844);
+      t.view.devicePixelRatio = 1;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(card());
+      if (nowInfo(const [period], at).live == null) return; // bell schedule without a period at 9:10
+      expect(find.byKey(const ValueKey('now-mark')), findsOneWidget);
+      counts = (total: 30, present: 27, absent: 3, late: 0, excused: 0);
+      await t.pumpWidget(card());
+      await t.pump();
+      expect(find.byKey(const ValueKey('now-mark')), findsNothing);
+      expect(find.textContaining('Attendance marked • 27/30 present'), findsOneWidget);
     });
   });
 

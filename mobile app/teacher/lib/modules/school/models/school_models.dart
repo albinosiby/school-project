@@ -149,7 +149,24 @@ class Student extends Equatable {
     required this.grade,
     this.admissionDate = '',
     this.photo = '',
+    this.gender = '',
+    this.dob = '',
+    this.bus = '',
+    this.busStop = '',
+    this.relation = '',
   });
+  /// From the student record: gender, date of birth (yyyy-MM-dd), school bus and stop, guardian's relation.
+  final String gender, dob, bus, busStop, relation;
+
+  /// Age in whole years on [on] (null without a date of birth).
+  int? ageOn(DateTime on) {
+    final d = DateTime.tryParse(dob);
+    if (d == null) return null;
+    var a = on.year - d.year;
+    if (on.month < d.month || (on.month == d.month && on.day < d.day)) a--;
+    return a;
+  }
+
   /// [photo] is the office's thumbnail of the student photograph as a `data:image/jpeg;base64,…` URL (empty = none).
   final String id, name, classId, adm, guardian, phone, grade, admissionDate, photo;
   final int roll;
@@ -167,6 +184,11 @@ class Student extends Equatable {
     attendance: (j['attendance'] as num?)?.toDouble() ?? 0,
     grade: j['grade'] as String? ?? '',
     photo: j['photo'] as String? ?? '',
+    gender: '${j['gender'] ?? ''}',
+    dob: '${j['dob'] ?? ''}',
+    bus: '${j['bus'] ?? ''}',
+    busStop: '${j['busStop'] ?? ''}',
+    relation: '${j['relation'] ?? ''}',
   );
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -180,8 +202,13 @@ class Student extends Equatable {
     'admissionDate': admissionDate,
     'grade': grade,
     if (photo.isNotEmpty) 'photo': photo,
+    if (gender.isNotEmpty) 'gender': gender,
+    if (dob.isNotEmpty) 'dob': dob,
+    if (bus.isNotEmpty) 'bus': bus,
+    if (busStop.isNotEmpty) 'busStop': busStop,
+    if (relation.isNotEmpty) 'relation': relation,
   };
 
   @override
-  List<Object?> get props => [id, name, roll, classId, attendance, grade, admissionDate, photo];
+  List<Object?> get props => [id, name, roll, classId, attendance, grade, admissionDate, photo, guardian, phone, gender, dob, bus, busStop, relation];
 }

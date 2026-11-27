@@ -79,7 +79,7 @@ class _HomeViewState extends State<_HomeView> {
       SizedBox(height: 14.h),
       const HomeCheckInCard(),
       SizedBox(height: 14.h),
-      NowCard(now: now, today: today, classOf: (id) => id == null ? null : school.classById(id)),
+      NowCard(now: now, today: today, classOf: (id) => id == null ? null : school.classById(id), markedFor: state.markedFor),
       SizedBox(height: 16.h),
       const _QuickActions(),
       SectionHeader("Today's Schedule", icon: Icons.calendar_today_outlined, action: 'View Timetable', onAction: () => context.go(RoutePaths.timetable)),
@@ -173,8 +173,22 @@ List<AttentionItem> attentionItems(HomeState state, List<SchoolClass> classes, S
     ));
   }
   final started = kSlots.isNotEmpty && now.minute >= kSlots.first.startMin && schoolWorkingDays.contains(now.day);
+  // each of today's own periods that has begun without a submitted register (any class the teacher takes)
+  final flagged = <String>{};
+  if (started && !now.simulated) {
+    for (final p in state.periodsOf(now.day)) {
+      if (p.kind == PeriodKind.prep || p.classId == null) continue;
+      if (statusOf(slotOf(p.slot), now.day, now) == PStatus.upcoming || state.markedFor(p.classId, p.no) != null) continue;
+      flagged.add(p.classId!);
+      items.add(AttentionItem(
+        id: 'att_${p.classId}_${p.no}', icon: Icons.how_to_reg_outlined, tone: Tone.danger,
+        title: 'Mark attendance • Period ${p.no} • Class ${p.label}',
+        sub: '${p.subject.isEmpty ? '' : '${p.subject} • '}${t12(slotOf(p.slot).start)} • Not marked', route: RoutePaths.markAttendance(classId: p.classId, period: int.tryParse(p.no)),
+      ));
+    }
+  }
   if (started) {
-    for (final c in classes.where((c) => c.classTeacher && !state.today.containsKey(c.id))) {
+    for (final c in classes.where((c) => c.classTeacher && !state.today.containsKey(c.id) && !flagged.contains(c.id))) {
       final draft = state.drafts.contains(c.id);
       items.add(AttentionItem(
         id: 'att_${c.id}', icon: Icons.how_to_reg_outlined, tone: draft ? Tone.warning : Tone.danger,
@@ -280,10 +294,12 @@ class _ClassStrip extends StatelessWidget {
           final c = classes[i];
           final t = today[c.id];
           final marked = t != null;
+          final subjects = c.subjectNames.isNotEmpty ? c.subjectNames.join(', ') : c.subject;
           return SizedBox(
             width: 168.w,
             child: AppCard(
-              radius: R.lg, padding: EdgeInsets.all(12.r), onTap: () => context.go(RoutePaths.classes),
+              radius: R.lg, padding: EdgeInsets.all(12.r),
+              onTap: () => context.push(c.classTeacher ? RoutePaths.classManage(c.id) : '${RoutePaths.students}?classId=${c.id}&view=subject'),
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 Row(children: [
                   Container(
@@ -292,11 +308,11 @@ class _ClassStrip extends StatelessWidget {
                     child: Text('${c.grade}${c.section}', style: T.smallStrong.copyWith(color: C.primary)),
                   ),
                   SizedBox(width: 8.w),
-                  Expanded(child: Text(c.subject, style: T.smallStrong, maxLines: 2, overflow: TextOverflow.ellipsis)),
+                  Expanded(child: Text(subjects.isEmpty ? 'Class ${c.label}' : subjects, style: T.smallStrong, maxLines: 2, overflow: TextOverflow.ellipsis)),
                 ]),
                 Text('${c.students} students', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
                 if (c.classTeacher)
-                  Pill(marked ? '${t.present + t.late}/${c.students} present' : drafts.contains(c.id) ? 'Draft saved • submit' : 'Not marked today', tone: marked ? Tone.success : drafts.contains(c.id) ? Tone.warning : Tone.danger)
+                  Pill(marked ? '${t.present + t.late}/${t.total} present' : drafts.contains(c.id) ? 'Draft saved • submit' : 'Not marked today', tone: marked ? Tone.success : drafts.contains(c.id) ? Tone.warning : Tone.danger)
                 else
                   const Pill('Subject teacher', tone: Tone.neutral),
               ]),
@@ -314,8 +330,8 @@ class _QuickActions extends StatelessWidget {
   Widget build(BuildContext context) {
     const items = [
       (Icons.how_to_reg_outlined, 'Attendance', RoutePaths.attendanceMark, Tone.brand),
-      (Icons.edit_note_rounded, 'Enter\nMarks', RoutePaths.marksEnter, Tone.purple),
-      (Icons.beach_access_outlined, 'Apply\nLeave', RoutePaths.leaveApply, Tone.warning),
+      (Icons.edit_note_rounded, 'Enter Marks', RoutePaths.marksEnter, Tone.purple),
+      (Icons.beach_access_outlined, 'Apply Leave', RoutePaths.leaveApply, Tone.warning),
       (Icons.campaign_outlined, 'Circulars', RoutePaths.circulars, Tone.success),
     ];
     return Row(children: [
@@ -325,12 +341,19 @@ class _QuickActions extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: 4.w),
             child: Semantics(
               button: true, label: i.$2.replaceAll('\n', ' '),
-              child: AppCard(
-                onTap: () => context.push(i.$3), radius: R.lg, padding: EdgeInsets.symmetric(vertical: 14.h, horizontal: 4.w),
-                child: Column(children: [
-                  IconTile(i.$1, tone: i.$4, size: 40), SizedBox(height: 8.h),
-                  Text(i.$2, textAlign: TextAlign.center, style: T.smallStrong.copyWith(fontSize: 11.5.sp), maxLines: 2, overflow: TextOverflow.ellipsis),
-                ]),
+              // one fixed height for all four, whatever the label length
+              child: SizedBox(
+                height: 100.h,
+                child: AppCard(
+                  onTap: () => context.push(i.$3), radius: R.lg, padding: EdgeInsets.symmetric(vertical: 10.h, horizontal: 4.w),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    IconTile(i.$1, tone: i.$4, size: 40), SizedBox(height: 8.h),
+                    SizedBox(
+                      height: 30.h,
+                      child: Center(child: Text(i.$2, textAlign: TextAlign.center, style: T.smallStrong.copyWith(fontSize: 11.5.sp, height: 1.2), maxLines: 2, overflow: TextOverflow.ellipsis)),
+                    ),
+                  ]),
+                ),
               ),
             ),
           ),

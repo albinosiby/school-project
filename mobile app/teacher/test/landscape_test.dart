@@ -53,9 +53,10 @@ void main() {
     expectSideBySide(t, find.text('Daily View'), find.textContaining('Schedule Timeline', findRichText: true));
   });
 
-  testWidgets('classes: class list left, class hub right', (t) async {
+  testWidgets('classes: the class teacher card and subject classes', (t) async {
     await _pumpLandscape(t, RoutePaths.classes);
-    expectSideBySide(t, find.text('ACADEMIC CYCLE'), find.textContaining('Class Roster'));
+    expect(find.byKey(const ValueKey('my-class-cls_10B')), findsOneWidget);
+    expect(find.text('CLASS TEACHER'), findsOneWidget);
   });
 
   testWidgets('tasks and more use both columns; the rail switches tabs', (t) async {

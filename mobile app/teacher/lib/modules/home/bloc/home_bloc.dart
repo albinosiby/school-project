@@ -41,22 +41,24 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
   }
 
   /// Latest submitted record of today per class, and the classes that only have a draft today.
-  Future<({Map<String, AttCounts> today, Set<String> drafts})> _today() async {
+  Future<({Map<String, AttCounts> today, Set<String> drafts, Map<String, AttCounts> periods})> _today() async {
     final a = _attendance;
-    if (a == null) return (today: const <String, AttCounts>{}, drafts: const <String>{});
+    if (a == null) return (today: const <String, AttCounts>{}, drafts: const <String>{}, periods: const <String, AttCounts>{});
     final day = dkey(todayDate());
     final latest = <String, AttendanceRecord>{};
     final drafts = <String>{};
+    final periods = <String, AttCounts>{};
     for (final r in await a.getRecords()) {
       if (r.date != day) continue;
       if (!r.submitted) {
         drafts.add(r.classId);
         continue;
       }
+      periods[HomeState.periodKey(r.classId, r.period)] = r.counts;
       final cur = latest[r.classId];
       if (cur == null || r.updatedAt.compareTo(cur.updatedAt) > 0) latest[r.classId] = r;
     }
-    return (today: {for (final e in latest.entries) e.key: e.value.counts}, drafts: drafts.difference(latest.keys.toSet()));
+    return (today: {for (final e in latest.entries) e.key: e.value.counts}, drafts: drafts.difference(latest.keys.toSet()), periods: periods);
   }
   late final List<StreamSubscription<void>> _subs;
 
@@ -72,6 +74,7 @@ class HomeBloc extends Bloc<HomeEvent, HomeState> {
         subs: await _timetable.getSubstitutions(),
         today: att.today,
         drafts: att.drafts,
+        periodsMarked: att.periods,
         latestCircular: await _latest(),
         lessonPlans: [for (final p in await _lessons?.getAll() ?? const <LessonPlan>[]) if (!p.draft) p],
       ));

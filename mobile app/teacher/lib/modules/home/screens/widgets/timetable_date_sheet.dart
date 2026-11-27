@@ -10,30 +10,55 @@ const kMaxRangeDays = 31;
 
 /// Full-month calendar for the timetable. A red dot marks days with attendance still to mark ([missing]).
 /// Tap one date to open that day; tap a second date to pick the range between them.
+/// [allowRange] false keeps it to one day; [last] disables later days (e.g. no attendance for tomorrow);
+/// [missingLabel] titles the strip of red-dot days of the shown month (tap one to pick it).
 Future<TimetablePick?> showTimetableDateSheet(
   BuildContext context, {
   required DateTime from,
   DateTime? to,
   required DateTime today,
   bool Function(DateTime day)? missing,
+  bool allowRange = true,
+  DateTime? last,
+  String title = 'Calendar',
+  String missingLabel = 'Attendance not marked',
 }) => showAppSheet<TimetablePick>(
   context,
-  title: 'Calendar',
-  subtitle: 'Tap a day, or two days for a range',
-  builder: (_) => _DateSheet(from: from, to: to, today: today, missing: missing ?? (_) => false),
+  title: title,
+  subtitle: allowRange ? 'Tap a day, or two days for a range' : 'Red dot: attendance still to mark',
+  builder: (_) => _DateSheet(
+    from: from,
+    to: to,
+    today: today,
+    missing: missing ?? (_) => false,
+    allowRange: allowRange,
+    last: last,
+    missingLabel: missingLabel,
+  ),
 );
 
 class _DateSheet extends StatefulWidget {
-  const _DateSheet({required this.from, required this.to, required this.today, required this.missing});
+  const _DateSheet({
+    required this.from,
+    required this.to,
+    required this.today,
+    required this.missing,
+    this.allowRange = true,
+    this.last,
+    this.missingLabel = 'Attendance not marked',
+  });
   final DateTime from, today;
-  final DateTime? to;
+  final DateTime? to, last;
   final bool Function(DateTime day) missing;
+  final bool allowRange;
+  final String missingLabel;
   @override
   State<_DateSheet> createState() => _DateSheetState();
 }
 
 class _DateSheetState extends State<_DateSheet> {
-  static final _first = DateTime(2024), _last = DateTime(2030, 12, 31);
+  static final _first = DateTime(2024);
+  DateTime get _last => widget.last == null ? DateTime(2030, 12, 31) : _day(widget.last!);
   late DateTime _start = _day(widget.from);
   late DateTime? _end = widget.to == null ? null : _day(widget.to!);
   late DateTime _month = DateTime(_start.year, _start.month);
@@ -49,7 +74,7 @@ class _DateSheetState extends State<_DateSheet> {
   /// First tap picks a day; a second, later tap closes the range; any tap after that (or an earlier date) starts over.
   void _tap(DateTime d) {
     setState(() {
-      if (_end != null || !d.isAfter(_start)) {
+      if (!widget.allowRange || _end != null || !d.isAfter(_start)) {
         _start = d;
         _end = null;
       } else if (d.difference(_start).inDays >= kMaxRangeDays) {
@@ -65,6 +90,20 @@ class _DateSheetState extends State<_DateSheet> {
     _end = null;
     _month = DateTime(_start.year, _start.month);
   });
+
+  /// School days of the shown month (up to today / [widget.last]) with a red dot, oldest first.
+  List<DateTime> get _missedInMonth {
+    final days = DateUtils.getDaysInMonth(_month.year, _month.month);
+    final end = _last.isBefore(widget.today) ? _last : _day(widget.today);
+    return [
+      for (var n = 1; n <= days; n++)
+        if (() {
+          final d = DateTime(_month.year, _month.month, n);
+          return !d.isAfter(end) && _school(d) && widget.missing(d);
+        }())
+          DateTime(_month.year, _month.month, n),
+    ];
+  }
 
   int get _schoolDays {
     var n = 0;
@@ -119,12 +158,39 @@ class _DateSheetState extends State<_DateSheet> {
           Row(
             children: [for (var c = 0; c < 7; c++) Expanded(child: _cell(r * 7 + c - lead + 1, days))],
           ),
+        if (_missedInMonth.isNotEmpty) ...[
+          SizedBox(height: 10.h),
+          Text('${_missedInMonth.length} ${_missedInMonth.length == 1 ? 'day' : 'days'} to mark in ${kMonthsLong[_month.month - 1]}', style: T.smallStrong.copyWith(color: C.danger)),
+          SizedBox(height: 6.h),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final d in _missedInMonth)
+                  Padding(
+                    padding: EdgeInsets.only(right: 6.w),
+                    child: ActionChip(
+                      key: ValueKey('missed-${d.year}-${d.month}-${d.day}'),
+                      avatar: Icon(Icons.error_outline_rounded, size: 15.r, color: C.danger),
+                      label: Text(_fmt(d)),
+                      backgroundColor: _same(d, _start) && _end == null ? C.dangerSoft : C.bg,
+                      side: BorderSide(color: C.danger.withValues(alpha: .35)),
+                      onPressed: () => setState(() {
+                        _start = d;
+                        _end = null;
+                      }),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
         SizedBox(height: 8.h),
         Row(
           children: [
             Container(width: 7.r, height: 7.r, decoration: const BoxDecoration(color: C.danger, shape: BoxShape.circle)),
             SizedBox(width: 6.w),
-            Expanded(child: Text('Attendance not marked', style: T.small.copyWith(fontSize: 11.5.sp))),
+            Expanded(child: Text(widget.missingLabel, style: T.small.copyWith(fontSize: 11.5.sp))),
             TextButton(onPressed: _jumpToday, child: Text('Today', style: T.smallStrong.copyWith(color: C.primary))),
           ],
         ),

@@ -177,6 +177,30 @@ void main() {
     });
   });
 
+  test('missed periods: the teacher started periods of a school day without a submitted register', () {
+    final s = MarkAttendanceState(
+      taught: const {1: [1, 3], 2: [2]},
+      marked: const {'2026-11-23|1'},
+    );
+    final now = DateTime(2026, 11, 26, 13, 0); // Thursday
+    final from = DateTime(2026, 11, 1);
+    const days = [1, 2, 3, 4, 5, 6];
+    expect(s.missingOn('2026-11-23', now: now, flagsFrom: from, workingDays: days), [3], reason: 'P1 marked, P3 missing');
+    expect(s.missingOn('2026-11-24', now: now, flagsFrom: from, workingDays: days), [2]);
+    expect(s.missingOn('2026-11-25', now: now, flagsFrom: from, workingDays: days), isEmpty, reason: 'no period that weekday');
+    expect(s.missingOn('2026-11-30', now: now, flagsFrom: from, workingDays: days), isEmpty, reason: 'future');
+    expect(s.missingOn('2026-10-26', now: now, flagsFrom: from, workingDays: days), isEmpty, reason: 'before the flags start');
+  });
+
+  testWidgets('mark attendance: the date picker is the calendar with missed days', (t) => quiet(() async {
+        await open(t, RoutePaths.attendanceMark);
+        await t.tap(find.text('Date'));
+        await t.pumpAndSettle();
+        expect(find.text('Attendance date'), findsOneWidget);
+        expect(find.text('Red dot: attendance still to mark'), findsOneWidget);
+        expect(find.text('Show this day'), findsOneWidget);
+      }));
+
   testWidgets('mark attendance: bulk absent, submit saves record', (t) => quiet(() async {
         await open(t, RoutePaths.attendanceMark);
         expect(find.text('Mark All Absent'), findsOneWidget);

@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import '../../engage/screens/widgets/attachment_sheet.dart' show PickedAttachment;
 import '../models/classes_models.dart';
 
 sealed class ResourcesEvent extends Equatable {
@@ -11,23 +12,26 @@ class ResourcesLoadRequested extends ResourcesEvent {
   const ResourcesLoadRequested();
 }
 
-/// Uploads [fileName] (extension parsed from the name, pdf by default) to [classId].
-class ResourceUploaded extends ResourcesEvent {
-  const ResourceUploaded({required this.classId, required this.fileName, required this.category});
-  final String classId, fileName, category;
+/// Adds a resource; for a file, [file] is uploaded first and its URL stored.
+class ResourceAdded extends ResourcesEvent {
+  const ResourceAdded(this.resource, {this.file});
+  final SharedResource resource;
+  final PickedAttachment? file;
   @override
-  List<Object?> get props => [classId, fileName, category];
+  List<Object?> get props => [resource, file?.path];
 }
 
-class ResourceShared extends ResourcesEvent {
-  const ResourceShared(this.resource);
+/// Saves edits (title, description, subject, visibility, link).
+class ResourceUpdated extends ResourcesEvent {
+  const ResourceUpdated(this.resource);
   final SharedResource resource;
   @override
   List<Object?> get props => [resource];
 }
 
-class ResourceDownloaded extends ResourcesEvent {
-  const ResourceDownloaded(this.resource);
+/// Shares with the class's parents, or keeps to the teacher.
+class ResourceVisibilityToggled extends ResourcesEvent {
+  const ResourceVisibilityToggled(this.resource);
   final SharedResource resource;
   @override
   List<Object?> get props => [resource];
@@ -45,11 +49,4 @@ class ResourceDeleted extends ResourcesEvent {
   final SharedResource resource;
   @override
   List<Object?> get props => [resource];
-}
-
-class PortalVisibilityChanged extends ResourcesEvent {
-  const PortalVisibilityChanged(this.visible);
-  final bool visible;
-  @override
-  List<Object?> get props => [visible];
 }

@@ -99,11 +99,44 @@ service firebase.storage {
     }
     // Lesson plan attachments (DATA_CONTRACT section 5): the teacher's own folder; the school's members read them
     // (the admin reviewing a plan opens them), `ls_plans.attachments[].url` carries the download URL.
+    // Homework materials (worksheets, references) the teacher attaches when setting homework: the teacher's own
+    // folder; the school's members (students' guardians included) read them.
+    match /schools/{sid}/homework-materials/{uid}/{file} {
+      allow read: if request.auth != null && me().schoolId == sid;
+      allow create: if request.auth != null && request.auth.uid == uid && me().schoolId == sid && me().role == 'teacher'
+        && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('application/.*') || request.resource.contentType == 'text/plain');
+    }
+    // Class resources (files a teacher shares in Resources): the teacher's own folder; the school's members read them
+    // (parents see only resources marked for parents, through cl_resources).
+    match /schools/{sid}/class-resources/{uid}/{file} {
+      allow read: if request.auth != null && me().schoolId == sid;
+      allow create: if request.auth != null && request.auth.uid == uid && me().schoolId == sid && me().role == 'teacher'
+        && request.resource.size > 0 && request.resource.size <= 25 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('application/.*') || request.resource.contentType == 'text/plain');
+    }
     match /schools/{sid}/lesson-plans/{uid}/{file} {
       allow read: if request.auth != null && me().schoolId == sid;
       allow create: if request.auth != null && request.auth.uid == uid && me().schoolId == sid && me().role == 'teacher'
         && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
         && (request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('application/.*') || request.resource.contentType == 'text/plain');
+    }
+    // Homework hand-ins: the student's guardians upload photos / PDFs; the homework's teacher, the guardians and the
+    // office read them. The Firestore doc par_hw_submissions lists the files (server-checked into ops_homework).
+    match /schools/{sid}/homework/{homeworkId}/{studentId}/{file} {
+      function guardian() {
+        return request.auth != null && me().schoolId == sid && me().role == 'parent' && parentSession(me())
+          && studentId in me().get('studentIds', []);
+      }
+      function homeworkTeacher() {
+        return request.auth != null && me().schoolId == sid && me().role == 'teacher'
+          && firestore.get(/databases/(default)/documents/schools/$(sid)/ops_homework/$(homeworkId)).data.get('teacherId', '') == me().get('staffId', '');
+      }
+      allow read: if guardian() || homeworkTeacher() || isAdmin(sid);
+      allow create: if guardian() && file.matches('[0-9]+_[A-Za-z0-9._-]{1,80}')
+        && request.resource.size > 0 && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|heic|heif|webp)|application/pdf');
+      allow delete: if guardian();
     }
     match /{all=**} {
       allow read, write: if false;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../config/routes/routes.dart';
 import '../../../core/widgets/child_data_view.dart';
 import '../../../design_system/design_system.dart';
@@ -8,9 +9,10 @@ import '../../../utils/helpers/date_helper.dart';
 import '../../academics/screens/widgets/academic_section_title.dart';
 import '../bloc/homework_bloc.dart';
 import '../models/homework_models.dart';
+import 'handin_sheet.dart';
 import 'homework_list.dart';
 
-/// One homework assignment: status, dates, instructions, attachments and teacher feedback.
+/// One homework assignment: status, dates, instructions, attachments, the hand-in and teacher feedback.
 class HomeworkDetailScreen extends StatelessWidget {
   const HomeworkDetailScreen({super.key, required this.id});
   final String id;
@@ -35,7 +37,7 @@ class HomeworkDetailScreen extends StatelessWidget {
                 icon: Icons.search_off_rounded,
               ),
             );
-          return _HomeworkDetail(h: matches.first);
+          return _HomeworkDetail(h: matches.first, childId: child.id);
         },
       ),
     ),
@@ -43,8 +45,16 @@ class HomeworkDetailScreen extends StatelessWidget {
 }
 
 class _HomeworkDetail extends StatelessWidget {
-  const _HomeworkDetail({required this.h});
+  const _HomeworkDetail({required this.h, required this.childId});
   final Homework h;
+  final String childId;
+
+  Future<void> _handIn(BuildContext context) async {
+    final done = await showHandinSheet(context, h, childId: childId);
+    if (done == true && context.mounted) {
+      AppDialogs.showSnackBar(context, message: h.submitted ? 'Submission replaced' : 'Homework handed in');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +63,7 @@ class _HomeworkDetail extends StatelessWidget {
     final daysLeft = dateOnly(h.due).difference(dateOnly(now)).inDays;
     final countdown = switch (status) {
       HomeworkStatus.reviewed => 'Reviewed by teacher',
-      HomeworkStatus.submitted => 'Submitted, awaiting review',
+      HomeworkStatus.submitted => h.late ? 'Handed in late, awaiting review' : 'Submitted, awaiting review',
       HomeworkStatus.overdue =>
         'Overdue by ${-daysLeft} day${daysLeft == -1 ? '' : 's'}',
       HomeworkStatus.pending =>
@@ -63,7 +73,8 @@ class _HomeworkDetail extends StatelessWidget {
     };
     return ListView(
       key: const Key('section-list'),
-      padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 24.h),
+      // room at the end so the last buttons stay clear of snackbars
+      padding: EdgeInsets.fromLTRB(S.page, 16.h, S.page, 96.h),
       children: [
         AppSurfaceCard(
           hero: true,
@@ -163,14 +174,10 @@ class _HomeworkDetail extends StatelessWidget {
             'Teacher feedback',
             icon: Icons.rate_review_outlined,
           ),
-          AppEntryCard(
-            icon: Icons.verified_rounded,
-            tone: Tone.success,
-            title: h.score == null ? 'Reviewed' : 'Score ${h.score}',
-            meta: h.teacher,
-            body: h.remark,
-          ),
+          _GradeCard(h: h),
         ],
+        const AcademicSectionTitle('Hand in', icon: Icons.upload_file_rounded),
+        _HandinCard(h: h, onHandIn: () => _handIn(context)),
         SizedBox(height: 10.h),
         Row(
           children: [
@@ -199,6 +206,113 @@ class _HomeworkDetail extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Marks (large) and the teacher's feedback once the homework is graded.
+class _GradeCard extends StatelessWidget {
+  const _GradeCard({required this.h});
+  final Homework h;
+  @override
+  Widget build(BuildContext context) => AppSurfaceCard(
+    key: const Key('homework-grade'),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 14.w, vertical: 10.h),
+          decoration: BoxDecoration(color: C.successSoft, borderRadius: BorderRadius.circular(R.md)),
+          child: Column(
+            children: [
+              Text(h.score ?? '✓', style: T.h1.copyWith(color: C.success)),
+              Text(h.score == null ? 'Reviewed' : 'Marks', style: T.small.copyWith(color: C.success)),
+            ],
+          ),
+        ),
+        SizedBox(width: 14.w),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(h.teacher, style: T.bodyStrong.copyWith(color: C.onSurface)),
+              SizedBox(height: 4.h),
+              Text(h.remark ?? 'No written feedback.', style: T.body.copyWith(color: C.onSurfaceVariant)),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// What was handed in (files, note, when, late) and the button to hand in or replace while allowed.
+class _HandinCard extends StatelessWidget {
+  const _HandinCard({required this.h, required this.onHandIn});
+  final Homework h;
+  final VoidCallback onHandIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final handed = h.files.isNotEmpty || h.submittedAt != null;
+    return AppSurfaceCard(
+      key: const Key('homework-handin'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (handed) ...[
+            Row(
+              children: [
+                Icon(Icons.assignment_turned_in_outlined, size: 20.r, color: C.primary),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: Text(
+                    h.submittedAt == null
+                        ? 'Handed in'
+                        : 'Submitted on ${fmtDate(h.submittedAt!)}, ${fmtClock(h.submittedAt!)}',
+                    style: T.bodyStrong.copyWith(color: C.onSurface),
+                  ),
+                ),
+                if (h.late) const Pill('Late', tone: Tone.warning),
+              ],
+            ),
+            SizedBox(height: 10.h),
+            for (final f in h.files)
+              Padding(
+                padding: EdgeInsets.only(bottom: 6.h),
+                child: AppFileChip(
+                  name: f.name,
+                  size: f.size > 0 ? f.sizeLabel : null,
+                  tone: f.isImage ? Tone.brand : Tone.danger,
+                  onTap: f.url.isEmpty ? null : () => launchUrl(Uri.parse(f.url), mode: LaunchMode.externalApplication),
+                  trailing: f.url.isEmpty ? null : Icon(Icons.open_in_new_rounded, size: 18.r, color: C.primary, semanticLabel: 'Open ${f.name}'),
+                ),
+              ),
+            if (h.note.isNotEmpty) ...[
+              SizedBox(height: 4.h),
+              Text('Note: ${h.note}', style: T.small.copyWith(color: C.onSurfaceVariant)),
+            ],
+          ] else if (h.submitted)
+            Text('The teacher marked this as handed in.', style: T.body.copyWith(color: C.onSurfaceVariant))
+          else if (h.open)
+            Text(
+              'Take photos of the finished work or add a PDF, and hand it in before ${fmtDate(h.due)}.',
+              style: T.body.copyWith(color: C.onSurfaceVariant),
+            )
+          else
+            Text('The teacher has closed this homework, so it can no longer be handed in.', style: T.body.copyWith(color: C.onSurfaceVariant)),
+          if (h.canSubmit) ...[
+            SizedBox(height: 12.h),
+            AppButton(
+              handed || h.submitted ? 'Replace submission' : 'Submit homework',
+              key: const Key('homework-submit'),
+              icon: handed || h.submitted ? Icons.sync_rounded : Icons.upload_rounded,
+              kind: handed || h.submitted ? BtnKind.outline : BtnKind.primary,
+              onPressed: onHandIn,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

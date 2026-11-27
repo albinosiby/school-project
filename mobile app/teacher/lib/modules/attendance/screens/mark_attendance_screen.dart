@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../home/models/timetable_models.dart' show attendanceFlagsFrom, schoolWorkingDays;
+import '../../home/screens/widgets/timetable_date_sheet.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../../config/routes/routes.dart';
@@ -260,8 +262,25 @@ class _SessionCard extends StatelessWidget {
                   caption: 'Date',
                   label: today ? 'Today, ${fmtKey(s.date, 'd MMM')}' : fmtKey(s.date, 'EEE, d MMM'),
                   onTap: () async {
-                    final d = await pickDate(context, s.date, last: todayDate());
-                    if (d != null) bloc.add(MarkAttendanceDateChanged(d));
+                    final now = schoolClockNow();
+                    final flags = attendanceFlagsFrom(now);
+                    List<int> missed(DateTime d) => s.missingOn(dkey(d), now: now, flagsFrom: flags, workingDays: schoolWorkingDays);
+                    final pick = await showTimetableDateSheet(
+                      context,
+                      title: 'Attendance date',
+                      from: DateTime.tryParse(s.date) ?? todayDate(),
+                      today: todayDate(),
+                      last: todayDate(),
+                      allowRange: false,
+                      missing: (d) => missed(d).isNotEmpty,
+                      missingLabel: 'Your period here not marked',
+                    );
+                    if (pick == null) return;
+                    final day = dkey(pick.from);
+                    bloc.add(MarkAttendanceDateChanged(day));
+                    // jump to the first period still to mark that day
+                    final todo = missed(pick.from);
+                    if (todo.isNotEmpty && !todo.contains(s.period)) bloc.add(MarkAttendancePeriodChanged(todo.first));
                   },
                 ),
               ),

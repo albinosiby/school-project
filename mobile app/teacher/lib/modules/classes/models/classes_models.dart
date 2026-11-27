@@ -69,31 +69,125 @@ class BehaviourLog extends Equatable {
 }
 
 /// A file shared with a class. Collection `cl_resources`.
+enum ResourceKind { file, youtube, link }
+
+/// YouTube video id from youtu.be/ID, youtube.com/watch?v=ID, /shorts/ID, /embed/ID, /live/ID (null otherwise).
+String? youtubeId(String url) {
+  final u = Uri.tryParse(url.trim());
+  if (u == null || !u.hasScheme) return null;
+  final host = u.host.replaceFirst('www.', '').replaceFirst('m.', '');
+  String? id;
+  if (host == 'youtu.be') {
+    id = u.pathSegments.isEmpty ? null : u.pathSegments.first;
+  } else if (host == 'youtube.com' || host == 'music.youtube.com') {
+    id = u.queryParameters['v'];
+    if (id == null && u.pathSegments.length >= 2 && const ['shorts', 'embed', 'live', 'v'].contains(u.pathSegments.first)) id = u.pathSegments[1];
+  }
+  return id != null && RegExp(r'^[A-Za-z0-9_-]{6,20}$').hasMatch(id) ? id : null;
+}
+
+/// A Google Drive / Docs / Slides / Sheets link.
+bool isDriveLink(String url) => RegExp(r'^https?://(drive|docs)\.google\.com/').hasMatch(url.trim());
+
+/// A class resource (collection `cl_resources`): a file the teacher uploaded, a YouTube video or a link (Google Drive
+/// or any web page). [visibility] 'parents' shows it in the parent app for the class; 'private' keeps it to the teacher.
 class SharedResource extends Equatable {
   const SharedResource({
-    this.id = '', required this.classId, required this.title, required this.category, required this.subtitle, required this.sizeKb, required this.tag,
-    this.tagTone = 'brand', required this.uploadedAt, this.pinned = false, this.isNew = false, this.downloaded = 0, this.shares = 0, this.ext = 'pdf', this.stat = '',
+    this.id = '',
+    required this.classId,
+    required this.title,
+    this.description = '',
+    this.subject = '',
+    this.kind = ResourceKind.file,
+    this.url = '',
+    this.fileName = '',
+    this.mime = '',
+    this.sizeBytes = 0,
+    this.path = '',
+    this.visibility = 'private',
+    this.pinned = false,
+    this.teacher = '',
+    this.createdAt = '',
   });
-  final String id, classId, title, category, subtitle, tag, tagTone, uploadedAt, ext, stat;
-  final num sizeKb;
-  final bool pinned, isNew;
-  final int downloaded, shares;
+  final String id, classId, title, description, subject, url, fileName, mime, path, visibility, teacher, createdAt;
+  final ResourceKind kind;
+  final int sizeBytes;
+  final bool pinned;
 
-  factory SharedResource.fromJson(Map<String, dynamic> j) => SharedResource(
-        id: j['id'] as String? ?? '', classId: j['classId'] as String? ?? '', title: j['title'] as String? ?? '', category: j['category'] as String? ?? '',
-        subtitle: j['subtitle'] as String? ?? '', sizeKb: j['sizeKb'] as num? ?? 0, tag: j['tag'] as String? ?? '', tagTone: j['tagTone'] as String? ?? 'brand',
-        uploadedAt: j['uploadedAt'] as String? ?? '', pinned: j['pinned'] == true, isNew: j['isNew'] == true, downloaded: _int(j['downloaded']),
-        shares: _int(j['shares']), ext: j['ext'] as String? ?? 'pdf', stat: j['stat'] as String? ?? '',
-      );
+  bool get forParents => visibility == 'parents';
+  String? get videoId => kind == ResourceKind.youtube ? youtubeId(url) : null;
+  String get thumbnail => videoId == null ? '' : 'https://img.youtube.com/vi/$videoId/hqdefault.jpg';
+  bool get isDrive => kind == ResourceKind.link && isDriveLink(url);
+
+  /// pdf, doc, ppt, xls, image, or the file extension.
+  String get fileType {
+    final n = (fileName.isEmpty ? url : fileName).toLowerCase();
+    if (mime.startsWith('image/') || RegExp(r'\.(png|jpe?g|webp|gif|heic)$').hasMatch(n)) return 'image';
+    if (mime == 'application/pdf' || n.endsWith('.pdf')) return 'pdf';
+    if (RegExp(r'\.(docx?|odt|rtf)$').hasMatch(n) || mime.contains('word')) return 'doc';
+    if (RegExp(r'\.(pptx?|odp|key)$').hasMatch(n) || mime.contains('presentation') || mime.contains('powerpoint')) return 'ppt';
+    if (RegExp(r'\.(xlsx?|ods|csv)$').hasMatch(n) || mime.contains('sheet') || mime.contains('excel')) return 'xls';
+    final dot = n.lastIndexOf('.');
+    return dot < 0 ? 'file' : n.substring(dot + 1);
+  }
+
+  factory SharedResource.fromJson(Map<String, dynamic> j) {
+    // rows saved before kinds existed (title + ext + sizeKb) read as files kept to the teacher
+    final legacyExt = '${j['ext'] ?? ''}';
+    final title = '${j['title'] ?? ''}';
+    return SharedResource(
+      id: '${j['id'] ?? ''}',
+      classId: '${j['classId'] ?? ''}',
+      title: title,
+      description: '${j['description'] ?? j['subtitle'] ?? ''}',
+      subject: '${j['subject'] ?? j['category'] ?? ''}',
+      kind: ResourceKind.values.asNameMap()[j['kind']] ?? ResourceKind.file,
+      url: '${j['url'] ?? ''}',
+      fileName: '${j['fileName'] ?? (legacyExt.isEmpty || title.toLowerCase().endsWith('.$legacyExt') ? title : '$title.$legacyExt')}',
+      mime: '${j['mime'] ?? ''}',
+      sizeBytes: (j['sizeBytes'] as num?)?.toInt() ?? (((j['sizeKb'] as num?) ?? 0) * 1024).round(),
+      path: '${j['path'] ?? ''}',
+      visibility: j['visibility'] == 'parents' ? 'parents' : 'private',
+      pinned: j['pinned'] == true,
+      teacher: '${j['teacher'] ?? ''}',
+      createdAt: '${j['createdAt'] ?? j['uploadedAt'] ?? ''}',
+    );
+  }
+
   Map<String, dynamic> toJson() => {
-        if (id.isNotEmpty) 'id': id, 'classId': classId, 'title': title, 'category': category, 'subtitle': subtitle, 'sizeKb': sizeKb, 'tag': tag,
-        'tagTone': tagTone, 'uploadedAt': uploadedAt, 'pinned': pinned, 'isNew': isNew, 'downloaded': downloaded, 'shares': shares, 'ext': ext, 'stat': stat,
-      };
-  SharedResource copyWith({bool? pinned, int? downloaded, int? shares}) =>
-      SharedResource.fromJson({...toJson(), 'id': id, 'pinned': ?pinned, 'downloaded': ?downloaded, 'shares': ?shares});
+    if (id.isNotEmpty) 'id': id,
+    'classId': classId,
+    'title': title,
+    'description': description,
+    'subject': subject,
+    'kind': kind.name,
+    'url': url,
+    'fileName': fileName,
+    'mime': mime,
+    'sizeBytes': sizeBytes,
+    'path': path,
+    'visibility': visibility,
+    'pinned': pinned,
+    'teacher': teacher,
+    'createdAt': createdAt,
+    'updatedAt': DateTime.now().toIso8601String(),
+  };
+
+  SharedResource copyWith({String? title, String? description, String? subject, String? visibility, bool? pinned, String? url, String? classId}) =>
+      SharedResource.fromJson({
+        ...toJson(),
+        'id': id,
+        'title': ?title,
+        'description': ?description,
+        'subject': ?subject,
+        'visibility': ?visibility,
+        'pinned': ?pinned,
+        'url': ?url,
+        'classId': ?classId,
+      });
 
   @override
-  List<Object?> get props => [id, classId, title, category, sizeKb, tag, uploadedAt, pinned, isNew, downloaded, shares, ext];
+  List<Object?> get props => [id, classId, title, description, subject, kind, url, fileName, mime, sizeBytes, path, visibility, pinned, teacher, createdAt];
 }
 
 /// A document in a student's vault. Collection `cl_documents`.

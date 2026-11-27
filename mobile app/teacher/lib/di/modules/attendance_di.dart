@@ -1,3 +1,4 @@
+import '../../modules/home/repositories/timetable_repository_interface.dart';
 import '../../modules/engage/repositories/message_repository_interface.dart';
 import 'package:get_it/get_it.dart';
 import '../../modules/attendance/bloc/circulars_bloc.dart';
@@ -26,7 +27,7 @@ void registerAttendanceModule(GetIt getIt) {
   getIt.registerLazySingleton<ILeaveRepository>(() => LocalLeaveRepository(getIt<DataStore>()));
   getIt.registerLazySingleton<ICircularsRepository>(() => LocalCircularsRepository(getIt<DataStore>()));
 
-  getIt.registerFactory<MarkAttendanceBloc>(() => MarkAttendanceBloc(getIt<IAttendanceRepository>(), getIt<ISchoolRepository>()));
+  getIt.registerFactory<MarkAttendanceBloc>(() => MarkAttendanceBloc(getIt<IAttendanceRepository>(), getIt<ISchoolRepository>(), getIt<ITimetableRepository>()));
   getIt.registerFactory<TrendsBloc>(() => TrendsBloc(getIt<IAttendanceRepository>(), getIt<ISchoolRepository>(), getIt<IMessageRepository>()));
   getIt.registerFactory<SelfLogBloc>(() => SelfLogBloc(getIt<IAttendanceRepository>(), getIt<ILeaveRepository>()));
   getIt.registerFactory<OverviewBloc>(() => OverviewBloc(getIt<IAttendanceRepository>(), getIt<ISchoolRepository>()));

@@ -1,878 +1,832 @@
-import 'package:school_sync/school_sync.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../config/routes/routes.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
+import '../../attendance/models/attendance_models.dart';
+import '../../attendance/screens/widgets/notify_parent_sheet.dart';
+import '../../attendance/repositories/attendance_repository_interface.dart';
+import '../../engage/repositories/message_repository_interface.dart';
 import '../../school/bloc/school_bloc.dart';
 import '../../school/bloc/school_states.dart';
 import '../../school/models/school_models.dart';
-import '../bloc/students_bloc.dart';
-import '../bloc/students_events.dart';
-import '../bloc/students_states.dart';
+import '../../tasks/models/homework_models.dart';
+import '../bloc/student_profile_bloc.dart';
+import '../bloc/student_profile_events.dart';
+import '../bloc/student_profile_states.dart';
 import '../models/classes_models.dart';
-import '../models/student_metrics.dart';
-import 'widgets/classes_ui.dart';
+import 'widgets/student_details_tab.dart';
 
-enum ProfileTab { overview, academics, attendance }
+enum ProfileTab { overview, academics, attendance, details }
 
-const _tabLabels = {ProfileTab.overview: 'Overview', ProfileTab.academics: 'Academics', ProfileTab.attendance: 'Attendance'};
+const _tabLabels = {ProfileTab.overview: 'Overview', ProfileTab.attendance: 'Attendance', ProfileTab.academics: 'Academics', ProfileTab.details: 'Details'};
 
-/// Figma 1153:13003 "3.4 Student Profile", 1153:12199 "3.4.1 Academics", 1153:12530 "3.4.2 Attendance".
+/// A student's profile from real records. Every teacher of the class sees the overview, attendance and academics;
+/// the class teacher also gets the full record (contacts, address, health, admission) and can correct it.
 class StudentProfileScreen extends StatelessWidget {
   const StudentProfileScreen({super.key, required this.id, required this.tab});
   final String id;
   final ProfileTab tab;
   @override
-  Widget build(BuildContext context) => BlocProvider(
-    create: (_) => getIt<StudentsBloc>()..add(const StudentsLoadRequested()),
-    child: BlocListener<StudentsBloc, StudentsState>(
-      listenWhen: (a, b) => a.noticeSeq != b.noticeSeq,
-      listener: (ctx, s) => showNotice(ctx, s.notice),
-      child: _ProfileView(id: id, tab: tab),
-    ),
-  );
+  Widget build(BuildContext context) => BlocProvider(create: (_) => getIt<StudentProfileBloc>(), child: _ProfileView(id: id, initial: tab));
 }
 
-String _tabPath(ProfileTab t, String id) => switch (t) {
-  ProfileTab.overview => RoutePaths.student(id),
-  ProfileTab.academics => RoutePaths.studentAcademics(id),
-  ProfileTab.attendance => RoutePaths.studentAttendance(id),
-};
-
-class _ProfileView extends StatelessWidget {
-  const _ProfileView({required this.id, required this.tab});
+class _ProfileView extends StatefulWidget {
+  const _ProfileView({required this.id, required this.initial});
   final String id;
-  final ProfileTab tab;
+  final ProfileTab initial;
+  @override
+  State<_ProfileView> createState() => _ProfileViewState();
+}
+
+class _ProfileViewState extends State<_ProfileView> {
+  late ProfileTab _tab = widget.initial;
+  bool _requested = false;
+
+  /// Loads once the student (and so the class and the class-teacher flag) is known.
+  void _load(Student st, bool ct) {
+    if (_requested) return;
+    _requested = true;
+    context.read<StudentProfileBloc>().add(StudentProfileLoadRequested(st.id, st.classId, details: ct));
+  }
 
   @override
   Widget build(BuildContext context) {
     final school = context.watch<SchoolBloc>().state;
-    final logs = context.watch<StudentsBloc>().state.logs;
-    final title = switch (tab) {
-      ProfileTab.overview => 'STUDENT PROFILE',
-      ProfileTab.academics => 'STUDENT ACADEMICS',
-      ProfileTab.attendance => 'STUDENT ATTENDANCE',
-    };
-    final st = school.students.where((s) => s.id == id).firstOrNull;
+    final st = school.students.where((s) => s.id == widget.id).firstOrNull;
     if (st == null) {
       return DetailScaffold(
-        title: title,
-        fallbackRoute: RoutePaths.students,
-        body: school.status == SchoolStatus.loaded
-            ? const AppEmptyState('Student not found', icon: Icons.person_off_outlined)
-            : const SchoolSkeletonList(),
+        title: 'Student',
+        fallbackRoute: RoutePaths.classes,
+        body: school.status == SchoolStatus.loaded ? const AppEmptyState('Student not found', icon: Icons.person_off_outlined) : const SchoolSkeletonList(),
       );
     }
     final cls = school.classById(st.classId);
-    final classmates = school.studentsOf(st.classId);
-    final avg = avgScore(st);
-    final rank = rankIn(classmates, st);
-    final size = classmates.length;
-    final topPct = (rank * 100 / (size == 0 ? 1 : size)).ceil();
-    final behaviour = '${RoutePaths.behaviour}?classId=${st.classId}&studentId=$id';
-    final year = (school.teacher?.year ?? '').replaceAll('AY ', '').replaceAll('-', '–');
-
+    final ct = cls?.classTeacher == true;
+    _load(st, ct);
+    final s = context.watch<StudentProfileBloc>().state;
+    final tabs = [ProfileTab.overview, ProfileTab.attendance, ProfileTab.academics, if (ct) ProfileTab.details];
+    final tab = tabs.contains(_tab) ? _tab : ProfileTab.overview;
     return DetailScaffold(
-      title: title,
-      fallbackRoute: RoutePaths.students,
+      title: st.name,
+      subtitle: cls == null ? null : 'Class ${cls.label}${st.roll > 0 ? ' • Roll ${st.roll}' : ''}',
+      fallbackRoute: '${RoutePaths.students}?classId=${st.classId}',
       actions: [
-        IconAction(Icons.share_outlined, 'Share profile', () => showNotice(context, 'Profile link copied')),
         PopupMenuButton<String>(
           tooltip: 'More',
-          onSelected: (v) => context.push(v == 'log' ? '${RoutePaths.behaviourNew}?classId=${st.classId}&studentId=$id' : behaviour),
+          onSelected: (v) => context.push(switch (v) {
+            'log' => '${RoutePaths.behaviourNew}?classId=${st.classId}&studentId=${st.id}',
+            'docs' => RoutePaths.studentDocuments(st.id),
+            _ => '${RoutePaths.behaviour}?classId=${st.classId}&studentId=${st.id}',
+          }),
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'log', child: Text('Log behaviour')),
-            PopupMenuItem(value: 'behaviour', child: Text('View conduct records')),
+            PopupMenuItem(value: 'behaviour', child: Text('Conduct records')),
+            PopupMenuItem(value: 'docs', child: Text('Documents')),
           ],
         ),
       ],
       body: ListView(
         padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 40.h),
         children: [
-          Center(
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  padding: EdgeInsets.all(6.r),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: C.panelBorder, width: 2),
-                  ),
-                  child: Avatar(st.name, size: 88, image: st.photo.isEmpty ? null : st.photo),
-                ),
-                Positioned(
-                  right: 2.r,
-                  bottom: 2.r,
-                  child: Container(
-                    width: 28.r,
-                    height: 28.r,
-                    decoration: BoxDecoration(
-                      color: C.primary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 2),
+          _Header(st: st, cls: cls, ct: ct, s: s),
+          SizedBox(height: 14.h),
+          AppSegmented(items: [for (final t in tabs) _tabLabels[t]!], value: _tabLabels[tab]!, track: true, onChanged: (v) => setState(() => _tab = tabs.firstWhere((t) => _tabLabels[t] == v))),
+          SizedBox(height: 14.h),
+          if (s.status != ProfileStatus.loaded && tab != ProfileTab.details)
+            const SchoolSkeletonList()
+          else
+            switch (tab) {
+              ProfileTab.overview => _Overview(st: st, s: s, ct: ct, onTab: (t) => setState(() => _tab = t)),
+              ProfileTab.attendance => _AttendanceTab(s: s),
+              ProfileTab.academics => _AcademicsTab(s: s),
+              ProfileTab.details => const StudentDetailsTab(),
+            },
+        ],
+      ),
+    );
+  }
+}
+
+/// Photo, name, ids, and call / message / notify shortcuts.
+class _Header extends StatelessWidget {
+  const _Header({required this.st, required this.cls, required this.ct, required this.s});
+  final Student st;
+  final SchoolClass? cls;
+  final bool ct;
+  final StudentProfileState s;
+
+  Future<void> _notify(BuildContext context) async {
+    final absents = s.absences;
+    final mondays = absents.where((r) => DateTime.parse(r.date).weekday == DateTime.monday).length;
+    final r = await showNotifySheet(context, st, cls: cls, absentCount: absents.length, mondays: mondays);
+    if (r == null) return;
+    await getIt<IAttendanceRepository>().addNotice(r.notice);
+    if (r.chat) await getIt<IMessageRepository>().send(to: ['g_${st.id}'], text: r.notice.message);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final age = st.ageOn(DateTime.now());
+    final digits = st.phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final rate = s.attendance.days > 0 ? s.attendanceRate : st.attendance;
+    final low = rate > 0 && rate < minimumAttendance;
+    return AppCard(
+      radius: R.xxl,
+      padding: EdgeInsets.all(16.r),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Avatar(st.name, size: 68, image: st.photo.isEmpty ? null : st.photo),
+              SizedBox(width: 14.w),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(st.name, style: T.h2, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    SizedBox(height: 4.h),
+                    Wrap(
+                      spacing: 6.w,
+                      runSpacing: 4.h,
+                      children: [
+                        if (ct) const Pill('Your class', tone: Tone.brand, icon: Icons.workspace_premium_rounded),
+                        if (st.adm.isNotEmpty) Pill('Adm ${st.adm}', tone: Tone.neutral),
+                        if (st.gender.isNotEmpty || age != null) Pill([if (st.gender.isNotEmpty) st.gender, if (age != null) '$age yrs'].join(' • '), tone: Tone.neutral),
+                      ],
                     ),
-                    child: Icon(Icons.verified_rounded, size: 16.r, color: Colors.white),
+                  ],
+                ),
+              ),
+              Column(
+                children: [
+                  Text(rate > 0 ? '${rate.round()}%' : '—', style: T.h2.copyWith(color: low ? C.danger : C.successDark)),
+                  Text('attendance', style: T.small.copyWith(fontSize: 10.5.sp)),
+                ],
+              ),
+            ],
+          ),
+          SizedBox(height: 14.h),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+            decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.lg)),
+            child: Row(
+              children: [
+                Icon(Icons.family_restroom_rounded, size: 18.r, color: C.slate),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(st.guardian.isEmpty ? 'Guardian not recorded' : st.guardian, style: T.bodyStrong.copyWith(fontSize: 13.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      Text([if (st.relation.isNotEmpty) st.relation, if (st.phone.isNotEmpty) st.phone].join(' • '), style: T.small.copyWith(fontSize: 12.sp)),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
           SizedBox(height: 12.h),
-          Text(st.name, style: T.title, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis),
-          SizedBox(height: 4.h),
-          Text(
-            'Class ${cls == null ? '' : clsName(cls)} • ${cls?.subject ?? ''} • Academic Year $year',
-            style: T.small,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-          ),
-          SizedBox(height: 14.h),
           Row(
             children: [
-              Expanded(
-                child: AppButton(
-                  'Call Parent',
-                  icon: Icons.call_rounded,
-                  kind: BtnKind.outline,
-                  small: true,
-                  onPressed: () => context.read<StudentsBloc>().add(GuardianCalled(studentId: id, name: st.guardian, phone: st.phone)),
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Expanded(
-                child: AppButton(
-                  'Message',
-                  icon: Icons.chat_bubble_outline_rounded,
-                  kind: BtnKind.outline,
-                  small: true,
-                  onPressed: () => context.push(RoutePaths.message('g_$id')),
-                ),
-              ),
-              SizedBox(width: 8.w),
-              Expanded(
-                child: AppButton(
-                  'Documents',
-                  icon: Icons.description_outlined,
-                  kind: BtnKind.outline,
-                  small: true,
-                  onPressed: () => context.push(RoutePaths.studentDocuments(id)),
-                ),
-              ),
+              _Quick(Icons.call_outlined, 'Call', digits.isEmpty ? null : () => launchUrl(Uri(scheme: 'tel', path: digits))),
+              _Quick(Icons.chat_bubble_outline_rounded, 'Message', () => context.push(RoutePaths.message('g_${st.id}'))),
+              _Quick(Icons.notifications_active_outlined, 'Notify', () => _notify(context)),
+              _Quick(Icons.emoji_events_outlined, 'Log', () => context.push('${RoutePaths.behaviourNew}?classId=${st.classId}&studentId=${st.id}')),
             ],
           ),
-          SizedBox(height: 14.h),
-          AppCard(
-            radius: R.lg,
-            padding: EdgeInsets.symmetric(vertical: 14.h, horizontal: 8.w),
-            child: IntrinsicHeight(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _Stat(
-                      'ATTENDANCE',
-                      '${st.attendance.toStringAsFixed(1)}%',
-                      st.attendance >= SchoolPolicyRuntime.current.minimumAttendance ? 'Regular' : 'Low',
-                      st.attendance >= SchoolPolicyRuntime.current.minimumAttendance ? Tone.success : Tone.danger,
-                    ),
-                  ),
-                  const VerticalDivider(color: C.border, width: 1),
-                  Expanded(child: _Stat('GRADE', gradeOf(avg), 'Top $topPct%', Tone.brand, sub: '${avg.toStringAsFixed(1)}%')),
-                  const VerticalDivider(color: C.border, width: 1),
-                  Expanded(child: _Stat('MERITS', '+${meritsOf(st, logs)}', '${flagsOf(st, logs)} Flags', Tone.neutral)),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(height: 14.h),
-          AppSegmented(
-            track: true,
-            items: _tabLabels.values.toList(),
-            value: _tabLabels[tab]!,
-            onChanged: (v) {
-              final t = _tabLabels.entries.firstWhere((e) => e.value == v).key;
-              if (t != tab) context.pushReplacement(_tabPath(t, id));
-            },
-          ),
-          SizedBox(height: 14.h),
-          switch (tab) {
-            ProfileTab.overview => _Overview(st: st, rank: rank, logs: logs, behaviourRoute: behaviour),
-            ProfileTab.academics => _Academics(st: st, rank: rank, classmates: classmates, cls: cls, avg: avg),
-            ProfileTab.attendance => _AttendanceTab(st: st, logs: logs, behaviourRoute: behaviour),
-          },
         ],
       ),
     );
   }
 }
 
-class _Stat extends StatelessWidget {
-  const _Stat(this.label, this.value, this.badge, this.tone, {this.sub});
-  final String label, value, badge;
-  final String? sub;
-  final Tone tone;
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Text(
-        label,
-        style: T.capsMuted.copyWith(fontSize: 10.sp),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      SizedBox(height: 4.h),
-      FittedBox(
-        fit: BoxFit.scaleDown,
-        child: Text.rich(
-          TextSpan(
-            children: [
-              TextSpan(
-                text: value,
-                style: T.h1.copyWith(color: tone == Tone.brand ? C.primary : C.ink),
-              ),
-              if (sub != null)
-                TextSpan(
-                  text: ' $sub',
-                  style: T.small.copyWith(fontSize: 10.sp),
-                ),
-            ],
-          ),
-        ),
-      ),
-      SizedBox(height: 4.h),
-      Pill(badge, tone: tone, dot: tone == Tone.success),
-    ],
-  );
-}
-
-Widget _guardianTile(BuildContext context, String studentId, String name, String rel, String phone) => AppCard(
-  margin: EdgeInsets.only(bottom: 8.h),
-  radius: R.lg,
-  color: C.surface,
-  padding: EdgeInsets.all(12.w),
-  onTap: () => context.read<StudentsBloc>().add(GuardianCalled(studentId: studentId, name: name, phone: phone)),
-  child: Row(
-    children: [
-      Avatar(name, size: 40),
-      SizedBox(width: 12.w),
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(text: name, style: T.bodyStrong),
-                  TextSpan(text: '  ($rel)', style: T.small),
-                ],
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(phone, style: T.small),
-          ],
-        ),
-      ),
-      Semantics(
-        label: 'Call $name',
-        button: true,
-        child: const IconTile(Icons.call_rounded, tone: Tone.success, size: 36),
-      ),
-    ],
-  ),
-);
-
-Widget _honorCard(BehaviourLog h, {int lines = 3}) => AppCard(
-  margin: EdgeInsets.only(bottom: 8.h),
-  radius: R.lg,
-  padding: EdgeInsets.all(12.w),
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: Text(h.badge, style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          Pill('+${h.merits} Merits', tone: Tone.success),
-        ],
-      ),
-      SizedBox(height: 4.h),
-      Text(h.note, style: T.small, maxLines: lines, overflow: TextOverflow.ellipsis),
-      SizedBox(height: 4.h),
-      Text('${h.teacher} • ${fmtAgo(h.at)}', style: T.small.copyWith(color: C.muted)),
-    ],
-  ),
-);
-
-List<BehaviourLog> _praise(List<BehaviourLog> logs, String id) =>
-    logsFor(logs, id).where((l) => l.kind == 'praise').toList()..sort((a, b) => b.at.compareTo(a.at));
-
-class _Overview extends StatelessWidget {
-  const _Overview({required this.st, required this.rank, required this.logs, required this.behaviourRoute});
-  final Student st;
-  final int rank;
-  final List<BehaviourLog> logs;
-  final String behaviourRoute;
-  @override
-  Widget build(BuildContext context) {
-    final g2 = secondGuardian(st);
-    final honors = _praise(logs, st.id);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AppCard(
-          radius: R.xxl,
-          padding: EdgeInsets.all(14.w),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Academic Mastery', style: T.h3),
-                        Text('Term 2 Cumulative Assessments', style: T.small),
-                      ],
-                    ),
-                  ),
-                  Pill('Rank #$rank'),
-                ],
-              ),
-              SizedBox(height: 12.h),
-              for (var i = 0; i < 3; i++) _SubjectBar(st, i),
-              TextButton(
-                onPressed: () => context.pushReplacement(RoutePaths.studentAcademics(st.id)),
-                style: TextButton.styleFrom(minimumSize: Size(44.r, 44.r)),
-                child: Text('View Full Grade Sheet  →', style: T.bodyStrong.copyWith(color: C.primary)),
-              ),
-            ],
-          ),
-        ),
-        const SectionHeader('Guardian & Emergency Info'),
-        _guardianTile(context, st.id, st.guardian, 'Guardian', st.phone),
-        _guardianTile(context, st.id, g2.name, 'Secondary', g2.phone),
-        SectionHeader('Honors & Merits Timeline', action: 'View All', onAction: () => context.push(behaviourRoute)),
-        if (honors.isEmpty)
-          const AppCard(
-            child: AppEmptyState('No honors yet', hint: 'Praise logs for this student appear here.', icon: Icons.emoji_events_outlined),
-          ),
-        for (final h in honors) _honorCard(h),
-      ],
-    );
-  }
-}
-
-class _SubjectBar extends StatelessWidget {
-  const _SubjectBar(this.st, this.i);
-  final Student st;
-  final int i;
-  @override
-  Widget build(BuildContext context) {
-    final d = subjectDefs[i];
-    final v = subjectVisuals[i];
-    final sc = subjectScore(st, i);
-    return Container(
-      margin: EdgeInsets.only(bottom: 8.h),
-      padding: EdgeInsets.all(12.r),
-      decoration: BoxDecoration(
-        color: C.surface,
-        borderRadius: BorderRadius.circular(R.lg),
-        border: Border.all(color: C.border),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              IconTile(v.$1, tone: v.$2, size: 32),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(d.name, style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text(d.teacher, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ],
-                ),
-              ),
-              Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '$sc',
-                      style: T.h2.copyWith(color: C.primary),
-                    ),
-                    TextSpan(text: '/100', style: T.small),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: 8.h),
-          AppProgress(sc / 100),
-        ],
-      ),
-    );
-  }
-}
-
-class _Academics extends StatefulWidget {
-  const _Academics({required this.st, required this.rank, required this.classmates, required this.cls, required this.avg});
-  final Student st;
-  final int rank;
-  final List<Student> classmates;
-  final SchoolClass? cls;
-  final double avg;
-  @override
-  State<_Academics> createState() => _AcademicsState();
-}
-
-class _AcademicsState extends State<_Academics> {
-  bool _byScore = true;
-
-  String _ord(int n) => (n % 100 >= 11 && n % 100 <= 13)
-      ? 'th'
-      : switch (n % 10) {
-          1 => 'st',
-          2 => 'nd',
-          3 => 'rd',
-          _ => 'th',
-        };
-
-  @override
-  Widget build(BuildContext context) {
-    final st = widget.st;
-    final size = widget.classmates.length;
-    final order = List.generate(subjectDefs.length, (i) => i);
-    if (_byScore) order.sort((a, b) => subjectScore(st, b).compareTo(subjectScore(st, a)));
-    final classAvg = widget.classmates.fold<double>(0, (a, o) => a + avgScore(o)) / (size == 0 ? 1 : size);
-    final pctl = ((size - widget.rank) * 100 / (size == 0 ? 1 : size)).round();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AppCard(
-          radius: R.xxl,
-          padding: EdgeInsets.all(14.w),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Benchmark Comparison', style: T.h3),
-              Text('Cohort: Class ${widget.cls == null ? '' : clsName(widget.cls!)} ($size Students)', style: T.small),
-              SizedBox(height: 12.h),
-              _Bench('${st.name} (Rank #${widget.rank})', widget.avg, C.primary),
-              _Bench('$pctl${_ord(pctl)} Percentile', 75.0 + (pctl - 75) / 4, C.purple),
-              _Bench('Class Average', classAvg, C.muted),
-            ],
-          ),
-        ),
-        Padding(
-          padding: EdgeInsets.fromLTRB(2.w, 16.h, 0, 6.h),
-          child: Row(
-            children: [
-              Expanded(child: Text('Subject Performance', style: T.h2)),
-              TextButton(
-                onPressed: () => setState(() => _byScore = !_byScore),
-                style: TextButton.styleFrom(minimumSize: Size(44.r, 44.r)),
-                child: Text(
-                  _byScore ? 'Sort by Score' : 'Default order',
-                  style: T.bodyStrong.copyWith(color: C.primary, fontSize: 13.sp),
-                ),
-              ),
-            ],
-          ),
-        ),
-        for (final i in order) _AcadSubject(st, i),
-      ],
-    );
-  }
-}
-
-class _Bench extends StatelessWidget {
-  const _Bench(this.label, this.v, this.color);
+class _Quick extends StatelessWidget {
+  const _Quick(this.icon, this.label, this.onTap);
+  final IconData icon;
   final String label;
-  final double v;
-  final Color color;
+  final VoidCallback? onTap;
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(bottom: 10.h),
-    child: Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: T.bodyStrong.copyWith(fontSize: 13.sp),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            Text('${v.toStringAsFixed(1)}%', style: T.smallStrong),
-          ],
-        ),
-        SizedBox(height: 4.h),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(R.pill),
-          child: LinearProgressIndicator(
-            value: (v / 100).clamp(0, 1),
-            minHeight: 8.h,
-            color: color,
-            backgroundColor: const Color(0xFFE5EDFB),
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class _AcadSubject extends StatelessWidget {
-  const _AcadSubject(this.st, this.i);
-  final Student st;
-  final int i;
-  @override
-  Widget build(BuildContext context) {
-    final d = subjectDefs[i];
-    final v = subjectVisuals[i];
-    final sc = subjectScore(st, i);
-    final theory = (sc * .7).round(), internal = sc - theory;
-    return AppCard(
-      margin: EdgeInsets.only(bottom: 12.h),
-      radius: R.xl,
-      padding: EdgeInsets.all(14.w),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              IconTile(v.$1, tone: v.$2, size: 40),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(d.name, style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text('${d.teacher} • ${d.role}', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: '$sc',
-                          style: T.h1.copyWith(color: C.primary),
-                        ),
-                        TextSpan(text: '/100', style: T.small),
-                      ],
-                    ),
-                  ),
-                  Text('Grade ${gradeOf(sc)}', style: T.small),
-                ],
-              ),
-            ],
-          ),
-          SizedBox(height: 10.h),
-          Row(
-            children: [
-              Expanded(child: _Part('THEORY EXAM', '$theory / 70', theory / 70)),
-              SizedBox(width: 8.w),
-              Expanded(child: _Part('INTERNAL & PRACTICAL', '$internal / 30', internal / 30)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Part extends StatelessWidget {
-  const _Part(this.label, this.value, this.frac);
-  final String label, value;
-  final double frac;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: EdgeInsets.all(10.r),
-    decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md)),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: T.capsMuted.copyWith(fontSize: 9.5.sp),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        SizedBox(height: 4.h),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text.rich(
-            TextSpan(
+  Widget build(BuildContext context) => Expanded(
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: 3.w),
+      child: Material(
+        color: onTap == null ? C.surface : C.panel,
+        borderRadius: BorderRadius.circular(R.md),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(R.md),
+          onTap: onTap,
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 9.h),
+            child: Column(
               children: [
-                TextSpan(text: value, style: T.smallStrong),
-                TextSpan(text: '  (${(frac * 100).round()}%)', style: T.small),
+                Icon(icon, size: 19.r, color: onTap == null ? C.muted : C.primary),
+                SizedBox(height: 3.h),
+                Text(label, style: T.smallStrong.copyWith(fontSize: 11.sp, color: onTap == null ? C.muted : C.ink)),
               ],
             ),
           ),
         ),
+      ),
+    ),
+  );
+}
+
+class _Card extends StatelessWidget {
+  const _Card({required this.title, required this.child, this.action, this.onAction});
+  final String title;
+  final Widget child;
+  final String? action;
+  final VoidCallback? onAction;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: EdgeInsets.only(bottom: 12.h),
+    child: AppCard(
+      radius: R.xl,
+      padding: EdgeInsets.all(14.r),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text(title, style: T.h3)),
+              if (action != null) GestureDetector(onTap: onAction, child: Text(action!, style: T.smallStrong.copyWith(color: C.primary))),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          child,
+        ],
+      ),
+    ),
+  );
+}
+
+class _Muted extends StatelessWidget {
+  const _Muted(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Text(text, style: T.small);
+}
+
+const _mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+String _dm(String iso) {
+  final d = DateTime.tryParse(iso);
+  return d == null ? iso : '${d.day} ${_mon[d.month - 1]}';
+}
+
+class _Overview extends StatelessWidget {
+  const _Overview({required this.st, required this.s, required this.ct, required this.onTab});
+  final Student st;
+  final StudentProfileState s;
+  final bool ct;
+  final ValueChanged<ProfileTab> onTab;
+  @override
+  Widget build(BuildContext context) {
+    final a = s.attendance;
+    final graded = [for (final e in s.exams) if (e.mark?.total != null && e.exam.maxTotal > 0) e];
+    final pendingHw = s.homework.where((h) => h.submissions[st.id]?.status == SubmissionStatus.pending).length;
+    final d = s.details;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _Card(
+          title: 'Attendance',
+          action: 'Calendar',
+          onAction: () => onTab(ProfileTab.attendance),
+          child: a.days == 0
+              ? const _Muted('No registers submitted yet this year.')
+              : Row(
+                  children: [
+                    _Num('${a.present}', 'Present', C.successDark),
+                    _Num('${a.absent}', 'Absent', C.danger),
+                    _Num('${a.late}', 'Late', C.warningDark),
+                    _Num('${a.excused}', 'Excused', C.purple),
+                  ],
+                ),
+        ),
+        if (ct && d != null && (d.conditions.isNotEmpty || d.assistance.isNotEmpty || d.bloodGroup.isNotEmpty))
+          _Card(
+            title: 'Health',
+            action: 'Details',
+            onAction: () => onTab(ProfileTab.details),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (d.bloodGroup.isNotEmpty) Text('Blood group ${d.bloodGroup}', style: T.bodyStrong),
+                if (d.conditions.isNotEmpty) Text(d.conditions, style: T.body.copyWith(color: C.danger)),
+                if (d.assistance.isNotEmpty) Text('Support: ${d.assistance}', style: T.small),
+              ],
+            ),
+          ),
+        _Card(
+          title: 'Academics',
+          action: 'All',
+          onAction: () => onTab(ProfileTab.academics),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (graded.isEmpty) const _Muted('No marks entered for this class yet.'),
+              for (final e in graded.take(3)) _ExamRow(e),
+              if (s.homework.isNotEmpty) ...[
+                SizedBox(height: 6.h),
+                Text(
+                  pendingHw == 0 ? 'All ${s.homework.length} homework turned in' : '$pendingHw of ${s.homework.length} homework not turned in',
+                  style: T.small.copyWith(color: pendingHw == 0 ? C.successDark : C.warningDark, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ],
+          ),
+        ),
+        _Card(
+          title: 'Behaviour',
+          action: 'Log',
+          onAction: () => context.push('${RoutePaths.behaviourNew}?classId=${st.classId}&studentId=${st.id}'),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (s.logs.isEmpty) const _Muted('No behaviour logged.'),
+              for (final l in s.logs.take(3)) _LogRow(l),
+            ],
+          ),
+        ),
+        if (s.leaves.isNotEmpty)
+          _Card(
+            title: 'Leave requests',
+            child: Column(children: [for (final l in s.leaves.take(3)) _LeaveRow(l)]),
+          ),
+        if (st.bus.isNotEmpty || st.busStop.isNotEmpty)
+          _Card(
+            title: 'Transport',
+            child: Row(
+              children: [
+                Icon(Icons.directions_bus_outlined, size: 18.r, color: C.slate),
+                SizedBox(width: 8.w),
+                Expanded(child: Text([st.bus, st.busStop].where((e) => e.isNotEmpty).join(' • '), style: T.body.copyWith(color: C.ink))),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _Num extends StatelessWidget {
+  const _Num(this.value, this.label, this.color);
+  final String value, label;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: Column(
+      children: [
+        Text(value, style: T.h2.copyWith(color: color)),
+        Text(label, style: T.small.copyWith(fontSize: 11.sp)),
       ],
     ),
   );
 }
 
-class _AttendanceTab extends StatelessWidget {
-  const _AttendanceTab({required this.st, required this.logs, required this.behaviourRoute});
-  final Student st;
-  final List<BehaviourLog> logs;
-  final String behaviourRoute;
+class _ExamRow extends StatelessWidget {
+  const _ExamRow(this.e);
+  final ExamResult e;
   @override
   Widget build(BuildContext context) {
-    final sp = attendanceSplit(st);
-    final g2 = secondGuardian(st);
-    final praise = _praise(logs, st.id);
-    final flags = flagsOf(st, logs);
-    final ok = st.attendance >= SchoolPolicyRuntime.current.minimumAttendance;
+    final m = e.mark;
+    final max = e.exam.maxTotal;
+    final pct = m?.total == null || max == 0 ? null : m!.total! * 100 / max;
+    final text = m == null
+        ? 'Not entered'
+        : m.absent
+        ? m.status
+        : m.total != null
+        ? '${m.total}/$max'
+        : (m.gradeValue.isEmpty ? '—' : m.gradeValue);
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 5.h),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.exam.name, style: T.bodyStrong.copyWith(fontSize: 13.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(e.exam.subject, style: T.small.copyWith(fontSize: 11.5.sp)),
+              ],
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(text, style: T.bodyStrong.copyWith(color: pct == null ? C.slate : (pct < 40 ? C.danger : C.ink))),
+              if (pct != null) Text('${pct.round()}%', style: T.small.copyWith(fontSize: 11.sp)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LogRow extends StatelessWidget {
+  const _LogRow(this.l);
+  final BehaviourLog l;
+  @override
+  Widget build(BuildContext context) {
+    final good = l.kind == 'praise';
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 5.h),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(good ? Icons.thumb_up_alt_outlined : Icons.flag_outlined, size: 18.r, color: good ? C.successDark : C.danger),
+          SizedBox(width: 8.w),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l.badge.isEmpty ? (good ? 'Praise' : 'Concern') : l.badge, style: T.bodyStrong.copyWith(fontSize: 13.5.sp)),
+                if (l.note.isNotEmpty) Text(l.note, style: T.small, maxLines: 2, overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          Text(_dm(l.at.length >= 10 ? l.at.substring(0, 10) : l.at), style: T.small.copyWith(fontSize: 11.sp)),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaveRow extends StatelessWidget {
+  const _LeaveRow(this.l);
+  final LeaveSlip l;
+  @override
+  Widget build(BuildContext context) {
+    final tone = switch (l.status) {
+      'Approved' => Tone.success,
+      'Rejected' => Tone.danger,
+      _ => Tone.warning,
+    };
+    return InkWell(
+      onTap: () => context.push(RoutePaths.leaveSlip(l.id)),
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 6.h),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${l.type} • ${_dm(l.from)}${l.to == l.from ? '' : ' – ${_dm(l.to)}'}', style: T.bodyStrong.copyWith(fontSize: 13.5.sp)),
+                  if (l.reason.isNotEmpty) Text(l.reason, style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            Pill(l.status, tone: tone),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Month calendar of the student's marks (navigable), counts and the list of absences.
+class _AttendanceTab extends StatefulWidget {
+  const _AttendanceTab({required this.s});
+  final StudentProfileState s;
+  @override
+  State<_AttendanceTab> createState() => _AttendanceTabState();
+}
+
+class _AttendanceTabState extends State<_AttendanceTab> {
+  /// Height of every day cell (date + up to two rows of period dots).
+  static const _cellH = 50.0;
+
+  /// The periods of one day: subject, teacher and the student's mark in each.
+  void _openDay(BuildContext context, String date) {
+    final slots = widget.s.slotsOn(date);
+    final absent = slots.where((x) => x.code == AttCode.absent).length;
+    showAppSheet<void>(
+      context,
+      title: fmtKey(date, 'EEEE, d MMMM'),
+      subtitle: slots.isEmpty
+          ? 'No periods on the timetable'
+          : absent == 0
+          ? (slots.every((x) => x.code == null) ? 'Not marked yet' : 'Present in every marked period')
+          : 'Absent in $absent of ${slots.length} periods',
+      builder: (_) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (slots.isEmpty) Text('Nothing scheduled or marked on this day.', style: T.small),
+          for (final x in slots)
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: 6.h),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36.r,
+                    height: 36.r,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: _dotColor(x.code).withValues(alpha: x.code == null ? 1 : .15), borderRadius: BorderRadius.circular(R.md)),
+                    child: Text('P${x.period}', style: T.smallStrong.copyWith(color: x.code == null ? C.slate : _dotColor(x.code))),
+                  ),
+                  SizedBox(width: 12.w),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(x.subject, style: T.bodyStrong),
+                        if (x.teacher.isNotEmpty) Text(x.teacher, style: T.small.copyWith(fontSize: 11.5.sp)),
+                      ],
+                    ),
+                  ),
+                  Pill(
+                    x.code?.label ?? 'Not marked',
+                    tone: switch (x.code) {
+                      AttCode.present => Tone.success,
+                      AttCode.absent => Tone.danger,
+                      AttCode.late => Tone.warning,
+                      AttCode.excused => Tone.purple,
+                      null => Tone.neutral,
+                    },
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  late DateTime _month = () {
+    final last = widget.s.records.isEmpty ? null : DateTime.tryParse(widget.s.records.last.date);
+    final t = last ?? DateTime.now();
+    return DateTime(t.year, t.month);
+  }();
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.s;
+    final a = s.attendance;
+    final lead = DateTime(_month.year, _month.month).weekday - 1;
+    final days = DateUtils.getDaysInMonth(_month.year, _month.month);
+    final rows = ((lead + days) / 7).ceil();
+    final monthKey = '${_month.year}-${_month.month.toString().padLeft(2, '0')}';
+    final inMonth = s.records.where((r) => r.date.startsWith(monthKey)).toList();
+    final absentInMonth = inMonth.where((r) => r.codeOf(s.studentId) == AttCode.absent).length;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _Card(
+          title: 'This year',
+          child: a.days == 0
+              ? const _Muted('No registers submitted yet.')
+              : Column(
+                  children: [
+                    Row(
+                      children: [
+                        Text('${s.attendanceRate.toStringAsFixed(1)}%', style: T.title.copyWith(color: s.attendanceRate < minimumAttendance ? C.danger : C.successDark)),
+                        SizedBox(width: 8.w),
+                        Expanded(child: Text('of ${a.days} school days • minimum $attendanceThresholdLabel%', style: T.small)),
+                      ],
+                    ),
+                    SizedBox(height: 10.h),
+                    Row(
+                      children: [
+                        _Num('${a.present}', 'Present', C.successDark),
+                        _Num('${a.absent}', 'Absent', C.danger),
+                        _Num('${a.late}', 'Late', C.warningDark),
+                        _Num('${a.excused}', 'Excused', C.purple),
+                      ],
+                    ),
+                  ],
+                ),
+        ),
         AppCard(
-          radius: R.xxl,
-          padding: EdgeInsets.all(14.w),
+          radius: R.xl,
+          padding: EdgeInsets.all(12.r),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Expanded(
-                    child: Text('TERM 2 ATTENDANCE RATE', style: T.capsMuted.copyWith(fontSize: 10.sp)),
+                  IconButton(
+                    tooltip: 'Previous month',
+                    onPressed: () => setState(() => _month = DateTime(_month.year, _month.month - 1)),
+                    icon: Icon(Icons.chevron_left_rounded, size: 22.r),
                   ),
-                  Pill('${attendanceStreak(st)}d Streak', icon: Icons.local_fire_department_rounded),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text('${const ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][_month.month - 1]} ${_month.year}', style: T.h3),
+                        Text(inMonth.isEmpty ? 'No registers' : '${inMonth.length} days • $absentInMonth absent', style: T.small.copyWith(fontSize: 11.sp)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Next month',
+                    onPressed: () => setState(() => _month = DateTime(_month.year, _month.month + 1)),
+                    icon: Icon(Icons.chevron_right_rounded, size: 22.r),
+                  ),
+                ],
+              ),
+              Row(
+                children: [
+                  for (final d in const ['M', 'T', 'W', 'T', 'F', 'S', 'S'])
+                    Expanded(child: Center(child: Text(d, style: T.small.copyWith(fontSize: 11.sp, fontWeight: FontWeight.w700)))),
                 ],
               ),
               SizedBox(height: 4.h),
-              Text.rich(
-                TextSpan(
+              for (var r = 0; r < rows; r++)
+                Row(
                   children: [
-                    TextSpan(
-                      text: '${st.attendance.toStringAsFixed(1)}%',
-                      style: T.stat.copyWith(fontSize: 30.sp, color: C.primary),
-                    ),
-                    TextSpan(text: '  Target ≥ ${SchoolPolicyRuntime.current.thresholdLabel}%', style: T.small),
-                  ],
-                ),
-              ),
-              SizedBox(height: 8.h),
-              AppProgress(st.attendance / 100, tone: ok ? Tone.brand : Tone.danger),
-              SizedBox(height: 6.h),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('Academic Term Sept - Dec 2024', style: T.small, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  ),
-                  Text('${sp.total} Working Days', style: T.smallStrong),
-                ],
-              ),
-              SizedBox(height: 12.h),
-              Row(
-                children: [
-                  Expanded(child: _Count('${sp.present}', 'Present', Tone.neutral)),
-                  SizedBox(width: 6.w),
-                  Expanded(child: _Count('${sp.absent}', 'Absent', Tone.danger)),
-                  SizedBox(width: 6.w),
-                  Expanded(child: _Count('${sp.leave}', 'Leave', Tone.warning)),
-                  SizedBox(width: 6.w),
-                  const Expanded(child: _Count('0', 'Tardy', Tone.neutral)),
-                ],
-              ),
-              SizedBox(height: 10.h),
-              Container(
-                padding: EdgeInsets.all(10.r),
-                decoration: BoxDecoration(
-                  color: C.panel,
-                  borderRadius: BorderRadius.circular(R.md),
-                  border: Border.all(color: C.panelBorder),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.shield_rounded, size: 16.r, color: C.primary),
-                    SizedBox(width: 6.w),
-                    Expanded(
-                      child: Text(
-                        sp.absent == 0
-                            ? 'Exemplary Record • Zero Unexcused Absences'
-                            : '${sp.absent} unexcused absences recorded this term',
-                        style: T.smallStrong.copyWith(color: C.primary),
+                    for (var c = 0; c < 7; c++)
+                      Expanded(
+                        child: Builder(
+                          builder: (_) {
+                            final n = r * 7 + c - lead + 1;
+                            if (n < 1 || n > days) return SizedBox(height: _cellH.h + 4.r);
+                            final key = '$monthKey-${n.toString().padLeft(2, '0')}';
+                            final today = dkey(todayDate());
+                            // future days: no dots yet (tapping still shows that day's timetable)
+                            return _DayCell(
+                              day: n,
+                              date: key,
+                              slots: key.compareTo(today) > 0 ? const [] : s.slotsOn(key),
+                              today: key == today,
+                              onTap: () => _openDay(context, key),
+                            );
+                          },
+                        ),
                       ),
-                    ),
                   ],
                 ),
+              SizedBox(height: 8.h),
+              Wrap(
+                spacing: 12.w,
+                children: [
+                  for (final (l, c) in [('Present', C.success), ('Absent', C.danger), ('Late', C.warning), ('Excused', C.purple), ('Not marked', C.border)])
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(width: 8.r, height: 8.r, decoration: BoxDecoration(color: c, shape: BoxShape.circle)),
+                        SizedBox(width: 4.w),
+                        Text(l, style: T.small.copyWith(fontSize: 11.sp)),
+                      ],
+                    ),
+                ],
               ),
             ],
           ),
         ),
-        SizedBox(height: 14.h),
-        _CalendarCard(st: st),
-        const SectionHeader('Disciplinary & character standing', caps: true),
-        Row(
-          children: [
-            Expanded(
-              child: StatTile(
-                label: 'Merits',
-                value: '+${meritsOf(st, logs)}',
-                badge: 'Scholar',
-                icon: Icons.emoji_events_rounded,
-                tone: Tone.warning,
-              ),
-            ),
-            SizedBox(width: 8.w),
-            Expanded(
-              child: StatTile(
-                label: flags == 0 ? 'Clean Conduct Record' : 'Active flags',
-                value: '$flags',
-                badge: flags == 0 ? 'Clean' : 'Review',
-                icon: Icons.verified_user_outlined,
-                tone: flags == 0 ? Tone.success : Tone.danger,
-              ),
-            ),
-          ],
-        ),
-        SectionHeader('Recent Commendations', action: 'View All (${praise.length})', onAction: () => context.push(behaviourRoute)),
-        if (praise.isEmpty) const AppCard(child: AppEmptyState('No commendations yet', icon: Icons.emoji_events_outlined)),
-        for (final h in praise.take(3)) _honorCard(h, lines: 2),
-        const SectionHeader('Parent Communication', caps: true),
-        AppCard(
-          radius: R.lg,
-          padding: EdgeInsets.all(12.w),
-          color: C.panel,
-          border: C.panelBorder,
-          child: Row(
+        SizedBox(height: 12.h),
+        _Card(
+          title: 'Absences',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const IconTile(Icons.sync_rounded, size: 36),
-              SizedBox(width: 10.w),
-              Expanded(child: Text('App Synced • Daily automated attendance SMS and EduParent alerts active.', style: T.small)),
+              if (s.absences.isEmpty) const _Muted('No absences recorded.'),
+              for (final r in s.absences.take(12))
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4.h),
+                  child: Row(
+                    children: [
+                      Icon(Icons.event_busy_outlined, size: 16.r, color: C.danger),
+                      SizedBox(width: 8.w),
+                      Expanded(child: Text(fmtKey(r.date, 'EEEE, d MMM yyyy'), style: T.body.copyWith(color: C.ink))),
+                      if (s.leaves.any((l) => l.status == 'Approved' && l.covers(r.date))) const Pill('Leave', tone: Tone.purple),
+                    ],
+                  ),
+                ),
+              if (s.absences.length > 12) Text('+${s.absences.length - 12} more', style: T.small),
             ],
           ),
         ),
-        SizedBox(height: 10.h),
-        _guardianTile(context, st.id, st.guardian, 'Primary Guardian', st.phone),
-        _guardianTile(context, st.id, g2.name, 'Secondary Contact', g2.phone),
       ],
     );
   }
 }
 
-class _Count extends StatelessWidget {
-  const _Count(this.v, this.l, this.tone);
-  final String v, l;
-  final Tone tone;
+class _AcademicsTab extends StatelessWidget {
+  const _AcademicsTab({required this.s});
+  final StudentProfileState s;
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _Card(
+        title: 'Exams',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (s.exams.isEmpty) const _Muted('No exams for this class that you can see.'),
+            for (final e in s.exams) _ExamRow(e),
+          ],
+        ),
+      ),
+      _Card(
+        title: 'Homework',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (s.homework.isEmpty) const _Muted('No homework assigned yet.'),
+            for (final h in s.homework.take(12)) _HomeworkRow(h: h, studentId: s.studentId),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
+class _HomeworkRow extends StatelessWidget {
+  const _HomeworkRow({required this.h, required this.studentId});
+  final Homework h;
+  final String studentId;
   @override
   Widget build(BuildContext context) {
-    final c = toneColors(tone);
-    final neutral = tone == Tone.neutral;
-    return Container(
-      padding: EdgeInsets.symmetric(vertical: 10.h),
-      decoration: BoxDecoration(
-        color: neutral ? C.surface : c.bg,
-        borderRadius: BorderRadius.circular(R.md),
-        border: Border.all(color: neutral ? C.border : c.fg.withValues(alpha: .25)),
-      ),
-      child: Column(
-        children: [
-          Text(v, style: T.h2.copyWith(color: neutral ? C.ink : c.fg)),
-          Text(
-            l,
-            style: T.small.copyWith(fontSize: 11.sp, color: neutral ? C.slate : c.fg),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
+    final sub = h.submissions[studentId];
+    final (label, tone) = switch (sub?.status) {
+      SubmissionStatus.graded => (sub?.marks == null ? 'Graded' : '${sub!.marks}/${h.maxMarks}', Tone.success),
+      SubmissionStatus.submitted => ('Turned in', Tone.brand),
+      _ => ('Pending', Tone.warning),
+    };
+    return InkWell(
+      onTap: () => context.push(RoutePaths.homework(h.id)),
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 6.h),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(h.title, style: T.bodyStrong.copyWith(fontSize: 13.5.sp), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text('${h.subject} • due ${_dm(h.due.length >= 10 ? h.due.substring(0, 10) : h.due)}', style: T.small.copyWith(fontSize: 11.5.sp)),
+                ],
+              ),
+            ),
+            Pill(label, tone: tone),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _CalendarCard extends StatelessWidget {
-  const _CalendarCard({required this.st});
-  final Student st;
+Color _dotColor(AttCode? c) => switch (c) {
+  AttCode.present => C.success,
+  AttCode.absent => C.danger,
+  AttCode.late => C.warning,
+  AttCode.excused => C.purple,
+  null => C.border,
+};
+
+/// A calendar day: the date and one dot per period in timetable order (green present, red absent, amber late,
+/// purple excused, grey not marked), wrapping onto a second row; every cell has the same height.
+class _DayCell extends StatelessWidget {
+  const _DayCell({required this.day, required this.date, required this.slots, required this.today, required this.onTap});
+  final int day;
+  final String date;
+  final List<({int period, String subject, String teacher, AttCode? code})> slots;
+  final bool today;
+  final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
-    final cells = <Widget>[for (var i = 0; i < 4; i++) const SizedBox()]; // 1 Nov 2024 is a Friday
-    for (var d = 1; d <= 30; d++) {
-      final s = calendarStatus(st, d);
-      final (bg, fg) = switch (s) {
-        'present' => (C.successSoft, C.successDark),
-        'absent' => (C.dangerSoft, C.danger),
-        'leave' => (C.warningSoft, C.warningDark),
-        _ => (C.surface, C.muted),
-      };
-      cells.add(
-        Container(
+    final marked = slots.where((x) => x.code != null).toList();
+    final absent = marked.any((x) => x.code == AttCode.absent);
+    final allIn = marked.isNotEmpty && !absent;
+    final bg = absent ? C.dangerSoft.withValues(alpha: .55) : (allIn ? C.successSoft.withValues(alpha: .45) : Colors.transparent);
+    return Semantics(
+      button: true,
+      label: '$date, ${marked.isEmpty ? 'not marked' : absent ? 'absent in ${marked.where((x) => x.code == AttCode.absent).length} periods' : 'present'}',
+      child: GestureDetector(
+        key: ValueKey('cal-day-$date'),
+        onTap: onTap,
+        child: Container(
+          height: _AttendanceTabState._cellH.h,
           margin: EdgeInsets.all(2.r),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(R.sm)),
-          child: Text('$d', style: T.smallStrong.copyWith(color: fg)),
+          padding: EdgeInsets.symmetric(horizontal: 3.w, vertical: 4.h),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(R.sm),
+            border: today ? Border.all(color: C.primary, width: 1.4) : null,
+          ),
+          child: Column(
+            children: [
+              Text('$day', style: T.smallStrong.copyWith(fontSize: 11.5.sp, color: slots.isEmpty ? C.muted : (absent ? C.danger : C.ink))),
+              const Spacer(),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 2.5.r,
+                runSpacing: 2.5.r,
+                children: [
+                  for (final x in slots)
+                    Container(width: 6.r, height: 6.r, decoration: BoxDecoration(color: _dotColor(x.code), shape: BoxShape.circle)),
+                ],
+              ),
+              const Spacer(),
+            ],
+          ),
         ),
-      );
-    }
-    return AppCard(
-      radius: R.xl,
-      padding: EdgeInsets.all(14.w),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.calendar_month_rounded, color: C.primary, size: 20.r),
-              SizedBox(width: 6.w),
-              Text('November 2024', style: T.h3),
-            ],
-          ),
-          SizedBox(height: 10.h),
-          Row(
-            children: [
-              for (final d in const ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'])
-                Expanded(
-                  child: Center(
-                    child: Text(d, style: T.small.copyWith(fontSize: 10.5.sp)),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(height: 4.h),
-          GridView.count(crossAxisCount: 7, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), children: cells),
-          SizedBox(height: 8.h),
-          Wrap(
-            spacing: 12.w,
-            runSpacing: 4.h,
-            children: [
-              for (final l in const [
-                ('Present', C.success),
-                ('Excused Leave', C.warning),
-                ('Absent', C.danger),
-                ('Weekend/Holiday', C.muted),
-              ])
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 8.r,
-                      height: 8.r,
-                      decoration: BoxDecoration(color: l.$2, shape: BoxShape.circle),
-                    ),
-                    SizedBox(width: 4.w),
-                    Text(l.$1, style: T.small.copyWith(fontSize: 10.5.sp)),
-                  ],
-                ),
-            ],
-          ),
-        ],
       ),
     );
   }

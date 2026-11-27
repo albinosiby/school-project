@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:teacher_app/config/routes/modules/tasks_routes.dart';
 import 'package:teacher_app/config/routes/routes.dart';
 import 'package:teacher_app/di/injection.dart';
+import 'package:teacher_app/modules/tasks/models/homework_grading.dart';
+import 'package:teacher_app/modules/tasks/models/homework_models.dart';
 import 'package:teacher_app/modules/tasks/bloc/duties_bloc.dart';
 import 'package:teacher_app/modules/tasks/bloc/duties_events.dart';
 import 'package:teacher_app/modules/tasks/bloc/duties_states.dart';
@@ -20,7 +22,6 @@ import 'package:teacher_app/modules/tasks/bloc/tasks_bloc.dart';
 import 'package:teacher_app/modules/tasks/bloc/tasks_events.dart';
 import 'package:teacher_app/modules/tasks/bloc/tasks_states.dart';
 import 'package:teacher_app/modules/tasks/models/duty_models.dart';
-import 'package:teacher_app/modules/tasks/models/homework_grading.dart';
 import 'package:teacher_app/modules/tasks/models/task_models.dart';
 import 'package:teacher_app/modules/tasks/screens/tasks_screen.dart';
 import 'package:teacher_app/utils/services/local_database_service.dart';
@@ -110,18 +111,25 @@ void main() {
       await bloc.close();
     });
 
-    test('homework bloc grades a submitted paper', () async {
+    test('homework bloc: marks + feedback, paper hand-ins, all handed in, delete', () async {
       final bloc = getIt<HomeworkBloc>()..add(const HomeworkLoadRequested('hw_review'));
       await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.status == HomeworkStatus.loaded)));
       expect(bloc.state.stats.graded, 28);
-      final next = bloc.state.stats.next!;
-      bloc.add(HomeworkGradeSaved(studentId: next.id, criteria: const [10, 10, 8, 8], feedback: 'Good'));
+      final next = bloc.state.stats.nextToGrade()!;
+      bloc.add(HomeworkGradeSaved(studentId: next.id, marks: 36, feedback: 'Good'));
       await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.stats.graded == 29)));
       expect(bloc.state.homework!.submissions[next.id]!.marks, 36);
-      expect(criteriaOf(bloc.state.homework!.submissions[next.id]!, 50), [10, 10, 8, 8]);
+      expect(bloc.state.homework!.submissions[next.id]!.feedback, 'Good');
+      final toGrade = bloc.state.stats.toGrade;
       final missing = bloc.state.stats.rows.firstWhere((r) => r.sub.status.name == 'pending');
       bloc.add(HomeworkSubmissionMarked(missing.id));
-      await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.stats.toGrade == 14)));
+      await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.stats.toGrade == toGrade + 1)));
+      bloc.add(HomeworkSubmissionMarked(missing.id, handedIn: false));
+      await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.stats.toGrade == toGrade)));
+      bloc.add(const HomeworkAllMarkedIn());
+      await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.stats.notSubmitted == 0)));
+      bloc.add(const HomeworkDeleted());
+      await expectLater(bloc.stream, emitsThrough(predicate<HomeworkState>((s) => s.status == HomeworkStatus.deleted)));
       await bloc.close();
 
       final none = getIt<HomeworkBloc>()..add(const HomeworkLoadRequested('nope'));
@@ -140,10 +148,20 @@ void main() {
       await bloc.close();
     });
 
-    test('rubric caps and level ranges', () {
-      expect(criterionCaps(50), [15, 15, 10, 10]);
-      expect(levelRanges(15).first, (13, 15));
-      expect(bandOf(92), 'Exemplary');
+    test('a parent app hand-in rides on the submission', () {
+      const sub = Submission(status: SubmissionStatus.submitted, extra: {
+        'handin': {
+          'files': [{'name': 'page1.jpg', 'url': 'https://x/p1', 'path': 'p', 'type': 'image/jpeg', 'size': 2048}],
+          'note': 'Page 2 is the diagram',
+          'submittedAt': '2026-11-26T10:00:00Z',
+          'late': true,
+        },
+      });
+      expect(sub.handin!.files.single.isImage, isTrue);
+      expect(sub.handin!.note, 'Page 2 is the diagram');
+      expect(sub.late, isTrue);
+      expect(sub.onPaper, isFalse);
+      expect(const Submission(status: SubmissionStatus.submitted).onPaper, isTrue);
     });
   });
 
@@ -236,47 +254,47 @@ void main() {
     expect(find.text('Reopen Duty'), findsOneWidget);
   });
 
-  testWidgets('homework detail, graded list, edit grades', (t) async {
+  testWidgets('homework page: hand-ins, filter, grade a paper with marks and feedback', (t) async {
     await pump(t, RoutePaths.homework('hw_review'));
     expect(find.text('Quadratic Equations Review'), findsOneWidget);
-    expect(find.textContaining('28/42 Evaluated'), findsOneWidget);
-    expect(find.text('Conceptual Understanding'), findsOneWidget);
-    await tapV(t, find.textContaining('Graded List'));
-    expect(find.textContaining('SHOWING'), findsOneWidget);
-    await tapV(t, find.textContaining('To Grade ('));
-    await tapV(t, find.text('Grade Now'));
-    expect(find.text('Grade Student'), findsOneWidget);
-    for (var i = 0; i < 4; i++) {
-      await t.tap(find.bySemanticsLabel('Increase Conceptual Understanding'));
-      await t.pump();
-    }
-    await t.tap(find.text('Save Grades'));
+    expect(find.text('Hand-ins'), findsOneWidget);
+    await tapV(t, find.textContaining('To grade ('));
+    final tile = find.byWidgetPredicate((w) => w.key is ValueKey<String> && (w.key! as ValueKey<String>).value.startsWith('hw-student-'));
+    await t.ensureVisible(tile.first);
     await t.pumpAndSettle();
-    await t.drag(vScroll(), const Offset(0, 3000));
+    await t.tap(tile.first);
     await t.pumpAndSettle();
-    expect(find.textContaining('29/42 Evaluated'), findsOneWidget);
+    expect(find.text('Feedback for the parent'), findsOneWidget);
+    await t.enterText(find.byKey(const ValueKey('hw-marks')), '40');
+    await t.tap(find.text('Good effort'));
+    await t.pump();
+    await t.ensureVisible(find.byKey(const ValueKey('hw-save')));
+    await t.tap(find.byKey(const ValueKey('hw-save')));
+    await t.pumpAndSettle();
     final subs = (db.byId('tk_homework', 'hw_review')!['submissions'] as Map).values.where((e) => e['status'] == 'graded');
     expect(subs.length, 29);
+    expect(subs.any((e) => e['marks'] == 40 && e['feedback'] == 'Good effort'), isTrue);
   });
 
-  testWidgets('re-grading requires a rationale', (t) async {
-    await pump(t, RoutePaths.homeworkGraded('hw_review'));
-    await tapV(t, find.byIcon(Icons.edit_note_rounded));
-    expect(find.text('Edit Grades'), findsOneWidget);
-    await tapV(t, find.text('Save & Update'));
-    await t.scrollUntilVisible(find.text('Select a reason for the score adjustment'), 300, scrollable: vScroll());
-    expect(find.text('Select a reason for the score adjustment'), findsOneWidget);
-    await tapV(t, find.text('Clerical Correction'));
-    await tapV(t, find.text('Save & Update'));
-    final graded = (db.byId('tk_homework', 'hw_review')!['submissions'] as Map).values.where((e) => e['rationale'] == 'Clerical Correction');
-    expect(graded.length, 1);
+  testWidgets('marks out of range are refused', (t) async {
+    await pump(t, RoutePaths.homework('hw_review'));
+    await tapV(t, find.textContaining('To grade ('));
+    final tile = find.byWidgetPredicate((w) => w.key is ValueKey<String> && (w.key! as ValueKey<String>).value.startsWith('hw-student-'));
+    await t.ensureVisible(tile.first);
+    await t.pumpAndSettle();
+    await t.tap(tile.first);
+    await t.pumpAndSettle();
+    await t.enterText(find.byKey(const ValueKey('hw-marks')), '999');
+    await t.ensureVisible(find.byKey(const ValueKey('hw-save')));
+    await t.tap(find.byKey(const ValueKey('hw-save')));
+    await t.pumpAndSettle();
+    expect(find.textContaining('Enter marks from 0 to'), findsOneWidget);
   });
 
-  testWidgets('graded route', (t) async {
+  testWidgets('graded route opens on the graded students', (t) async {
     await pump(t, RoutePaths.homeworkGraded('hw_set4'));
-    expect(find.text('Homework Grading'), findsOneWidget);
     expect(find.text('Quadratic Equations - Set 4'), findsOneWidget);
-    expect(find.textContaining('30/34 Evaluated'), findsOneWidget);
+    expect(find.textContaining('Graded ('), findsOneWidget);
   });
 
   testWidgets('progress log submit + log period', (t) async {

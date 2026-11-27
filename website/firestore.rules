@@ -80,6 +80,20 @@ service cloud.firestore {
     function myClasses() { return me().get('classIds', []); }
     function myGrns() { return me().get('grns', []); }
     function isParent(sid, studentId) { return isParentIn(sid) && studentId in myStudents(); }
+    // a homework hand-in (par_hw_submissions/{studentId}_{homeworkId}) for the parent's own child, on that child's
+    // copy of an open homework that is not graded yet; the server copies a checked version to ops_homework.handins
+    function parentHandinOk(sid, docId) {
+      let d = request.resource.data;
+      let hw = /databases/$(database)/documents/schools/$(sid)/par_homework/$(docId);
+      return d.keys().hasOnly(['studentId', 'homeworkId', 'uid', 'files', 'note', 'submittedAt', 'updatedAt'])
+        && d.studentId is string && d.homeworkId is string && docId == d.studentId + '_' + d.homeworkId
+        && isParent(sid, d.studentId) && d.uid == request.auth.uid
+        && d.files is list && d.files.size() > 0 && d.files.size() <= 10
+        && d.get('note', '') is string && d.get('note', '').size() <= 500
+        && exists(hw) && get(hw).data.get('studentId', '') == d.studentId
+        && !(get(hw).data.get('status', 'open').lower() in ['closed', 'completed', 'draft'])
+        && get(hw).data.get('submission', {}).get('status', 'pending') != 'graded';
+    }
     function studentDoc(sid, studentId) { return get(/databases/$(database)/documents/schools/$(sid)/students/$(studentId)).data; }
     // a message thread as it is after this write: the existing thread for a plain write, or the one created in the same batch
     function threadAfter(sid, threadId) { return getAfter(/databases/$(database)/documents/schools/$(sid)/msg_threads/$(threadId)).data; }
@@ -577,7 +591,7 @@ service cloud.firestore {
           || (col == 'classes' && docId in myClasses())
           || col == 'school'
           || (col in ['ops_periods', 'live_classes'] && resource.data.get('classId', '') in myClasses())
-          || (col in ['par_attendance', 'par_homework', 'par_results', 'student_leaves', 'ptm_bookings', 'fee_claims']
+          || (col in ['par_attendance', 'par_homework', 'par_results', 'student_leaves', 'ptm_bookings', 'fee_claims', 'par_hw_submissions']
               && resource.data.get('studentId', '') in myStudents())
           // Staff records always have studentId == ''; this also permits legacy studentId-only queries.
           || (col == 'certificates' && resource.data.get('studentId', '') in myStudents())
@@ -595,7 +609,9 @@ service cloud.firestore {
           || (col == 'exm_report_cards' && resource.data.get('studentId', '') in myStudents() && resource.data.get('status', '') == 'Published')
           // compiled exam results, only the published version (EXAMS_SHEETS_RESULTS_CONTRACT.md section 2)
           || (col == 'exm_results' && resource.data.get('studentId', '') in myStudents() && resource.data.get('status', '') == 'Published')
-          || (col == 'consents' && docId == request.auth.uid));
+          || (col == 'consents' && docId == request.auth.uid)
+          // class resources a teacher shared with parents (cl_resources is teacher-private otherwise)
+          || (col == 'cl_resources' && resource.data.get('visibility', '') == 'parents' && resource.data.get('classId', '') in myClasses()));
 
         // parent: own requests (leave, messages, consent); par_notifications only `read`
         allow create: if isParentIn(sid) && (
@@ -607,8 +623,11 @@ service cloud.firestore {
           || (col == 'msg_presence' && docId == request.auth.uid && presenceOk())
           || (col == 'ptm_bookings' && parentBookingOk(sid, docId))
           || (col == 'certificates' && parentCertificateOk(sid))
-          || (col == 'fee_claims' && parentClaimOk(sid)));
+          || (col == 'fee_claims' && parentClaimOk(sid))
+          || (col == 'par_hw_submissions' && parentHandinOk(sid, docId)));
         allow update: if isParentIn(sid) && (
+          // replace a homework hand-in while the homework is open and not graded
+          (col == 'par_hw_submissions' && isParent(sid, resource.data.get('studentId', '')) && parentHandinOk(sid, docId)) ||
           // meetings: re-book a cancelled slot, cancel a scheduled meeting of own child, record the join tap
           (col == 'ptm_bookings' && resource.data.get('status', '') == 'Cancelled' && parentBookingOk(sid, docId))
           || (col == 'ptm_bookings' && isParent(sid, resource.data.get('studentId', '')) && resource.data.get('status', '') == 'Scheduled'

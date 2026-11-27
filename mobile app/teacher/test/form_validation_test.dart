@@ -146,24 +146,25 @@ void main() {
   });
 
   group('homework', () {
-    testWidgets('title required (publish and draft), max marks > 0, 1 is the lowest valid', (t) async {
+    testWidgets('title required, marks from 1 (digits only), 1 is the lowest valid', (t) async {
       ignoreOverflow();
       final before = db.list('tk_homework').length;
       await open(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
-      await tapText(t, 'Publish HW');
-      expect(await seen(t, 'Enter an assignment title'), findsOneWidget);
-      await tapText(t, 'Save Draft');
-      expect(await seen(t, 'Enter a title to save a draft'), findsOneWidget);
-      await type(t, hinted('e.g. Quadratic Equations — Practice Set 5'), 'Practice Set 5');
-      await type(t, field('Total Max Marks'), '0');
-      await tapText(t, 'Publish HW');
-      expect(await seen(t, 'Enter marks greater than 0'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
+      await t.pumpAndSettle();
+      expect(await seen(t, 'Give the homework a title (at least 3 characters)'), findsOneWidget);
+      await t.enterText(find.byKey(const ValueKey('hw-title')), 'Practice Set 5');
+      await t.enterText(find.byKey(const ValueKey('hw-max')), '0');
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
+      await t.pumpAndSettle();
+      expect(await seen(t, 'Enter marks from 1 to 1000'), findsOneWidget);
       expect(db.list('tk_homework').length, before);
-      await type(t, field('Total Max Marks'), 'abc');
-      await tapText(t, 'Publish HW');
-      expect(await seen(t, 'Enter marks greater than 0'), findsOneWidget);
-      await type(t, field('Total Max Marks'), '1');
-      await tapText(t, 'Publish HW');
+      await t.enterText(find.byKey(const ValueKey('hw-max')), 'abc');
+      await t.pump();
+      expect(find.text('abc'), findsNothing, reason: 'digits only');
+      await t.enterText(find.byKey(const ValueKey('hw-max')), '1');
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
+      await t.pumpAndSettle();
       expect(db.list('tk_homework').length, before + 1);
       expect(db.list('tk_homework').firstWhere((h) => h['title'] == 'Practice Set 5')['maxMarks'], 1);
     });
@@ -496,13 +497,18 @@ void main() {
       expect(await seen(t, 'Enter the award title'), findsOneWidget);
     });
 
-    testWidgets('resource upload needs a file name', (t) async {
+    testWidgets('a file resource needs a file, a link needs https://', (t) async {
       ignoreOverflow();
       final before = db.list('cl_resources').length;
-      await open(t, RoutePaths.resources);
-      await tapText(t, 'Upload Resource');
-      await tap(t, find.widgetWithText(AppButton, 'Upload'));
-      expect(find.text('Enter a file name'), findsWidgets);
+      await open(t, '${RoutePaths.resources}?classId=cls_10B');
+      await t.tap(find.byKey(const ValueKey('res-add')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('res-type-file')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('res-title')), 'Worksheet');
+      await t.tap(find.byKey(const ValueKey('res-save')));
+      await t.pumpAndSettle();
+      expect(find.text('Choose a file to upload'), findsOneWidget);
       expect(db.list('cl_resources').length, before);
     });
   });

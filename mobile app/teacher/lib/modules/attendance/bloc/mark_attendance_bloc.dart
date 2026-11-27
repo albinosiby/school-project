@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../school/repositories/school_repository_interface.dart';
+import '../../home/models/timetable_models.dart' show PeriodKind;
+import '../../home/repositories/timetable_repository_interface.dart';
 import '../../../utils/services/app_messenger.dart';
 import '../models/attendance_models.dart';
 import '../repositories/attendance_repository_interface.dart';
@@ -10,7 +12,7 @@ import 'mark_attendance_states.dart';
 
 /// Marks a class/period's attendance (1.1.1 Mark Attendance).
 class MarkAttendanceBloc extends Bloc<MarkAttendanceEvent, MarkAttendanceState> {
-  MarkAttendanceBloc(this._repo, this._school) : super(const MarkAttendanceState()) {
+  MarkAttendanceBloc(this._repo, this._school, [this._timetable]) : super(const MarkAttendanceState()) {
     on<MarkAttendanceLoadRequested>(_onLoad);
     on<MarkAttendanceClassChanged>((e, emit) => _select(emit, classId: e.classId));
     on<MarkAttendanceDateChanged>((e, emit) => _select(emit, date: e.date));
@@ -25,6 +27,7 @@ class MarkAttendanceBloc extends Bloc<MarkAttendanceEvent, MarkAttendanceState> 
 
   final IAttendanceRepository _repo;
   final ISchoolRepository _school;
+  final ITimetableRepository? _timetable;
   late final StreamSubscription<void> _sub;
 
   Future<void> _onLoad(MarkAttendanceLoadRequested e, Emitter<MarkAttendanceState> emit) async {
@@ -65,16 +68,32 @@ class MarkAttendanceBloc extends Bloc<MarkAttendanceEvent, MarkAttendanceState> 
         marks: marks,
         existing: () => ex,
         history: aux.history,
+        taught: aux.taught,
+        marked: aux.marked,
         staffToday: () => aux.staff,
         notified: aux.notified,
       ),
     );
   }
 
-  Future<({List<AttendanceRecord> history, StaffLog? staff, Set<String> notified})> _aux(String classId) async {
+  Future<({List<AttendanceRecord> history, StaffLog? staff, Set<String> notified, Map<int, List<int>> taught, Set<String> marked})> _aux(
+    String classId,
+  ) async {
     final today = dkey(todayDate());
+    final all = await _repo.getRecords(classId: classId);
+    final taught = <int, List<int>>{};
+    for (final p in await _timetable?.getPeriods() ?? const []) {
+      final n = int.tryParse(p.no);
+      if (p.classId != classId || p.kind == PeriodKind.prep || n == null) continue;
+      (taught[p.day] ??= []).add(n);
+    }
+    for (final l in taught.values) {
+      l.sort();
+    }
     return (
-      history: dailyRecords(await _repo.getRecords(classId: classId), classId),
+      taught: taught,
+      marked: {for (final r in all) if (r.submitted && r.classId == classId) '${r.date}|${r.period}'},
+      history: dailyRecords(all, classId),
       staff: (await _repo.getStaffLogs()).where((r) => r.date == today).firstOrNull,
       notified: {
         for (final n in await _repo.getNotices())
@@ -91,7 +110,7 @@ class MarkAttendanceBloc extends Bloc<MarkAttendanceEvent, MarkAttendanceState> 
     }
     final aux = await _aux(state.classId);
     final ex = await _repo.findRecord(state.classId, state.date, state.period);
-    emit(state.copyWith(existing: () => ex, history: aux.history, staffToday: () => aux.staff, notified: aux.notified));
+    emit(state.copyWith(existing: () => ex, history: aux.history, staffToday: () => aux.staff, notified: aux.notified, taught: aux.taught, marked: aux.marked));
   }
 
   Future<void> _onSaved(MarkAttendanceSaved e, Emitter<MarkAttendanceState> emit) async {

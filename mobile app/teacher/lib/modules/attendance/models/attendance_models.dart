@@ -36,6 +36,9 @@ Map<int, (String, String)> get periodTimes => AppConfig.isFirebase
     : _demoPeriodTimes;
 
 String dkey(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+/// Now on the school clock (the school's time zone in Firebase mode; the device clock locally).
+DateTime schoolClockNow() => AppConfig.isFirebase ? SchoolPolicyRuntime.current.schoolTime() : DateTime.now();
+
 DateTime todayDate() {
   final n = AppConfig.isFirebase ? SchoolPolicyRuntime.current.schoolTime() : DateTime.now();
   return DateTime(n.year, n.month, n.day);

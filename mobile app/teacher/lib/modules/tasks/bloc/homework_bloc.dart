@@ -14,9 +14,11 @@ class HomeworkBloc extends Bloc<HomeworkEvent, HomeworkState> {
     on<HomeworkStatusToggled>(_onToggle);
     on<HomeworkSubmissionMarked>(_onSubmitted);
     on<HomeworkGradeSaved>(_onGrade);
+    on<HomeworkAllMarkedIn>(_onAllIn);
+    on<HomeworkDeleted>(_onDeleted);
     _subs = [
       for (final s in [_homework.watch(), _school.watch()]) s.listen((_) {
-        if (state.id.isNotEmpty) add(HomeworkLoadRequested(state.id));
+        if (state.id.isNotEmpty && state.status != HomeworkStatus.deleted) add(HomeworkLoadRequested(state.id));
       }),
     ];
   }
@@ -47,30 +49,55 @@ class HomeworkBloc extends Bloc<HomeworkEvent, HomeworkState> {
 
   Future<void> _onToggle(HomeworkStatusToggled e, Emitter<HomeworkState> emit) async {
     final h = state.homework;
-    if (h != null) await _homework.update(h.copyWith(status: h.status == 'closed' ? 'open' : 'closed'));
+    // closed → reopened, scheduled → published now, open → closed
+    if (h != null) await _homework.update(h.copyWith(status: h.status == 'closed' || h.status == 'scheduled' ? 'open' : 'closed'));
   }
 
   Future<void> _onSubmitted(HomeworkSubmissionMarked e, Emitter<HomeworkState> emit) async {
     final h = state.homework;
     if (h == null) return;
     final old = h.submissions[e.studentId] ?? const Submission();
-    final sub = Submission(status: SubmissionStatus.submitted, marks: old.marks, feedback: old.feedback, gradedAt: old.gradedAt, extra: old.extra);
+    final sub = e.handedIn
+        ? Submission(status: SubmissionStatus.submitted, marks: old.marks, feedback: old.feedback, gradedAt: old.gradedAt, extra: old.extra)
+        : Submission(extra: {...old.extra}..remove('gradedBy'));
     await _homework.update(h.copyWith(submissions: {...h.submissions, e.studentId: sub}));
+  }
+
+  Future<void> _onAllIn(HomeworkAllMarkedIn e, Emitter<HomeworkState> emit) async {
+    final h = state.homework;
+    if (h == null) return;
+    final subs = {...h.submissions};
+    for (final s in state.students) {
+      final cur = subs[s.id] ?? const Submission();
+      if (cur.status == SubmissionStatus.pending) subs[s.id] = Submission(status: SubmissionStatus.submitted, extra: cur.extra);
+    }
+    await _homework.update(h.copyWith(submissions: subs));
   }
 
   Future<void> _onGrade(HomeworkGradeSaved e, Emitter<HomeworkState> emit) async {
     final h = state.homework;
     if (h == null) return;
     final old = h.submissions[e.studentId] ?? const Submission();
-    final wasGraded = old.status == SubmissionStatus.graded;
     final sub = Submission(
-      status: SubmissionStatus.graded, marks: e.criteria.fold<int>(0, (a, b) => a + b), feedback: e.feedback, gradedAt: DateTime.now().toIso8601String(),
+      status: SubmissionStatus.graded,
+      marks: e.marks,
+      feedback: e.feedback.trim(),
+      gradedAt: DateTime.now().toIso8601String(),
       extra: {
-        ...old.extra, 'criteria': e.criteria, 'gradedBy': state.teacher?.name,
-        if (wasGraded) 'rationale': e.rationale, if (wasGraded) 'previousMarks': old.marks,
+        ...old.extra,
+        'gradedBy': state.teacher?.name,
+        if (old.status == SubmissionStatus.graded && old.marks != e.marks) 'previousMarks': old.marks,
       },
     );
     await _homework.update(h.copyWith(submissions: {...h.submissions, e.studentId: sub}));
+    emit(state.copyWith(savedSeq: state.savedSeq + 1));
+  }
+
+  Future<void> _onDeleted(HomeworkDeleted e, Emitter<HomeworkState> emit) async {
+    final h = state.homework;
+    if (h == null) return;
+    await _homework.delete(h.id);
+    emit(state.copyWith(status: HomeworkStatus.deleted));
   }
 
   @override

@@ -20,6 +20,8 @@ class MarkAttendanceState extends Equatable {
     this.empId = '',
     this.notified = const {},
     this.saveError,
+    this.taught = const {},
+    this.marked = const {},
   });
 
   final String policyVersion;
@@ -43,6 +45,32 @@ class MarkAttendanceState extends Equatable {
 
   /// Students whose parents already got the automated welfare SMS.
   final Set<String> notified;
+
+  /// Weekday (1-7) -> periods the teacher takes this class on her timetable.
+  final Map<int, List<int>> taught;
+
+  /// Submitted registers of this class as "date|period".
+  final Set<String> marked;
+
+  /// The teacher's periods of [date] (yyyy-MM-dd) in this class that have begun and have no submitted register.
+  /// Only school days from [flagsFrom] up to now count.
+  List<int> missingOn(String date, {required DateTime now, required DateTime flagsFrom, required List<int> workingDays}) {
+    final d = DateTime.tryParse(date);
+    if (d == null || d.isBefore(DateTime(flagsFrom.year, flagsFrom.month, flagsFrom.day)) || !workingDays.contains(d.weekday)) return const [];
+    final today = DateTime(now.year, now.month, now.day);
+    if (d.isAfter(today)) return const [];
+    final nowMin = now.hour * 60 + now.minute;
+    return [
+      for (final p in taught[d.weekday] ?? const <int>[])
+        if (!marked.contains('$date|$p') && (d.isBefore(today) || _startMin(p) <= nowMin)) p,
+    ];
+  }
+
+  static int _startMin(int period) {
+    final t = periodTimes[period]?.$1 ?? '00:00';
+    final p = t.split(':');
+    return (int.tryParse(p[0]) ?? 0) * 60 + (int.tryParse(p.length > 1 ? p[1] : '0') ?? 0);
+  }
 
   /// Why the last save was refused (period outside the bell schedule, record owned by another teacher); null after a save.
   final String? saveError;
@@ -106,6 +134,8 @@ class MarkAttendanceState extends Equatable {
     String? empId,
     Set<String>? notified,
     String? Function()? saveError,
+    Map<int, List<int>>? taught,
+    Set<String>? marked,
   }) => MarkAttendanceState(
     policyVersion: SchoolPolicyRuntime.current.version,
     status: status ?? this.status,
@@ -121,6 +151,8 @@ class MarkAttendanceState extends Equatable {
     empId: empId ?? this.empId,
     notified: notified ?? this.notified,
     saveError: saveError == null ? this.saveError : saveError(),
+    taught: taught ?? this.taught,
+    marked: marked ?? this.marked,
   );
 
   @override
@@ -138,6 +170,8 @@ class MarkAttendanceState extends Equatable {
     staffToday,
     empId,
     notified,
+    taught,
+    marked,
     saveError,
   ];
 }

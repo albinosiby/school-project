@@ -1,3 +1,5 @@
+import '../modules/resources/repositories/firebase_resource_repository.dart';
+import '../modules/resources/repositories/resource_repository_interface.dart';
 import '../utils/services/cache_service.dart';
 import 'package:get_it/get_it.dart';
 import '../modules/auth/repositories/firebase_registration_repository.dart';
@@ -62,6 +64,7 @@ void registerFirebaseRepositories(GetIt getIt) {
   replace<IHomeworkRepository>(FirebaseHomeworkRepository(session));
   replace<IMarksRepository>(FirebaseMarksRepository(session));
   replace<ITimetableRepository>(FirebaseTimetableRepository(session));
+  replace<IResourceRepository>(FirebaseResourceRepository(session));
   replace<INoticeRepository>(FirebaseNoticeRepository(session));
   replace<ILiveClassRepository>(FirebaseLiveClassRepository(session));
   replace<ILeaveRepository>(FirebaseLeaveRepository(session));

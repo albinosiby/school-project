@@ -457,6 +457,7 @@ const shared = {};
 Object.assign(exports, require("./parent")({ db, notify, chunk, clsLabel, DEAD_TOKEN, shared }));
 { const { sendChatMeetingReminders } = require("./chatMeetings")({ db, notify, shared }); Object.assign(exports, { sendChatMeetingReminders }); }
 { const { sendClassReminders } = require("./classReminders")({ db, notify, shared }); Object.assign(exports, { sendClassReminders }); }
+{ const { homeworkSchedule } = require("./homeworkSchedule")({ db, notify, shared }); Object.assign(exports, { homeworkSchedule }); }
 Object.assign(exports, require("./parentLogin"));
 { const { onCircularStateForReceipts, onParentNoticeRead } = require("./noticeReceipts"); Object.assign(exports, { onCircularStateForReceipts, onParentNoticeRead }); }
 
@@ -473,6 +474,9 @@ Object.assign(exports, require("./owner"));
 Object.assign(exports, require("./staff"));
 
 Object.assign(exports, require("./classRolls"));
+const classTeacherStudents = require("./classTeacherStudents");
+exports.getClassStudentDetails = classTeacherStudents.getClassStudentDetails;
+exports.updateClassStudentDetails = classTeacherStudents.updateClassStudentDetails;
 // Automatic roll numbers for students joining a division (set_config/rolls, DATA_CONTRACT section 3a).
 exports.onStudentRollNeeded = require("./studentRolls").onStudentRollNeeded;
 Object.assign(exports, require("./feePayments"));

@@ -47,12 +47,16 @@ class _EmptyHomework implements IHomeworkRepository {
   @override
   Stream<List<Homework>> watchHomework(String childId) =>
       Stream.value(const []);
+  @override
+  Future<void> submit({required String childId, required String homeworkId, required List<PickedHandin> files, String note = ''}) async {}
 }
 
 class _FailingHomework implements IHomeworkRepository {
   @override
   Stream<List<Homework>> watchHomework(String childId) =>
       Stream.error(Exception('offline'));
+  @override
+  Future<void> submit({required String childId, required String homeworkId, required List<PickedHandin> files, String note = ''}) async {}
 }
 
 class _SlowTimetable implements ITimetableRepository {

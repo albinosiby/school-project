@@ -183,7 +183,10 @@ class _HomeworkBodyState extends State<_HomeworkBody> {
                     icon: Icons.auto_stories_outlined,
                   ),
                   meta: '${h.teacher} • due ${fmtDay(h.due, now: now)}',
-                  trailing: Pill(s.label, tone: homeworkTone(s)),
+                  trailing: Pill(
+                    s == HomeworkStatus.submitted && h.late ? 'Late' : s.label,
+                    tone: s == HomeworkStatus.submitted && h.late ? Tone.warning : homeworkTone(s),
+                  ),
                   footer: [
                     AppMetaChip(
                       'Assigned ${fmtShort(h.assignedOn)}',

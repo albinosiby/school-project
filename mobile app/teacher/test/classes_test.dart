@@ -3,7 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:teacher_app/config/routes/modules/classes_routes.dart';
 import 'package:teacher_app/config/routes/routes.dart';
+import 'package:teacher_app/design_system/design_system.dart' show AppSegmented;
 import 'package:teacher_app/di/injection.dart';
+import 'package:teacher_app/modules/attendance/repositories/attendance_repository_interface.dart';
+import 'package:teacher_app/modules/attendance/models/attendance_models.dart' show AttendanceRecord, dkey, todayDate;
+import 'package:teacher_app/modules/school/models/school_models.dart';
+import 'package:teacher_app/modules/classes/models/class_management_models.dart';
 import 'package:teacher_app/modules/classes/bloc/behaviour_bloc.dart';
 import 'package:teacher_app/modules/classes/bloc/behaviour_events.dart';
 import 'package:teacher_app/modules/classes/bloc/behaviour_states.dart';
@@ -22,8 +27,13 @@ import 'package:teacher_app/modules/classes/bloc/resources_states.dart';
 import 'package:teacher_app/modules/classes/bloc/students_bloc.dart';
 import 'package:teacher_app/modules/classes/bloc/students_events.dart';
 import 'package:teacher_app/modules/classes/bloc/students_states.dart';
+import 'package:teacher_app/modules/classes/bloc/class_management_bloc.dart';
+import 'package:teacher_app/modules/classes/bloc/class_management_events.dart';
+import 'package:teacher_app/modules/classes/bloc/class_management_states.dart';
 import 'package:teacher_app/modules/classes/models/classes_models.dart';
+import 'package:teacher_app/modules/classes/screens/widgets/class_charts.dart';
 import 'package:teacher_app/modules/classes/screens/classes_screen.dart';
+import 'package:teacher_app/modules/school/repositories/school_repository_interface.dart';
 import 'package:teacher_app/modules/tasks/models/homework_models.dart';
 import 'package:teacher_app/modules/tasks/repositories/homework_repository_interface.dart';
 import 'package:teacher_app/utils/services/local_database_service.dart';
@@ -55,6 +65,12 @@ Future<void> tapText(WidgetTester t, String text, {bool last = false}) async {
   await t.ensureVisible(f);
   await t.pumpAndSettle();
   await t.tap(f);
+  await t.pumpAndSettle();
+}
+
+/// Taps the profile tab [label] (in the segmented control, not a card title).
+Future<void> tab(WidgetTester t, String label) async {
+  await t.tap(find.descendant(of: find.byType(AppSegmented), matching: find.text(label)));
   await t.pumpAndSettle();
 }
 
@@ -96,20 +112,36 @@ void main() {
       await bloc.close();
     });
 
-    test('ResourcesBloc uploads, pins, deletes and toggles portal', () async {
+    test('ResourcesBloc adds a YouTube video and a Drive link, shares, pins and deletes', () async {
       final bloc = getIt<ResourcesBloc>()..add(const ResourcesLoadRequested());
       await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.length == 12)));
-      bloc.add(const ResourceUploaded(classId: 'cls_10B', fileName: 'Chapter 5.docx', category: 'Worksheets'));
-      await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.any((r) => r.title == 'Chapter 5.docx' && r.ext == 'docx'))));
+      bloc.add(ResourceAdded(SharedResource(classId: 'cls_10B', title: 'Fractions explained', kind: ResourceKind.youtube, url: 'https://youtu.be/abcDEF12345', visibility: 'parents', createdAt: DateTime.now().toIso8601String())));
+      await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.any((r) => r.title == 'Fractions explained'))));
+      final video = bloc.state.resources.firstWhere((r) => r.title == 'Fractions explained');
+      expect(video.videoId, 'abcDEF12345');
+      expect(video.forParents, isTrue);
+      bloc.add(const ResourceAdded(SharedResource(classId: 'cls_10B', title: 'Notes folder', kind: ResourceKind.link, url: 'https://drive.google.com/drive/folders/xyz')));
+      await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.any((r) => r.title == 'Notes folder' && r.isDrive && !r.forParents))));
+      final drive = bloc.state.resources.firstWhere((r) => r.title == 'Notes folder');
+      bloc.add(ResourceVisibilityToggled(drive));
+      await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.firstWhere((x) => x.id == drive.id).forParents)));
       final r = bloc.state.resources.firstWhere((r) => r.id == 'rs3');
       bloc.add(ResourcePinToggled(r));
       await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.firstWhere((x) => x.id == 'rs3').pinned)));
       bloc.add(ResourceDeleted(r));
       await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => s.resources.every((x) => x.id != 'rs3'))));
-      bloc.add(const PortalVisibilityChanged(false));
-      await expectLater(bloc.stream, emitsThrough(predicate<ResourcesState>((s) => !s.portalVisible)));
-      expect(db.doc('cl_prefs')['portalVisible'], false);
       await bloc.close();
+    });
+
+    test('youtube ids and resource types', () {
+      for (final u in ['https://youtu.be/abcDEF12345', 'https://www.youtube.com/watch?v=abcDEF12345&t=3', 'https://youtube.com/shorts/abcDEF12345', 'https://m.youtube.com/embed/abcDEF12345']) {
+        expect(youtubeId(u), 'abcDEF12345', reason: u);
+      }
+      expect(youtubeId('https://vimeo.com/123'), isNull);
+      expect(isDriveLink('https://docs.google.com/presentation/d/1/edit'), isTrue);
+      expect(const SharedResource(classId: 'c', title: 't', fileName: 'Chapter 5.pptx').fileType, 'ppt');
+      expect(const SharedResource(classId: 'c', title: 't', fileName: 'a.docx').fileType, 'doc');
+      expect(SharedResource.fromJson({'classId': 'c', 'title': 'Old', 'ext': 'pdf', 'sizeKb': 2}).visibility, 'private', reason: 'older rows stay private');
     });
 
     test('StudentsBloc loads logs and records exports and calls', () async {
@@ -144,7 +176,7 @@ void main() {
         Homework(id: '', classId: 'cls_8C', title: 'Draft', subject: 'Physics', due: '2026-11-01', maxMarks: 10, status: 'draft', createdAt: '2026-10-24', extra: {'code': 'HW-PHYS-8C-01'}),
         enrolled: 40,
       ));
-      await expectLater(bloc.stream, emitsThrough(predicate<NewHomeworkState>((s) => s.status == NewHomeworkStatus.saved && s.message == 'Draft saved')));
+      await expectLater(bloc.stream, emitsThrough(predicate<NewHomeworkState>((s) => s.status == NewHomeworkStatus.saved)));
       final all = await getIt<IHomeworkRepository>().getAll(classId: 'cls_8C');
       expect(all.length, before + 1);
       final hw = all.firstWhere((h) => h.title == 'Draft');
@@ -156,45 +188,23 @@ void main() {
   });
 
   group('screens', () {
-    testWidgets('classes tab shows cards, hub, roster, pacing and search', (t) async {
+    testWidgets('classes tab: the class teacher card on top, subject classes below with open homework', (t) async {
+      final other = (await getIt<ISchoolRepository>().getClasses()).firstWhere((c) => !c.classTeacher);
       await getIt<IHomeworkRepository>().create(Homework(
-        id: '', classId: 'cls_10B', title: 'Quadratic Equations – Set 4', subject: 'Math',
-        due: DateTime.now().add(const Duration(days: 30)).toIso8601String().substring(0, 10), maxMarks: 20, createdAt: DateTime.now().toIso8601String(),
-        submissions: {for (var i = 1; i <= 42; i++) 'stu_${100 + i}': Submission(status: i <= 34 ? SubmissionStatus.submitted : SubmissionStatus.pending)},
-      ));
-      await pump(t, RoutePaths.classes);
-      expect(find.text('My Classes & Sections'), findsOneWidget);
-      expect(find.text('168 total', findRichText: true), findsOneWidget);
-      expect(find.textContaining('Mathematics'), findsWidgets);
-      await t.scrollUntilVisible(find.text('Syllabus Pacing'), 300, scrollable: find.byType(Scrollable).first);
-      await t.pumpAndSettle();
-      await t.tap(find.text('Syllabus Pacing'));
-      await t.pumpAndSettle();
-      await t.tap(find.byTooltip('More topics'));
-      await t.pumpAndSettle();
-      expect(db.byId('cl_pacing', 'cls_10B')!['done'], 15);
-      await tapText(t, 'Done');
-      await t.drag(find.byType(Scrollable).first, const Offset(0, 3000));
-      await t.pumpAndSettle();
-      await t.enterText(find.byType(TextField).first, 'physics');
-      await t.pumpAndSettle();
-      expect(find.text('Mathematics • Section B'), findsNothing);
-      expect(find.textContaining('Physics'), findsWidgets);
-    });
-
-    testWidgets('class card shows active homework progress', (t) async {
-      final hws = await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B');
-      for (final h in hws) {
-        await getIt<IHomeworkRepository>().delete(h.id);
-      }
-      await getIt<IHomeworkRepository>().create(Homework(
-        id: '', classId: 'cls_10B', title: 'Set 4', subject: 'Math', due: DateTime.now().add(const Duration(days: 1)).toIso8601String().substring(0, 10),
+        id: '', classId: other.id, title: 'Probe worksheet', subject: 'Math', due: DateTime.now().add(const Duration(days: 1)).toIso8601String().substring(0, 10),
         maxMarks: 20, createdAt: DateTime.now().toIso8601String(),
-        submissions: {for (var i = 1; i <= 42; i++) 'stu_${100 + i}': Submission(status: i <= 34 ? SubmissionStatus.submitted : SubmissionStatus.pending)},
+        submissions: {for (var i = 1; i <= 10; i++) 'stu_x$i': Submission(status: i <= 7 ? SubmissionStatus.submitted : SubmissionStatus.pending)},
       ));
       await pump(t, RoutePaths.classes);
-      expect(find.textContaining('34 / 42 Students Submitted'), findsOneWidget);
-      expect(find.textContaining('Due Tomorrow'), findsOneWidget);
+      expect(find.byKey(const ValueKey('my-class-cls_10B')), findsOneWidget);
+      expect(find.text('CLASS TEACHER'), findsOneWidget);
+      expect(find.descendant(of: find.byKey(const ValueKey('my-class-cls_10B')), matching: find.text('Class 10-B')), findsOneWidget);
+      expect(find.byKey(ValueKey('teach-class-${other.id}')), findsOneWidget);
+      // her own class is also listed under the subjects she teaches (independent of class management)
+      final own = (await getIt<ISchoolRepository>().getClasses()).firstWhere((c) => c.id == 'cls_10B');
+      expect(find.byKey(const ValueKey('teach-class-cls_10B')), own.subjectNames.isNotEmpty || own.subject.isNotEmpty ? findsOneWidget : findsNothing);
+      await t.scrollUntilVisible(find.textContaining('Probe worksheet'), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.textContaining('7/10 turned in'), findsOneWidget);
     });
 
     testWidgets('behaviour list, filter and new log publish', (t) async {
@@ -234,43 +244,226 @@ void main() {
       expect(find.text('1 Selected'), findsOneWidget);
     });
 
-    testWidgets('shared resources list, upload and delete', (t) async {
-      await pump(t, RoutePaths.resources);
-      expect(find.text('12 Shared Files'), findsOneWidget);
-      expect(find.text('Pinned Handouts'), findsOneWidget);
-      await tapText(t, 'Upload Resource');
-      await tapText(t, 'Upload', last: true);
-      expect(find.text('Enter a file name'), findsOneWidget);
-      await t.enterText(find.widgetWithText(TextFormField, 'e.g. Chapter 5 Worksheet.pdf'), 'Chapter 5 Worksheet.pdf');
-      await tapText(t, 'Upload', last: true);
-      expect(db.list('cl_resources').length, 13);
-      await toTop(t);
-      expect(find.text('13 Shared Files'), findsOneWidget);
-      db.remove('cl_resources', db.list('cl_resources').first['id'] as String);
+    testWidgets('resources: add a YouTube video for parents, filter, make it private', (t) async {
+      await pump(t, '${RoutePaths.resources}?classId=cls_10B');
+      expect(find.text('Resources'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('res-add')));
       await t.pumpAndSettle();
-      expect(find.text('12 Shared Files'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('res-type-youtube')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('res-url')), 'not a link');
+      await t.enterText(find.byKey(const ValueKey('res-title')), 'Photosynthesis');
+      await t.tap(find.byKey(const ValueKey('res-save')));
+      await t.pumpAndSettle();
+      expect(find.textContaining('Paste a YouTube video link'), findsOneWidget);
+      await t.enterText(find.byKey(const ValueKey('res-url')), 'https://youtu.be/abcDEF12345');
+      await t.pump();
+      await t.ensureVisible(find.byKey(const ValueKey('res-save')));
+      await t.tap(find.byKey(const ValueKey('res-save')));
+      await t.pumpAndSettle();
+      final row = db.list('cl_resources').firstWhere((r) => r['title'] == 'Photosynthesis');
+      expect(row['kind'], 'youtube');
+      expect(row['visibility'], 'parents');
+      await t.tap(find.textContaining('Videos ('));
+      await t.pumpAndSettle();
+      expect(find.text('Photosynthesis'), findsOneWidget);
+      await t.tap(find.byKey(ValueKey('res-vis-${row['id']}')));
+      await t.pumpAndSettle();
+      expect(db.byId('cl_resources', '${row['id']}')!['visibility'], 'private');
     });
 
-    testWidgets('students list search and profile tabs', (t) async {
+    testWidgets('class page: class teacher tools, search and the student profile with editable details', (t) async {
       await pump(t, '${RoutePaths.students}?classId=cls_10B');
-      expect(find.textContaining('Directory'), findsOneWidget);
-      expect(find.text('All (42)'), findsOneWidget);
+      expect(find.text('You are the class teacher'), findsOneWidget);
+      await t.scrollUntilVisible(find.textContaining('All (42)'), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.textContaining('All (42)'), findsOneWidget);
       await t.enterText(find.byType(TextField).first, 'Aarav');
       await t.pumpAndSettle();
-      expect(find.text('Aarav Sharma'), findsWidgets);
-      await tapText(t, 'Aarav Sharma');
-      expect(find.text('Academic Mastery'), findsOneWidget);
-      expect(find.text('Guardian & Emergency Info'), findsOneWidget);
-      await tapText(t, 'Academics', last: true);
-      expect(find.text('Benchmark Comparison'), findsOneWidget);
-      await tapText(t, 'Attendance', last: true);
-      expect(find.text('November 2024'), findsOneWidget);
+      await t.scrollUntilVisible(find.byKey(const ValueKey('student-row-stu_101')), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.byKey(const ValueKey('student-row-stu_101')), findsOneWidget);
+      expect(find.byKey(const ValueKey('student-row-stu_102')), findsNothing);
+      await t.tap(find.byKey(const ValueKey('student-row-stu_101')));
+      await t.pumpAndSettle();
+      for (final tab in ['Overview', 'Attendance', 'Academics', 'Details']) {
+        expect(find.text(tab), findsWidgets);
+      }
+      await tab(t, 'Attendance');
+      expect(find.text('This year'), findsOneWidget);
+      await tab(t, 'Details');
+      expect(find.text('Parents & contacts'), findsOneWidget);
+      expect(find.text('Mr. Sharma'), findsWidgets);
+      // the class teacher corrects the health notes
+      await t.ensureVisible(find.byKey(const ValueKey('edit-Health')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('edit-Health')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('O+'));
+      await t.enterText(find.byKey(const ValueKey('medical-conditions')), 'Asthma — carries an inhaler');
+      await t.tap(find.byKey(const ValueKey('details-save')));
+      await t.pumpAndSettle();
+      final saved = db.byId('student_details', 'stu_101')!;
+      expect(saved['conditions'], 'Asthma — carries an inhaler');
+      expect(saved['bloodGroup'], 'O+');
+      expect(find.text('Asthma — carries an inhaler'), findsWidgets);
     });
 
-    testWidgets('students list honours ?q=', (t) async {
+    testWidgets('attendance calendar: one dot per period, red where absent, and the day sheet names the subjects', (t) async {
+      final repo = getIt<IAttendanceRepository>();
+      final day = dkey(todayDate());
+      await repo.saveRecord(AttendanceRecord(id: 'cal1', classId: 'cls_10B', date: day, period: 1, total: 42, submitted: true));
+      await repo.saveRecord(AttendanceRecord(id: 'cal2', classId: 'cls_10B', date: day, period: 2, total: 42, marks: const {'stu_101': 'A'}, submitted: true));
+      await pump(t, RoutePaths.student('stu_101'));
+      await tab(t, 'Attendance');
+      final cell = find.byKey(ValueKey('cal-day-$day'));
+      await t.ensureVisible(cell);
+      await t.pumpAndSettle();
+      expect(find.bySemanticsLabel(RegExp('$day, absent in 1 periods')), findsOneWidget);
+      await t.tap(cell);
+      await t.pumpAndSettle();
+      expect(find.textContaining('Absent in 1 of'), findsOneWidget);
+      expect(find.text('P1'), findsOneWidget);
+      expect(find.text('P2'), findsOneWidget);
+      expect(find.text('Absent'), findsWidgets);
+      expect(find.text('Present'), findsWidgets);
+    });
+
+    testWidgets('class teacher changes the primary contact; the roster follows', (t) async {
+      await pump(t, RoutePaths.student('stu_101'));
+      await tab(t, 'Details');
+      await t.tap(find.byKey(const ValueKey('edit-Parents & contacts')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Mother'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('contact-mother-name')), 'Mrs. Priya Sharma');
+      await t.enterText(find.byKey(const ValueKey('contact-mother-phone')), '+91 9810010001');
+      await t.tap(find.byKey(const ValueKey('details-save')));
+      await t.pumpAndSettle();
+      expect(db.byId('student_details', 'stu_101')!['contacts']['mother']['name'], 'Mrs. Priya Sharma');
+    });
+
+    testWidgets('a subject teacher sees no Details tab', (t) async {
+      final other = (await getIt<ISchoolRepository>().getClasses()).firstWhere((c) => !c.classTeacher);
+      final st = (await getIt<ISchoolRepository>().getStudents(classId: other.id)).first;
+      await pump(t, RoutePaths.student(st.id));
+      expect(find.text('Overview'), findsWidgets);
+      expect(find.text('Details'), findsNothing);
+      expect(find.text('Your class'), findsNothing);
+    });
+
+    testWidgets('class management opens from the class teacher card and shows performance charts', (t) async {
+      await pump(t, RoutePaths.classes);
+      await t.tap(find.byKey(const ValueKey('my-class-cls_10B')));
+      await t.pumpAndSettle();
+      expect(find.text('CLASS PERFORMANCE'), findsOneWidget);
+      expect(find.text('Attendance trend'), findsOneWidget);
+      expect(find.byType(TrendLineChart), findsWidgets);
+      for (final tab in ['Overview', 'Students', 'Attendance']) {
+        expect(find.textContaining(tab), findsWidgets);
+      }
+      // students tab lists every student with attendance and marks
+      await t.tap(find.text('Students').first);
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('standing-stu_101')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('standing-stu_101')));
+      await t.pumpAndSettle();
+      expect(find.text('Attendance by subject'), findsOneWidget);
+      expect(find.text('Full profile'), findsOneWidget);
+    });
+
+    testWidgets('class management: attendance history opens a day; a leave request is approved with a note', (t) async {
+      await pump(t, '${RoutePaths.classManage('cls_10B')}?tab=attendance');
+      expect(find.text('Recent registers'), findsOneWidget);
+      await pump(t, '${RoutePaths.classManage('cls_10B')}?tab=leaves');
+      expect(find.byKey(const ValueKey('leave-ls_1')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('approve-ls_1')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('leave-note')), 'Get well soon');
+      await t.tap(find.byKey(const ValueKey('leave-confirm')));
+      await t.pumpAndSettle();
+      final slip = db.byId('att_slips', 'ls_1')!;
+      expect(slip['status'], 'Approved');
+      expect(slip['decisionNote'], 'Get well soon');
+      expect(find.byKey(const ValueKey('approve-ls_1')), findsNothing);
+    });
+
+    test('every timetable subject is listed, also those with no register or mark yet', () {
+      const st = Student(id: 's1', name: 'A', roll: 1, classId: 'c', adm: '', guardian: '', phone: '', attendance: 0, grade: '');
+      final s = ClassManagementState(
+        status: ClassManagementStatus.loaded,
+        classId: 'c',
+        roster: const [st],
+        timetable: const [
+          ClassPeriod(classId: 'c', day: 1, period: 1, subject: 'Maths'),
+          ClassPeriod(classId: 'c', day: 2, period: 1, subject: 'Maths'),
+          ClassPeriod(classId: 'c', day: 1, period: 2, subject: 'Hindi'),
+          ClassPeriod(classId: 'c', day: 1, period: 3, subject: 'Art'),
+        ],
+        // a Monday register of period 1 (Maths) with the student absent
+        records: const [AttendanceRecord(id: 'r', classId: 'c', date: '2026-11-23', period: 1, total: 1, marks: {'s1': 'A'}, submitted: true)],
+        marks: const [ClassMark(studentId: 's1', subject: 'Hindi', exam: 'Unit 1', cycleId: 'u1', score: 18, max: 20)],
+      );
+      expect(s.subjects, ['Maths', 'Art', 'Hindi']);
+      expect(s.subjectAttendance, {'Maths': 0.0, 'Art': null, 'Hindi': null});
+      expect(s.subjectMarks, {'Maths': null, 'Art': null, 'Hindi': 90.0});
+      expect(s.weeklyPeriods('Maths'), 2);
+      final mine = s.studentSubjectAttendance(st);
+      expect(mine.keys, ['Maths', 'Art', 'Hindi']);
+      expect(mine['Maths'], (attended: 0, total: 1));
+      expect(mine['Art'], (attended: 0, total: 0));
+    });
+
+    test('a day combines every period (all subjects) for the trend and each student', () {
+      const a = Student(id: 'a', name: 'A', roll: 1, classId: 'c', adm: '', guardian: '', phone: '', attendance: 0, grade: '');
+      const b = Student(id: 'b', name: 'B', roll: 2, classId: 'c', adm: '', guardian: '', phone: '', attendance: 0, grade: '');
+      final s = ClassManagementState(
+        status: ClassManagementStatus.loaded,
+        classId: 'c',
+        roster: const [a, b],
+        records: const [
+          // Monday: period 1 everyone present, period 2 'a' absent
+          AttendanceRecord(id: '1', classId: 'c', date: '2026-11-23', period: 1, total: 2, submitted: true),
+          AttendanceRecord(id: '2', classId: 'c', date: '2026-11-23', period: 2, total: 2, marks: {'a': 'A'}, submitted: true),
+          AttendanceRecord(id: '3', classId: 'c', date: '2026-11-24', period: 1, total: 2, submitted: true),
+        ],
+      );
+      expect(s.days.length, 2);
+      expect(s.days.first.periods, 2);
+      expect(s.days.first.rate, 75);
+      expect(s.days.first.absentees, {'a'});
+      expect(s.markedLabel(s.days.first), '2 periods marked');
+      expect(s.attendanceRate, closeTo(83.3, .1));
+      expect(s.standingOf('a')!.attendance, closeTo(66.7, .1));
+      expect(s.standingOf('a')!.absences, 1);
+      expect(s.standingOf('b')!.attendance, 100);
+    });
+
+    test('class management bloc: subject attendance from the timetable and marks averages', () async {
+      final bloc = getIt<ClassManagementBloc>()..add(const ClassManagementLoadRequested('cls_10B'));
+      await expectLater(bloc.stream, emitsThrough(predicate<ClassManagementState>((s) => s.status == ClassManagementStatus.loaded)));
+      final s = bloc.state;
+      expect(s.roster.length, 42);
+      expect(s.standings.length, 42);
+      for (final r in s.records) {
+        expect(s.subjectOf(r), isNotEmpty);
+      }
+      final bands = s.marksBands;
+      expect(bands.fold<int>(0, (a, b) => a + b), s.standings.where((x) => x.marks != null).length);
+      await bloc.close();
+    });
+
+    testWidgets('the subject view of the own class has no class-teacher tools', (t) async {
+      await pump(t, '${RoutePaths.students}?classId=cls_10B&view=subject');
+      expect(find.text('You are the class teacher'), findsNothing);
+      expect(find.text('Needs your attention'), findsNothing);
+      await t.scrollUntilVisible(find.textContaining('All (42)'), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.textContaining('All (42)'), findsOneWidget);
+    });
+
+    testWidgets('class page honours ?q=', (t) async {
       await pump(t, '${RoutePaths.students}?classId=cls_10B&q=Aarav');
-      expect(find.text('Aarav Sharma'), findsWidgets);
-      expect(find.textContaining('Ananya'), findsNothing);
+      await t.scrollUntilVisible(find.byKey(const ValueKey('student-row-stu_101')), 300, scrollable: find.byType(Scrollable).first);
+      expect(find.byKey(const ValueKey('student-row-stu_101')), findsOneWidget);
+      expect(find.byKey(const ValueKey('student-row-stu_102')), findsNothing);
     });
 
     testWidgets('documents and request document sheet', (t) async {
@@ -284,23 +477,50 @@ void main() {
       expect(find.text('PENDING REQUESTS'), findsOneWidget);
     });
 
-    testWidgets('new homework validates and publishes via the homework repository', (t) async {
+    testWidgets('new homework validates, sets it for the class and opens it', (t) async {
       final before = (await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B')).length;
       await pump(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
-      expect(find.text('NEW HOMEWORK'), findsOneWidget);
-      await t.tap(find.text('Publish HW'));
+      expect(find.text('New homework'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
       await t.pumpAndSettle();
-      expect(find.text('Enter an assignment title'), findsOneWidget);
-      await t.enterText(find.widgetWithText(TextField, 'e.g. Quadratic Equations — Practice Set 5'), 'Practice Set 5');
+      expect(find.textContaining('Give the homework a title'), findsOneWidget);
+      await t.enterText(find.byKey(const ValueKey('hw-title')), 'Practice Set 5');
+      await t.enterText(find.byKey(const ValueKey('hw-notes')), 'Exercise 4.2, questions 1-10');
       await t.pump();
-      await t.tap(find.text('Publish HW'));
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
       await t.pumpAndSettle();
-      final hw = (await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B')).firstWhere((h) => h.title == 'Practice Set 5');
-      expect((await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B')).length, before + 1);
+      final all = await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B');
+      final hw = all.firstWhere((h) => h.title == 'Practice Set 5');
+      expect(all.length, before + 1);
       expect(hw.status, 'open');
+      expect(hw.maxMarks, 10);
+      expect(hw.description, 'Exercise 4.2, questions 1-10');
       expect(hw.submissions.length, 42);
       expect(hw.submissions['stu_101']!.status, SubmissionStatus.pending);
-      expect('${hw.extra['code']}', startsWith('HW-MATH-10B-'));
+    });
+
+    testWidgets('homework can be scheduled for later', (t) async {
+      await pump(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
+      await t.enterText(find.byKey(const ValueKey('hw-title')), 'Chapter 6 questions');
+      await t.tap(find.text('Schedule'));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('hw-publish-at')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
+      await t.pumpAndSettle();
+      final hw = (await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B')).firstWhere((h) => h.title == 'Chapter 6 questions');
+      expect(hw.status, 'scheduled');
+      expect(DateTime.parse('${hw.extra['publishAt']}').isAfter(DateTime.now()), isTrue);
+    });
+
+    testWidgets('a not-graded homework is set with 0 marks', (t) async {
+      await pump(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
+      await t.enterText(find.byKey(const ValueKey('hw-title')), 'Read chapter 5');
+      await t.tap(find.byKey(const ValueKey('hw-graded')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('hw-submit')));
+      await t.pumpAndSettle();
+      final hw = (await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B')).firstWhere((h) => h.title == 'Read chapter 5');
+      expect(hw.maxMarks, 0);
     });
   });
 }

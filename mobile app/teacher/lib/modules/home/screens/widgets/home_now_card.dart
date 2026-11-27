@@ -7,10 +7,13 @@ import '../../models/timetable_models.dart';
 
 /// Hero card of the Home tab: live period with progress and quick actions (or the break / free state).
 class NowCard extends StatelessWidget {
-  const NowCard({super.key, required this.now, required this.today, required this.classOf});
+  const NowCard({super.key, required this.now, required this.today, required this.classOf, this.markedFor});
   final SchoolNow now;
   final List<Period> today;
   final SchoolClass? Function(String? id) classOf;
+
+  /// Today's submitted register of a class + period (null = not marked yet).
+  final ({int total, int present, int absent, int late, int excused})? Function(String? classId, String periodNo)? markedFor;
 
   @override
   Widget build(BuildContext context) {
@@ -77,7 +80,8 @@ class NowCard extends StatelessWidget {
           ),
           SizedBox(height: 4.h),
           Text(
-            '${cls?.subject ?? live.subject} • ${live.topic.isNotEmpty ? live.topic : cls?.topic ?? ''}',
+            // the period's own subject (a class can have several), then its topic when the timetable has one
+            [live.subject.isNotEmpty ? live.subject : (cls?.subject ?? ''), if (live.topic.isNotEmpty) live.topic].where((x) => x.isNotEmpty).join(' • '),
             style: T.body.copyWith(fontSize: 15.sp),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
@@ -120,7 +124,34 @@ class NowCard extends StatelessWidget {
             ),
           ),
           SizedBox(height: 14.h),
-          AppButton('Mark Attendance', icon: Icons.how_to_reg_outlined, onPressed: () => context.push(RoutePaths.markAttendance(classId: live.classId, period: int.tryParse(live.no)))),
+          if (live.classId != null)
+            Builder(
+              builder: (context) {
+                final marked = markedFor?.call(live.classId, live.no);
+                void open() => context.push(RoutePaths.markAttendance(classId: live.classId, period: int.tryParse(live.no)));
+                if (marked == null) return AppButton('Mark Attendance', key: const ValueKey('now-mark'), icon: Icons.how_to_reg_outlined, onPressed: open);
+                // marked: say so, with the count; the register can still be opened to review or correct it
+                return Container(
+                  key: const ValueKey('now-marked'),
+                  padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 10.h),
+                  decoration: BoxDecoration(color: C.successSoft, borderRadius: BorderRadius.circular(R.lg)),
+                  child: Row(
+                    children: [
+                      Icon(Icons.check_circle_rounded, color: C.successDark, size: 20.r),
+                      SizedBox(width: 8.w),
+                      Expanded(
+                        child: Text(
+                          'Attendance marked • ${marked.present + marked.late}/${marked.total} present${marked.absent > 0 ? ' • ${marked.absent} absent' : ''}',
+                          style: T.smallStrong.copyWith(color: C.successDark),
+                          maxLines: 2,
+                        ),
+                      ),
+                      TextButton(onPressed: open, child: const Text('View')),
+                    ],
+                  ),
+                );
+              },
+            ),
           SizedBox(height: 10.h),
           AppButton(
             'View Lesson Plan',

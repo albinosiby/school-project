@@ -6,10 +6,11 @@ import '../../attendance/screens/attendance_view.dart';
 import '../../family/screens/widgets/parent_tab_header.dart';
 import '../../homework/screens/homework_list.dart';
 import '../../marks/screens/marks_list.dart';
+import '../../resources/screens/resources_list.dart';
 import '../../timetable/screens/timetable_view.dart';
 
-/// The four sections of the Academics tab, in dock order. `?section=` uses the lower-case names.
-enum AcademicSection { attendance, homework, marks, timetable }
+/// The sections of the Academics tab, in dock order. `?section=` uses the lower-case names.
+enum AcademicSection { attendance, homework, marks, timetable, resources }
 
 extension AcademicSectionX on AcademicSection {
   String get label => switch (this) {
@@ -17,6 +18,7 @@ extension AcademicSectionX on AcademicSection {
     AcademicSection.homework => 'Homework',
     AcademicSection.marks => 'Marks',
     AcademicSection.timetable => 'Timetable',
+    AcademicSection.resources => 'Resources',
   };
 
   static AcademicSection parse(String? q) => AcademicSection.values.firstWhere(
@@ -31,7 +33,7 @@ extension AcademicSectionX on AcademicSection {
 class AcademicsScreen extends StatelessWidget {
   const AcademicsScreen({super.key, this.section});
 
-  /// attendance | homework | marks | timetable (from the `?section=` query).
+  /// attendance | homework | marks | timetable | resources (from the `?section=` query).
   final String? section;
 
   @override
@@ -75,6 +77,7 @@ class AcademicsScreen extends StatelessWidget {
                 AcademicSection.homework => const HomeworkList(),
                 AcademicSection.marks => const MarksList(),
                 AcademicSection.timetable => const TimetableView(),
+                AcademicSection.resources => const ResourcesList(),
               },
             ),
           ),

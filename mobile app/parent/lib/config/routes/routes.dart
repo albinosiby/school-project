@@ -12,7 +12,7 @@ class RoutePaths {
 
   // Tabs (dock): Home, Academics, Fees, Messages, More
   static const home = '/home';
-  static const academics = '/academics'; // ?section=attendance|homework|marks|timetable
+  static const academics = '/academics'; // ?section=attendance|homework|marks|timetable|resources
   static const fees = '/fees';
   static const messages = '/messages';
   static const more = '/more';

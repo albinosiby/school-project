@@ -1,331 +1,420 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:intl/intl.dart';
 import '../../../config/routes/routes.dart';
 import '../../../design_system/design_system.dart';
 import '../../../di/injection.dart';
-import '../../../utils/helpers/date_helper.dart';
+import '../../engage/models/attachment_models.dart';
+import '../../engage/screens/widgets/attachment_sheet.dart';
 import '../../school/bloc/school_bloc.dart';
 import '../../school/models/school_models.dart';
+import '../../tasks/models/homework_grading.dart';
 import '../../tasks/models/homework_models.dart';
 import '../bloc/new_homework_bloc.dart';
 import '../bloc/new_homework_events.dart';
 import '../bloc/new_homework_states.dart';
-import '../models/student_metrics.dart';
-import 'widgets/classes_ui.dart';
 
-const _formatOptions = [('Handwritten Paper (Photo/Scan)', 'Up to 5 images per student'), ('In-Class Physical Notebook', 'Desk verification during roll call')];
+const _mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const _wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+String _iso(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-/// Figma 1153:11677 "3.4 New Homework". Creates homework only through IHomeworkRepository (tasks module).
+/// Set homework for a class (or edit one with `?id=`): title, subject, instructions, due day, marks or not graded,
+/// late hand-ins, and attachments. Parents get it in the parent app (with a push) and can hand in there.
 class NewHomeworkScreen extends StatelessWidget {
-  const NewHomeworkScreen({super.key, this.classId});
-  final String? classId;
+  const NewHomeworkScreen({super.key, this.classId, this.editId});
+  final String? classId, editId;
   @override
   Widget build(BuildContext context) => BlocProvider(
-        create: (_) => getIt<NewHomeworkBloc>()..add(const NewHomeworkLoadRequested()),
-        child: BlocListener<NewHomeworkBloc, NewHomeworkState>(
-          listenWhen: (a, b) => a.status != b.status && (b.status == NewHomeworkStatus.saved || b.status == NewHomeworkStatus.failure),
-          listener: (ctx, s) {
-            AppDialogs.showSnackBar(ctx, message: s.message ?? '', isError: s.status == NewHomeworkStatus.failure);
-            if (s.status == NewHomeworkStatus.saved) ctx.canPop() ? ctx.pop() : ctx.go(RoutePaths.classes);
-          },
-          child: _NewHomeworkForm(classId: classId),
-        ),
-      );
+    create: (_) => getIt<NewHomeworkBloc>()..add(NewHomeworkLoadRequested(editId: editId)),
+    child: BlocListener<NewHomeworkBloc, NewHomeworkState>(
+      listenWhen: (a, b) => a.status != b.status && (b.status == NewHomeworkStatus.saved || b.status == NewHomeworkStatus.failure),
+      listener: (ctx, s) {
+        if (s.message != null) AppDialogs.showSnackBar(ctx, message: s.message!);
+        if (s.status != NewHomeworkStatus.saved || s.saved == null) return;
+        if (editId != null) {
+          ctx.pop();
+        } else {
+          ctx.pushReplacement(RoutePaths.homework(s.saved!.id));
+        }
+      },
+      child: _Form(classId: classId, editId: editId),
+    ),
+  );
 }
 
-class _NewHomeworkForm extends StatefulWidget {
-  const _NewHomeworkForm({this.classId});
-  final String? classId;
+class _Form extends StatefulWidget {
+  const _Form({this.classId, this.editId});
+  final String? classId, editId;
   @override
-  State<_NewHomeworkForm> createState() => _NewHomeworkFormState();
+  State<_Form> createState() => _FormState();
 }
 
-class _NewHomeworkFormState extends State<_NewHomeworkForm> {
-  late String? _classId = widget.classId;
+class _FormState extends State<_Form> {
   final _title = TextEditingController();
-  final _desc = TextEditingController();
-  final _marks = TextEditingController(text: '25');
-  String? _topic;
-  int _days = 1;
-  final _formats = <String>{_formatOptions.first.$1};
-  String? _attachment;
-  DateTime _due = DateTime.now().add(const Duration(days: 1));
-  TimeOfDay _cutoff = const TimeOfDay(hour: 17, minute: 0);
-  bool _late = false, _notify = true;
-  String? _titleErr, _marksErr, _dueErr;
+  final _notes = TextEditingController();
+  final _marks = TextEditingController(text: '10');
+  late DateTime _due = DateTime.now().add(const Duration(days: 1));
+  String? _classId;
+  String _subject = '';
+  bool _graded = true, _late = true, _filled = false;
+
+  /// Publish later: parents are told at [_publishAt] (the server publishes it).
+  bool _schedule = false;
+  late DateTime _publishAt = () {
+    final n = DateTime.now().add(const Duration(days: 1));
+    return DateTime(n.year, n.month, n.day, 8);
+  }();
+  String? _scheduleErr;
+  List<FileRef> _kept = const [];
+  final List<PickedAttachment> _picked = [];
+  String? _titleErr, _marksErr;
+
+  @override
+  void initState() {
+    super.initState();
+    _classId = widget.classId;
+  }
 
   @override
   void dispose() {
     _title.dispose();
-    _desc.dispose();
+    _notes.dispose();
     _marks.dispose();
     super.dispose();
   }
 
-  DateTime get _dueAt => DateTime(_due.year, _due.month, _due.day, _cutoff.hour, _cutoff.minute);
+  /// Fills the form once from the homework being edited.
+  void _fill(Homework h) {
+    if (_filled) return;
+    _filled = true;
+    _classId = h.classId;
+    _title.text = h.title;
+    _notes.text = h.description;
+    _subject = h.subject;
+    _graded = h.graded;
+    _marks.text = h.graded ? '${h.maxMarks}' : '10';
+    _late = h.allowLate;
+    _kept = h.attachments;
+    _due = DateTime.tryParse(h.due.length >= 10 ? h.due.substring(0, 10) : h.due) ?? _due;
+    _schedule = h.scheduled;
+    _publishAt = h.publishAt ?? _publishAt;
+  }
 
-  String _code(SchoolClass c, int existing) => 'HW-${subjectCode(c)}-${c.grade}${c.section}-${(existing + 1).toString().padLeft(2, '0')}';
-
-  Future<void> _switch(List<SchoolClass> classes, Map<String, int> enrolled) async {
-    final c = await showPickSheet<SchoolClass>(
-      context, title: 'Switch class', items: classes, label: (c) => 'Class ${clsLong(c)} • ${c.subject}',
-      sub: (c) => '${enrolled[c.id] ?? 0} Enrolled • ${c.room}', selected: classes.where((x) => x.id == _classId).firstOrNull,
+  Future<void> _pickPublish() async {
+    final now = DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _publishAt.isBefore(now) ? now : _publishAt,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: now.add(const Duration(days: 180)),
     );
-    if (c != null) {
-      setState(() {
-        _classId = c.id;
-        _topic = null;
-      });
-    }
-  }
-
-  void _rephrase() {
-    var t = _desc.text.trim();
-    if (t.isEmpty) {
-      showNotice(context, 'Write some instructions first');
-      return;
-    }
-    t = t.replaceAll(RegExp(r'\s+'), ' ');
-    t = t[0].toUpperCase() + t.substring(1);
-    if (!RegExp(r'[.!?]$').hasMatch(t)) t = '$t.';
-    setState(() => _desc.text = t);
-    showNotice(context, 'Instructions polished');
-  }
-
-  bool _validate() {
-    final m = int.tryParse(_marks.text.trim());
+    if (d == null || !mounted) return;
+    final t = await showTimePicker(context: context, initialTime: TimeOfDay.fromDateTime(_publishAt));
+    if (t == null) return;
     setState(() {
-      _titleErr = _title.text.trim().isEmpty ? 'Enter an assignment title' : null;
-      _marksErr = (m == null || m <= 0) ? 'Enter marks greater than 0' : null;
-      _dueErr = _dueAt.isBefore(DateTime.now()) ? 'Deadline must be in the future' : null;
+      _publishAt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+      _scheduleErr = null;
     });
-    return _titleErr == null && _marksErr == null && _dueErr == null;
   }
 
-  void _save(SchoolClass c, {required bool publish, required String code, required String topic, required int enrolled}) {
-    if (publish ? !_validate() : _title.text.trim().isEmpty) {
-      if (!publish) setState(() => _titleErr = 'Enter a title to save a draft');
-      return;
-    }
-    context.read<NewHomeworkBloc>().add(NewHomeworkSubmitted(
-          Homework(
-            id: '', classId: c.id, title: _title.text.trim(), subject: c.subject, due: isoOf(_due), maxMarks: int.tryParse(_marks.text.trim()) ?? 0,
-            description: _desc.text.trim(), status: publish ? 'open' : 'draft', createdAt: nowIso(),
-            extra: {
-              'code': code, 'topic': topic, 'estDays': _days, 'formats': _formats.toList(), 'attachment': _attachment,
-              'allowLate': _late, 'notify': _notify, 'dueTime': hhmm(_cutoff), 'dueAt': _dueAt.toIso8601String(),
-            },
-          ),
-          enrolled: enrolled,
-        ));
+  List<String> _subjects(SchoolClass c) => c.subjectNames.isNotEmpty ? c.subjectNames : [if (c.subject.isNotEmpty) c.subject];
+
+  Future<void> _pickDue() async {
+    final today = DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _due.isBefore(today) ? today : _due,
+      firstDate: DateTime(today.year, today.month, today.day),
+      lastDate: today.add(const Duration(days: 180)),
+    );
+    if (d != null) setState(() => _due = d);
+  }
+
+  Future<void> _addFiles(bool photos) async {
+    final more = photos ? await pickPhotos() : await pickDocuments();
+    if (more.isEmpty) return;
+    final big = more.where((f) => f.bytes > 15 * 1024 * 1024).length;
+    setState(() => _picked.addAll(more.where((f) => f.bytes <= 15 * 1024 * 1024)));
+    if (big > 0 && mounted) AppDialogs.showSnackBar(context, message: '$big file(s) over 15 MB were skipped');
+  }
+
+  void _save(SchoolClass c, Homework? editing, int enrolled) {
+    final title = _title.text.trim();
+    final marks = int.tryParse(_marks.text.trim());
+    final dueEnd = DateTime(_due.year, _due.month, _due.day, 23, 59);
+    setState(() {
+      _titleErr = title.length < 3 ? 'Give the homework a title (at least 3 characters)' : null;
+      _marksErr = _graded && (marks == null || marks < 1 || marks > 1000) ? 'Enter marks from 1 to 1000' : null;
+      _scheduleErr = !_schedule
+          ? null
+          : !_publishAt.isAfter(DateTime.now())
+          ? 'Pick a publish time in the future'
+          : _publishAt.isAfter(dueEnd)
+          ? 'Publish on or before the due day'
+          : null;
+    });
+    if (_titleErr != null || _marksErr != null || _scheduleErr != null) return;
+    final subjects = _subjects(c);
+    final subject = _subject.isNotEmpty ? _subject : (subjects.isEmpty ? '' : subjects.first);
+    final base = editing ?? Homework(id: '', classId: c.id, title: '', subject: subject, due: '', maxMarks: 0, createdAt: DateTime.now().toIso8601String());
+    final hw = Homework(
+      id: base.id,
+      classId: c.id,
+      title: title,
+      subject: subject,
+      due: _iso(_due),
+      maxMarks: _graded ? marks! : 0,
+      description: _notes.text.trim(),
+      // scheduled until its time (the server publishes it), else open; a closed homework stays closed when edited
+      status: _schedule ? 'scheduled' : (base.status == 'scheduled' || base.id.isEmpty ? 'open' : base.status),
+      createdAt: base.createdAt,
+      submissions: base.submissions,
+      extra: {
+        ...base.extra,
+        'allowLate': _late,
+        'attachments': [for (final f in _kept) f.toJson()],
+        'publishAt': _schedule ? _publishAt.toUtc().toIso8601String() : null,
+      }..removeWhere((k, v) => k == 'publishAt' && v == null),
+    );
+    context.read<NewHomeworkBloc>().add(NewHomeworkSubmitted(hw, enrolled: enrolled, files: List.of(_picked)));
   }
 
   @override
   Widget build(BuildContext context) {
     final school = context.watch<SchoolBloc>().state;
-    final hs = context.watch<NewHomeworkBloc>().state;
-    final c = classOr(school.classes, _classId);
-    if (c == null) return DetailScaffold(title: 'NEW HOMEWORK', fallbackRoute: RoutePaths.classes, body: const AppEmptyState('No classes assigned', icon: Icons.class_outlined));
+    final s = context.watch<NewHomeworkBloc>().state;
+    final editing = s.editing;
+    if (editing != null) _fill(editing);
+    final teaching = [for (final c in school.classes) if (_subjects(c).isNotEmpty || !c.classTeacher) c];
+    final c = school.classById(_classId ?? '') ?? (teaching.isEmpty ? null : teaching.first);
+    if (widget.editId != null && s.status == NewHomeworkStatus.ready && editing == null) {
+      return DetailScaffold(title: 'Edit homework', fallbackRoute: RoutePaths.classes, body: const AppEmptyState('Homework not found', icon: Icons.assignment_late_outlined));
+    }
+    if (c == null) {
+      return DetailScaffold(title: 'New homework', fallbackRoute: RoutePaths.classes, body: const AppEmptyState('No classes assigned', icon: Icons.class_outlined));
+    }
+    final subjects = _subjects(c);
     final enrolled = school.studentsOf(c.id).length;
-    final code = _code(c, hs.countFor(c.id));
-    final topics = <String>['Chapter 4: ${c.topic}', if (c.topic != 'Linear Equations') 'Linear Equations', 'Arithmetic Progressions'];
-    final topic = _topic ?? topics.first;
-    final now = DateTime.now();
-    final diff = DateTime(_due.year, _due.month, _due.day).difference(DateTime(now.year, now.month, now.day)).inDays;
-    final busy = hs.status == NewHomeworkStatus.saving;
-
+    final saving = s.status == NewHomeworkStatus.saving;
     return DetailScaffold(
-      title: 'NEW HOMEWORK', fallbackRoute: RoutePaths.classes,
-      bottom: Row(children: [
-        AppButton('Save Draft', icon: Icons.bookmark_border_rounded, kind: BtnKind.outline, expand: false,
-            onPressed: busy ? null : () => _save(c, publish: false, code: code, topic: topic, enrolled: enrolled)),
-        SizedBox(width: 10.w),
-        Expanded(child: AppButton('Publish HW', icon: Icons.send_rounded, busy: busy, onPressed: () => _save(c, publish: true, code: code, topic: topic, enrolled: enrolled))),
-      ]),
-      body: ListView(padding: EdgeInsets.fromLTRB(16.w, 14.h, 16.w, 30.h), children: [
-        AppCard(
-          radius: R.xl, padding: EdgeInsets.all(14.w),
-          child: Row(children: [
-            const IconTile(Icons.calculate_outlined, size: 48),
-            SizedBox(width: 12.w),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Class ${clsLong(c)} • ${c.subject}', style: T.h3, maxLines: 2, overflow: TextOverflow.ellipsis),
-                SizedBox(height: 4.h),
-                const Pill('SECURED', tone: Tone.brand),
-                SizedBox(height: 4.h),
-                Text('$enrolled Enrolled • ${c.room} • ${c.wing}', style: T.small),
-              ]),
-            ),
-            AppButton('Switch', icon: Icons.swap_horiz_rounded, kind: BtnKind.soft, small: true, expand: false,
-                onPressed: () => _switch(school.classes, {for (final x in school.classes) x.id: school.studentsOf(x.id).length})),
-          ]),
+      title: editing == null ? 'New homework' : 'Edit homework',
+      subtitle: 'Class ${c.label} • $enrolled students',
+      fallbackRoute: '${RoutePaths.students}?classId=${c.id}&view=subject',
+      bottom: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(16.w, 8.h, 16.w, 10.h),
+          child: AppButton(
+            saving ? 'Saving…' : (editing == null ? (_schedule ? 'Schedule homework' : 'Set homework') : 'Save changes'),
+            key: const ValueKey('hw-submit'),
+            icon: Icons.send_rounded,
+            busy: saving,
+            onPressed: saving || s.status == NewHomeworkStatus.initial ? null : () => _save(c, editing, enrolled),
+          ),
         ),
-        SizedBox(height: 14.h),
-        AppCard(
-          radius: R.xl, padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Flexible(child: Pill(code, icon: Icons.tag_rounded)),
-              SizedBox(width: 8.w),
-              const Flexible(child: Pill('Term 2 Curriculum', tone: Tone.neutral)),
-              const Spacer(),
-              Text('${_title.text.length}/100', style: T.small),
-            ]),
-            SizedBox(height: 10.h),
-            Text('ASSIGNMENT TITLE', style: T.capsMuted),
-            SizedBox(height: 6.h),
-            TextField(
-              controller: _title, maxLength: 100, onChanged: (_) => setState(() => _titleErr = null),
-              decoration: InputDecoration(
-                hintText: 'e.g. Quadratic Equations — Practice Set 5', counterText: '', errorText: _titleErr,
-                suffixIcon: _title.text.isEmpty ? null : IconButton(tooltip: 'Clear title', icon: Icon(Icons.cancel_outlined, size: 20.r), onPressed: () => setState(_title.clear)),
-              ),
+      ),
+      body: ListView(
+        padding: EdgeInsets.fromLTRB(16.w, 12.h, 16.w, 24.h),
+        children: [
+          if (editing == null && teaching.length > 1) ...[
+            _Label('Class'),
+            AppPickTile(
+              icon: Icons.groups_rounded,
+              plainIcon: true,
+              label: 'Class ${c.label}',
+              caption: subjects.join(', '),
+              onTap: () async {
+                final r = await showPickSheet<SchoolClass>(context, title: 'Class', items: teaching, label: (x) => 'Class ${x.label}', selected: c);
+                if (r != null) {
+                  setState(() {
+                    _classId = r.id;
+                    _subject = '';
+                  });
+                }
+              },
             ),
-            SizedBox(height: 10.h),
-            Row(children: [
-              Expanded(child: Text('LINKED SYLLABUS TOPIC', style: T.capsMuted)),
-              TextButton(
-                onPressed: () => showNotice(context, 'Syllabus: ${topics.length} topics for ${clsName(c)}'),
-                style: TextButton.styleFrom(minimumSize: Size(44.r, 44.r)),
-                child: Text('Browse all', style: T.smallStrong.copyWith(color: C.primary)),
-              ),
-            ]),
-            AppChoiceChips(items: topics, value: topic, solid: true, onChanged: (v) => setState(() => _topic = v)),
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        AppCard(
-          radius: R.xl, padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Icon(Icons.edit_note_rounded, color: C.primary, size: 24.r),
-              SizedBox(width: 8.w),
-              Expanded(child: Text('Instructions & Guidelines', style: T.h3, maxLines: 1, overflow: TextOverflow.ellipsis)),
-              AppButton('AI Rephrase', icon: Icons.auto_awesome_rounded, kind: BtnKind.soft, small: true, expand: false, onPressed: _rephrase),
-            ]),
-            SizedBox(height: 10.h),
-            TextField(controller: _desc, maxLines: 5, minLines: 4, decoration: const InputDecoration(hintText: 'Describe the task, exercises and expectations...')),
+            SizedBox(height: 14.h),
+          ],
+          if (subjects.length > 1) ...[
+            _Label('Subject'),
+            AppChoiceChips(items: subjects, value: _subject.isEmpty ? subjects.first : _subject, onChanged: (v) => setState(() => _subject = v)),
+            SizedBox(height: 14.h),
+          ],
+          _Label('Title'),
+          TextField(
+            key: const ValueKey('hw-title'),
+            controller: _title,
+            maxLength: 100,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(hintText: 'e.g. Fractions — exercise 4.2', errorText: _titleErr, counterText: ''),
+            onChanged: (_) => setState(() => _titleErr = null),
+          ),
+          SizedBox(height: 12.h),
+          _Label('Instructions (optional)'),
+          TextField(
+            key: const ValueKey('hw-notes'),
+            controller: _notes,
+            minLines: 3,
+            maxLines: 6,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(hintText: 'What to do, pages, how to hand in…'),
+          ),
+          SizedBox(height: 16.h),
+          _Label('Due'),
+          AppPickTile(
+            icon: Icons.event_outlined,
+            plainIcon: true,
+            label: '${_wd[_due.weekday - 1]}, ${_due.day} ${_mon[_due.month - 1]} ${_due.year}',
+            caption: () {
+              final left = DateTime(_due.year, _due.month, _due.day).difference(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day)).inDays;
+              return left <= 0 ? 'Today' : left == 1 ? 'Tomorrow' : 'In $left days';
+            }(),
+            onTap: _pickDue,
+          ),
+          SizedBox(height: 16.h),
+          _Label('Publish'),
+          AppSegmented(
+            items: const ['Now', 'Schedule'],
+            value: _schedule ? 'Schedule' : 'Now',
+            track: true,
+            onChanged: (v) => setState(() {
+              _schedule = v == 'Schedule';
+              _scheduleErr = null;
+            }),
+          ),
+          if (_schedule) ...[
             SizedBox(height: 8.h),
-            Row(children: [
-              Icon(Icons.info_outline_rounded, size: 16.r, color: C.primary),
-              SizedBox(width: 6.w),
-              Expanded(child: Text('Students will see these notes under their task timeline.', style: T.small)),
-            ]),
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        AppCard(
-          radius: R.xl, padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Icon(Icons.star_border_rounded, color: C.primary, size: 24.r), SizedBox(width: 8.w), Text('Grading & Targets', style: T.h3)]),
-            SizedBox(height: 10.h),
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(child: AppTextField(label: 'Total Max Marks', controller: _marks, keyboard: TextInputType.number, onChanged: (_) => setState(() => _marksErr = null))),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: Container(
-                  padding: EdgeInsets.all(12.r), decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md), border: Border.all(color: C.border)),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Submissions Target', style: T.smallStrong.copyWith(color: C.slate), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    FittedBox(
-                      fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
-                      child: Text.rich(TextSpan(children: [TextSpan(text: '$enrolled', style: T.stat), TextSpan(text: ' Students', style: T.small)])),
+            AppPickTile(
+              key: const ValueKey('hw-publish-at'),
+              icon: Icons.schedule_send_rounded,
+              plainIcon: true,
+              label: () {
+                final d = _publishAt;
+                final h = d.hour % 12 == 0 ? 12 : d.hour % 12;
+                return '${_wd[d.weekday - 1]}, ${d.day} ${_mon[d.month - 1]} • $h:${d.minute.toString().padLeft(2, '0')} ${d.hour < 12 ? 'AM' : 'PM'}';
+              }(),
+              caption: 'Parents get it and the notification then',
+              onTap: _pickPublish,
+            ),
+            if (_scheduleErr != null) Padding(padding: EdgeInsets.only(top: 4.h), child: Text(_scheduleErr!, style: T.small.copyWith(color: C.danger))),
+          ],
+          SizedBox(height: 16.h),
+          AppCard(
+            radius: R.lg,
+            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 4.h),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  key: const ValueKey('hw-graded'),
+                  contentPadding: EdgeInsets.zero,
+                  value: _graded,
+                  onChanged: (v) => setState(() => _graded = v),
+                  title: Text('Give marks', style: T.bodyStrong),
+                  subtitle: Text(_graded ? 'Grade each student out of the marks below' : 'Not graded — mark each one as done', style: T.small),
+                ),
+                if (_graded)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 10.h),
+                    child: Row(
+                      children: [
+                        Text('Out of', style: T.body),
+                        SizedBox(width: 12.w),
+                        SizedBox(
+                          width: 90.w,
+                          child: TextField(
+                            key: const ValueKey('hw-max'),
+                            controller: _marks,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)],
+                            textAlign: TextAlign.center,
+                            decoration: InputDecoration(isDense: true, errorText: _marksErr),
+                            onChanged: (_) => setState(() => _marksErr = null),
+                          ),
+                        ),
+                        SizedBox(width: 8.w),
+                        Text('marks', style: T.body),
+                      ],
                     ),
-                    Row(children: [
-                      Container(width: 6.r, height: 6.r, decoration: const BoxDecoration(color: C.success, shape: BoxShape.circle)),
-                      SizedBox(width: 4.w),
-                      Flexible(child: Text('All Batches Active', style: T.small.copyWith(fontSize: 11.sp, color: C.successDark), overflow: TextOverflow.ellipsis)),
-                    ]),
-                  ]),
+                  ),
+                Divider(height: 1, color: C.border),
+                SwitchListTile(
+                  key: const ValueKey('hw-late'),
+                  contentPadding: EdgeInsets.zero,
+                  value: _late,
+                  onChanged: (v) => setState(() => _late = v),
+                  title: Text('Accept late hand-ins', style: T.bodyStrong),
+                  subtitle: Text(_late ? 'Hand-ins after the due day are marked late' : 'Close hand-ins yourself after the due day', style: T.small),
                 ),
-              ),
-            ]),
-            if (_marksErr != null) Text(_marksErr!, style: T.small.copyWith(color: C.danger)),
-            SizedBox(height: 6.h),
-            Text('EST. TIME TO COMPLETE', style: T.capsMuted),
-            SizedBox(height: 6.h),
-            AppChoiceChips(items: const ['1 day', '2 day', '3 day', '4 day'], value: '$_days day', onChanged: (v) => setState(() => _days = int.parse(v[0]))),
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        AppCard(
-          radius: R.xl, padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [Expanded(child: Text('Allowed Submission Formats', style: T.h3)), Text('Max 15 MB', style: T.small)]),
-            for (final f in _formatOptions)
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero, controlAffinity: ListTileControlAffinity.trailing, value: _formats.contains(f.$1),
-                title: Text(f.$1, style: T.bodyStrong), subtitle: Text(f.$2, style: T.small),
-                onChanged: (v) => setState(() => v == true ? _formats.add(f.$1) : _formats.remove(f.$1)),
-              ),
-            Divider(color: C.border, height: 16.h),
-            if (_attachment != null)
-              ListTile(
-                contentPadding: EdgeInsets.zero, leading: const IconTile(Icons.picture_as_pdf_rounded, tone: Tone.danger, size: 40),
-                title: Text(_attachment!, style: T.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis), subtitle: Text('1.4 MB • Preview ready', style: T.small),
-                trailing: IconAction(Icons.close_rounded, 'Remove attachment', () => setState(() => _attachment = null)),
-              )
-            else
-              AppButton(
-                'Attach Reference Sheet / Hint Key (Optional)', icon: Icons.attach_file_rounded, kind: BtnKind.outline, small: true,
-                onPressed: () => setState(() => _attachment = '${_title.text.trim().isEmpty ? 'Reference_Sheet' : _title.text.trim().replaceAll(RegExp(r'\W+'), '_')}.pdf'),
-              ),
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        AppCard(
-          radius: R.xl, padding: EdgeInsets.all(14.w),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text('Deadline & Submissions Window', style: T.h3, maxLines: 2)),
-              Pill(diff <= 0 ? 'Today' : '$diff ${diff == 1 ? 'day' : 'days'} left', tone: Tone.warning),
-            ]),
-            SizedBox(height: 10.h),
-            Row(children: [
-              Expanded(
-                child: AppPickTile(
-                  icon: Icons.calendar_today_rounded, plainIcon: true, caption: 'Due Date', label: DateFormat('d MMM yyyy').format(_due),
-                  onTap: () async {
-                    final d = await showDatePicker(context: context, initialDate: _due.isBefore(now) ? now : _due, firstDate: now, lastDate: now.add(const Duration(days: 365)));
-                    if (d == null) return;
-                    setState(() {
-                      _due = d;
-                      _dueErr = null;
-                    });
-                  },
+              ],
+            ),
+          ),
+          SizedBox(height: 16.h),
+          Row(
+            children: [
+              Expanded(child: _Label('Attachments')),
+              TextButton.icon(onPressed: saving ? null : () => _addFiles(true), icon: Icon(Icons.photo_outlined, size: 18.r), label: const Text('Photos')),
+              TextButton.icon(onPressed: saving ? null : () => _addFiles(false), icon: Icon(Icons.attach_file_rounded, size: 18.r), label: const Text('Files')),
+            ],
+          ),
+          if (_kept.isEmpty && _picked.isEmpty) Text('Worksheets or references for the students (optional, up to 15 MB each).', style: T.small),
+          for (final f in _kept)
+            _AttachRow(name: f.name, size: FileRef.sizeLabel(f.bytes), image: f.isImage, onRemove: saving ? null : () => setState(() => _kept = [..._kept]..remove(f))),
+          for (final f in _picked)
+            _AttachRow(name: f.name, size: f.sizeLabel, image: f.isImage, isNew: true, onRemove: saving ? null : () => setState(() => _picked.remove(f))),
+          SizedBox(height: 16.h),
+          Container(
+            padding: EdgeInsets.all(12.r),
+            decoration: BoxDecoration(color: C.panel, borderRadius: BorderRadius.circular(R.lg)),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline_rounded, size: 18.r, color: C.primary),
+                SizedBox(width: 8.w),
+                Expanded(
+                  child: Text(
+                    editing == null
+                        ? '${_schedule ? 'At the publish time, parents' : 'Parents'} of the $enrolled students get it in the parent app with a notification, and can hand in photos or PDFs there. '
+                              'Parents who have not handed in get a reminder 2 days before it is due; you get a summary on the due day.'
+                        : 'Changes show in the parent app straight away.',
+                    style: T.small.copyWith(fontSize: 12.sp, color: C.ink),
+                  ),
                 ),
-              ),
-              SizedBox(width: 10.w),
-              Expanded(
-                child: AppPickTile(
-                  icon: Icons.schedule_rounded, plainIcon: true, caption: 'Cut-off Time', label: _cutoff.format(context),
-                  onTap: () async {
-                    final t = await showTimePicker(context: context, initialTime: _cutoff);
-                    if (t == null) return;
-                    setState(() {
-                      _cutoff = t;
-                      _dueErr = null;
-                    });
-                  },
-                ),
-              ),
-            ]),
-            if (_dueErr != null) Padding(padding: EdgeInsets.only(top: 6.h), child: Text(_dueErr!, style: T.small.copyWith(color: C.danger))),
-            SizedBox(height: 10.h),
-            AppToggleRow(title: 'Accept late submissions', subtitle: 'Penalty applies (-2 marks / day late)', value: _late, onChanged: (v) => setState(() => _late = v)),
-          ]),
-        ),
-        SizedBox(height: 14.h),
-        Text('Alerts & Collaboration', style: T.h3),
-        SizedBox(height: 8.h),
-        AppToggleRow(
-          title: 'Instant Push & WhatsApp Alert', subtitle: 'Dispatches assignment brief directly to $enrolled students & parent registered phones.',
-          value: _notify, onChanged: (v) => setState(() => _notify = v),
-        ),
-      ]),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+class _Label extends StatelessWidget {
+  const _Label(this.text);
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(padding: EdgeInsets.only(bottom: 6.h), child: Text(text, style: T.smallStrong));
+}
+
+class _AttachRow extends StatelessWidget {
+  const _AttachRow({required this.name, required this.size, required this.image, this.isNew = false, this.onRemove});
+  final String name, size;
+  final bool image, isNew;
+  final VoidCallback? onRemove;
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: EdgeInsets.only(bottom: 6.h),
+    padding: EdgeInsets.only(left: 10.w),
+    decoration: BoxDecoration(color: C.surface, borderRadius: BorderRadius.circular(R.md)),
+    child: Row(
+      children: [
+        Icon(image ? Icons.image_outlined : Icons.description_outlined, size: 20.r, color: C.primary),
+        SizedBox(width: 8.w),
+        Expanded(child: Text(name, style: T.bodyStrong.copyWith(fontSize: 13.sp), maxLines: 1, overflow: TextOverflow.ellipsis)),
+        if (isNew) Padding(padding: EdgeInsets.only(right: 6.w), child: const Pill('New', tone: Tone.brand)),
+        if (size.isNotEmpty) Text(size, style: T.small.copyWith(fontSize: 11.sp)),
+        IconButton(tooltip: 'Remove $name', onPressed: onRemove, icon: Icon(Icons.close_rounded, size: 18.r, color: C.slate)),
+      ],
+    ),
+  );
 }

@@ -560,6 +560,11 @@ class StudentsAdapter extends StoreAdapter {
           'photo': s['photo'] ?? '',
           // linked parent logins (§13.1): a guardian without one cannot be messaged
           'guardianUids': MessagesAdapter.guardianUids(s),
+          'gender': s['gender'] ?? '',
+          'dob': s['dob'] ?? '',
+          'bus': s['bus'] ?? '',
+          'busStop': s['busStop'] ?? '',
+          'relation': s['relation'] ?? '',
         },
     ];
     rows.sort((a, b) {
@@ -840,8 +845,18 @@ class HomeworkAdapter extends StoreAdapter {
           if (st['classId'] == cid) subs['${st['id']}'] = {'status': 'pending', 'feedback': ''};
         }
       }
+      // parent hand-ins (server-written, never written back from here): the files ride on the submission as
+      // `handin`, and an ungraded submission counts as handed in
+      final handins = Map<String, dynamic>.from(d['handins'] as Map? ?? const {});
+      for (final e in handins.entries) {
+        if (e.value is! Map) continue;
+        final cur = Map<String, dynamic>.from(subs[e.key] as Map? ?? const {'status': 'pending', 'feedback': ''});
+        if (cur['status'] != 'graded') cur['status'] = 'submitted';
+        cur['handin'] = Map<String, dynamic>.from(e.value as Map);
+        subs[e.key] = cur;
+      }
       rows.add({
-        ...({...d}..removeWhere((k, _) => denormalized.contains(k))),
+        ...({...d}..removeWhere((k, _) => denormalized.contains(k) || k == 'handins')),
         'classId': localClassId(cid),
         'submissions': subs,
         'status': localStatus(d['status']),
@@ -856,7 +871,11 @@ class HomeworkAdapter extends StoreAdapter {
   List<RemoteWrite> write(AdapterContext ctx, Remote remote, Rec row) {
     final cid = remoteClassId('${row['classId']}');
     final g = gradeSectionOf(cid);
-    final subs = Map<String, dynamic>.from(row['submissions'] as Map? ?? const {});
+    // the hand-in copy belongs to the server (ops_homework.handins): never write it back
+    final subs = {
+      for (final e in Map<String, dynamic>.from(row['submissions'] as Map? ?? const {}).entries)
+        e.key: e.value is Map ? (Map<String, dynamic>.from(e.value as Map)..remove('handin')) : e.value,
+    };
     final submitted = subs.values.where((s) => s is Map && (s['status'] == 'submitted' || s['status'] == 'graded')).length;
     final created = '${row['createdAt'] ?? ''}';
     return [
@@ -864,7 +883,8 @@ class HomeworkAdapter extends StoreAdapter {
         'ops_homework',
         '${row['id']}',
         stamp(ctx, {
-          ..._withoutId(row),
+          ...(_withoutId(row)..remove('handins')),
+          'submissions': subs,
           'classId': cid,
           'teacher': '${staffOf(ctx, remote)['name'] ?? ''}',
           'grade': g.grade,
@@ -1624,6 +1644,107 @@ class MedicalSlipsAdapter extends StoreAdapter {
         'updatedBy': ctx.authUid,
       }),
     ];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Class management (the class teacher's own division only)
+// ---------------------------------------------------------------------------
+
+/// Classes the signed-in teacher is class teacher of (remote ids).
+List<String> classTeacherIds(AdapterContext ctx, Remote r) => [
+  for (final c in _docs(r, 'classes'))
+    if (c['classTeacherId'] == ctx.staffId) '${c['id']}',
+]..sort();
+
+const _dayIndex = {'mon': 1, 'tue': 2, 'wed': 3, 'thu': 4, 'fri': 5, 'sat': 6, 'sun': 7};
+
+/// `ct_periods`: the whole timetable (every subject and teacher) of the class teacher's division and of every class
+/// the teacher teaches, so a register (date + period) can be read as a subject. Read-only.
+class ClassTimetableAdapter extends StoreAdapter {
+  const ClassTimetableAdapter() : super('ct_periods');
+  @override
+  bool get readOnly => true;
+  @override
+  Set<String> get sources => {'ops_periods', 'classes'};
+  @override
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => inQueries('ops_periods', 'classId', _ids(ctx, remote));
+  static Set<String> _ids(AdapterContext ctx, Remote remote) => {...classTeacherIds(ctx, remote), ...myClassIds(ctx, remote)};
+  @override
+  List<Rec> build(AdapterContext ctx, Remote remote) {
+    final ids = _ids(ctx, remote);
+    return [
+      for (final p in _docs(remote, 'ops_periods'))
+        if (ids.contains(p['classId']) && _dayIndex['${p['day'] ?? ''}'.toLowerCase().padRight(3).substring(0, 3)] != null)
+          {
+            'id': p['id'],
+            'classId': localClassId('${p['classId']}'),
+            'day': _dayIndex['${p['day']}'.toLowerCase().substring(0, 3)],
+            'period': (p['period'] as num?)?.toInt() ?? 0,
+            'subject': '${p['subject'] ?? ''}',
+            'teacher': '${p['teacher'] ?? ''}',
+          },
+    ];
+  }
+}
+
+/// `ct_marks`: every mark of the class teacher's students (all subjects and exams), with the paper's subject and
+/// maximum and the exam's name. Read-only.
+class ClassMarksAdapter extends StoreAdapter {
+  const ClassMarksAdapter() : super('ct_marks');
+  @override
+  bool get readOnly => true;
+  @override
+  Set<String> get sources => {'exm_marks', 'exm_papers', 'exm_cycles', 'students', 'classes'};
+
+  Set<String> _roster(AdapterContext ctx, Remote remote) {
+    final ids = classTeacherIds(ctx, remote).toSet();
+    return {
+      for (final s in _docs(remote, 'students'))
+        if (ids.contains(s['classId']) && s['deleted'] != true) '${s['id']}',
+    };
+  }
+
+  @override
+  List<RemoteQuery> queries(AdapterContext ctx, Remote remote) => [
+    const RemoteQuery('exm_papers'),
+    const RemoteQuery('exm_cycles'),
+    ...inQueries('exm_marks', 'studentId', _roster(ctx, remote)),
+  ];
+
+  static int _n(Object? v) => (v as num?)?.toInt() ?? 0;
+
+  @override
+  List<Rec> build(AdapterContext ctx, Remote remote) {
+    final roster = _roster(ctx, remote);
+    final classOf = {for (final s in _docs(remote, 'students')) '${s['id']}': '${s['classId']}'};
+    final rows = <Rec>[];
+    for (final m in _docs(remote, 'exm_marks')) {
+      final sid = '${m['studentId'] ?? ''}';
+      if (!roster.contains(sid)) continue;
+      final paper = _byId(remote, 'exm_papers', '${m['paperId']}');
+      if (paper == null || paper['deleted'] == true) continue;
+      final cycle = _byId(remote, 'exm_cycles', '${paper['cycleId'] ?? ''}');
+      final hasScore = m['theory'] != null || m['practical'] != null || m['internal'] != null;
+      final grade = '${m['gradeValue'] ?? ''}';
+      if (!hasScore && grade.isEmpty && m['status'] == null) continue;
+      final max = paper['assessmentMode'] == 'grade' ? 0 : _n(paper['theory']) + _n(paper['practical']) + _n(paper['internal']);
+      rows.add({
+        'id': '${m['id']}',
+        'classId': localClassId(classOf[sid] ?? ''),
+        'studentId': sid,
+        'paperId': '${m['paperId']}',
+        'subject': '${paper['subject'] ?? ''}',
+        'exam': '${cycle?['short'] ?? cycle?['title'] ?? paper['title'] ?? 'Exam'}',
+        'cycleId': '${paper['cycleId'] ?? ''}',
+        'date': '${paper['date'] ?? cycle?['start'] ?? cycle?['startDate'] ?? ''}',
+        'score': hasScore ? _n(m['theory']) + _n(m['practical']) + _n(m['internal']) : null,
+        'max': max,
+        'grade': grade,
+        'status': '${m['status'] ?? (hasScore || grade.isNotEmpty ? 'Present' : 'Absent')}',
+      });
+    }
+    return rows;
   }
 }
 
@@ -2501,6 +2622,8 @@ List<StoreAdapter> defaultAdapters() => const [
   HomeworkAdapter(),
   ExamsAdapter(),
   MarksAdapter(),
+  ClassTimetableAdapter(),
+  ClassMarksAdapter(),
   StaffLeavesAdapter(),
   StaffLeavesAdapter('att_leaves'),
   StaffAttendanceAdapter(),

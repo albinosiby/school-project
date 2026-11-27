@@ -226,6 +226,8 @@ class _Homework implements IHomeworkRepository {
   final Feed<List<Homework>> f;
   @override
   Stream<List<Homework>> watchHomework(String childId) => f(childId);
+  @override
+  Future<void> submit({required String childId, required String homeworkId, required List<PickedHandin> files, String note = ''}) async {}
 }
 
 class _Marks implements IMarksRepository {

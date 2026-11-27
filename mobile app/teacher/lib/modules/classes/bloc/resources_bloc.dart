@@ -1,62 +1,66 @@
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../../../utils/exceptions/app_exception.dart';
+import '../../engage/repositories/chat_media_repository.dart';
 import '../models/classes_models.dart';
 import '../repositories/resources_repository_interface.dart';
 import 'resources_events.dart';
 import 'resources_states.dart';
 
-/// Shared Resources screen.
+/// Class resources: files (uploaded to the teacher's class-resources folder), YouTube videos and links, each shared
+/// with the class's parents or kept to the teacher.
 class ResourcesBloc extends Bloc<ResourcesEvent, ResourcesState> {
-  ResourcesBloc(this._repo) : super(const ResourcesState()) {
+  ResourcesBloc(this._repo, [this._media]) : super(const ResourcesState()) {
     on<ResourcesLoadRequested>(_onLoad);
-    on<ResourceUploaded>(_onUpload);
-    on<ResourceShared>((e, emit) => _patch(emit, e.resource.copyWith(shares: e.resource.shares + 1), 'Shared with class portal'));
-    on<ResourceDownloaded>((e, emit) => _patch(emit, e.resource.copyWith(downloaded: e.resource.downloaded + 1), 'Download started'));
-    on<ResourcePinToggled>((e, emit) => _patch(emit, e.resource.copyWith(pinned: !e.resource.pinned), e.resource.pinned ? 'Unpinned' : 'Pinned to top'));
-    on<ResourceDeleted>(_onDelete);
-    on<PortalVisibilityChanged>(_onPortal);
+    on<ResourceAdded>(_onAdded);
+    on<ResourceUpdated>((e, emit) async {
+      await _repo.updateResource(e.resource);
+      emit(state.copyWith(notice: 'Saved', bumpNotice: true, bumpSaved: true));
+    });
+    on<ResourceVisibilityToggled>((e, emit) async {
+      final next = e.resource.forParents ? 'private' : 'parents';
+      await _repo.updateResource(e.resource.copyWith(visibility: next));
+      emit(state.copyWith(notice: next == 'parents' ? 'Shared with parents' : 'Now visible only to you', bumpNotice: true));
+    });
+    on<ResourcePinToggled>((e, emit) => _repo.updateResource(e.resource.copyWith(pinned: !e.resource.pinned)));
+    on<ResourceDeleted>((e, emit) async {
+      await _repo.deleteResource(e.resource.id);
+      emit(state.copyWith(notice: 'Deleted', bumpNotice: true));
+    });
     _sub = _repo.watch().listen((_) => add(const ResourcesLoadRequested()));
   }
 
   final IResourcesRepository _repo;
+  final IChatMediaRepository? _media;
   late final StreamSubscription<void> _sub;
 
   Future<void> _onLoad(ResourcesLoadRequested e, Emitter<ResourcesState> emit) async {
     if (state.status == ResourcesStatus.initial) emit(state.copyWith(status: ResourcesStatus.loading));
+    emit(state.copyWith(status: ResourcesStatus.loaded, resources: await _repo.getResources()));
+  }
+
+  Future<void> _onAdded(ResourceAdded e, Emitter<ResourcesState> emit) async {
+    emit(state.copyWith(saving: true));
     try {
-      emit(state.copyWith(status: ResourcesStatus.loaded, resources: await _repo.getResources(), portalVisible: await _repo.isPortalVisible()));
-    } on AppException catch (err) {
-      emit(state.copyWith(status: ResourcesStatus.failure, error: err.message));
+      var r = e.resource;
+      final f = e.file;
+      if (f != null) {
+        final media = _media;
+        if (media == null) throw StateError('Uploads are not available here.');
+        final up = await media.uploadMaterial(path: f.path, name: f.name, folder: 'class-resources');
+        r = SharedResource.fromJson({
+          ...r.toJson(),
+          'url': up.url.isEmpty ? f.path : up.url,
+          'path': up.path,
+          'fileName': f.name,
+          'mime': up.contentType.isEmpty ? (f.mimeType ?? '') : up.contentType,
+          'sizeBytes': f.bytes,
+        });
+      }
+      await _repo.addResource(r);
+      emit(state.copyWith(saving: false, notice: r.forParents ? 'Shared with the class\'s parents' : 'Added — visible only to you', bumpNotice: true, bumpSaved: true));
+    } catch (err) {
+      emit(state.copyWith(saving: false, notice: 'Could not add the resource. ${err is StateError ? err.message : 'Check your connection.'}', bumpNotice: true));
     }
-  }
-
-  Future<void> _onUpload(ResourceUploaded e, Emitter<ResourcesState> emit) async {
-    final n = e.fileName.trim();
-    final dot = n.lastIndexOf('.');
-    final hasExt = dot > 0 && n.length - dot <= 5;
-    final ext = hasExt ? n.substring(dot + 1).toLowerCase() : 'pdf';
-    final title = hasExt ? n.substring(0, dot) : n;
-    final r = await _repo.addResource(SharedResource(
-      classId: e.classId, title: '$title.$ext', category: e.category, subtitle: 'Uploaded just now', sizeKb: 400 + (n.length * 53) % 1600,
-      tag: 'New Upload', uploadedAt: DateTime.now().toIso8601String(), isNew: true, ext: ext,
-    ));
-    emit(state.copyWith(resources: [r, ...state.resources.where((x) => x.id != r.id)], notice: 'Resource uploaded', bumpNotice: true));
-  }
-
-  Future<void> _patch(Emitter<ResourcesState> emit, SharedResource r, String notice) async {
-    await _repo.updateResource(r);
-    emit(state.copyWith(resources: [for (final x in state.resources) x.id == r.id ? r : x], notice: notice, bumpNotice: true));
-  }
-
-  Future<void> _onDelete(ResourceDeleted e, Emitter<ResourcesState> emit) async {
-    await _repo.deleteResource(e.resource.id);
-    emit(state.copyWith(resources: state.resources.where((x) => x.id != e.resource.id).toList(), notice: 'Resource deleted', bumpNotice: true));
-  }
-
-  Future<void> _onPortal(PortalVisibilityChanged e, Emitter<ResourcesState> emit) async {
-    await _repo.setPortalVisible(e.visible);
-    emit(state.copyWith(portalVisible: e.visible, notice: e.visible ? 'Resources visible to students' : 'Resources hidden from students', bumpNotice: true));
   }
 
   @override
