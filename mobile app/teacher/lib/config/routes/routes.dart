@@ -13,6 +13,8 @@ class RoutePaths {
   static const String classStudentPath = '/class-manage/:id/student/:sid';
   static String classStudent(String id, String sid) => '/class-manage/$id/student/$sid';
   static const String tasks = '/tasks';
+  /// All assignments across the teacher's classes (replaces Tasks in navigation).
+  static const String assignments = '/assignments';
   static const String more = '/more';
 
   // Auth
@@ -97,12 +99,6 @@ class RoutePaths {
   static const String testNew = '/tests/new';
   static const String testEditPath = '/tests/:id/edit';
   static String testEdit(String id) => '/tests/$id/edit';
-  static const String certificates = '/certificates';
-  static const String certificateIssue = '/certificates/issue';
-  static const String certificatePreview = '/certificates/preview';
-  static const String certificateTemplates = '/certificates/templates';
-  static const String certificateDetail = '/certificates/:id';
-  static String certificate(String id) => '/certificates/$id';
 
   // Engage module
   static const String liveClasses = '/live-classes';

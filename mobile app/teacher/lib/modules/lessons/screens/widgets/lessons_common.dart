@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import '../../../../config/routes/routes.dart';
 import '../../../../design_system/design_system.dart';
 import '../../bloc/lessons_notice.dart';
 
@@ -23,8 +22,6 @@ void handleNotice(BuildContext context, Notice n) {
       final r = GoRouter.of(context);
       if (r.canPop()) r.pop();
       if (r.canPop()) r.pop();
-    case NoticeAction.openPreview:
-      context.push(RoutePaths.certificatePreview);
   }
 }
 

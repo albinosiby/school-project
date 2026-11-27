@@ -89,7 +89,7 @@ class _HomeworkViewState extends State<_HomeworkView> {
       case 'delete':
         final ok = await AppDialogs.showConfirmDialog(
           context,
-          title: 'Delete this homework?',
+          title: 'Delete this assignment?',
           message: 'It disappears for the class and the parents. Grades and hand-ins are removed with it.',
           confirm: 'Delete',
         );
@@ -108,11 +108,11 @@ class _HomeworkViewState extends State<_HomeworkView> {
     final h = s.homework;
     if (h == null || s.status == HomeworkStatus.deleted) {
       return DetailScaffold(
-        title: 'Homework',
+        title: 'Assignment',
         fallbackRoute: RoutePaths.classes,
         body: switch (s.status) {
-          HomeworkStatus.notFound || HomeworkStatus.deleted => const AppEmptyState('Homework not found', icon: Icons.assignment_late_outlined),
-          HomeworkStatus.failure => AppEmptyState('Could not load the homework', hint: s.error, icon: Icons.cloud_off_rounded),
+          HomeworkStatus.notFound || HomeworkStatus.deleted => const AppEmptyState('Assignment not found', icon: Icons.assignment_late_outlined),
+          HomeworkStatus.failure => AppEmptyState('Could not load the assignment', hint: s.error, icon: Icons.cloud_off_rounded),
           _ => const Padding(padding: EdgeInsets.all(16), child: SchoolSkeletonList()),
         },
       );
@@ -147,7 +147,7 @@ class _HomeworkViewState extends State<_HomeworkView> {
           tooltip: 'More',
           onSelected: (v) => _menu(context, v, s),
           itemBuilder: (_) => [
-            const PopupMenuItem(value: 'edit', child: Text('Edit homework')),
+            const PopupMenuItem(value: 'edit', child: Text('Edit assignment')),
             PopupMenuItem(value: 'toggle', child: Text(h.scheduled ? 'Publish now' : (h.open ? 'Close hand-ins' : 'Reopen hand-ins'))),
             const PopupMenuItem(value: 'delete', child: Text('Delete')),
           ],

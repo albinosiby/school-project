@@ -5,9 +5,6 @@ import 'package:teacher_app/design_system/design_system.dart' show AppButton, Ap
 import 'package:teacher_app/config/routes/modules/lessons_routes.dart';
 import 'package:teacher_app/config/routes/routes.dart';
 import 'package:teacher_app/di/injection.dart';
-import 'package:teacher_app/modules/lessons/bloc/certificates_bloc.dart';
-import 'package:teacher_app/modules/lessons/bloc/certificates_events.dart';
-import 'package:teacher_app/modules/lessons/bloc/certificates_states.dart';
 import 'package:teacher_app/modules/lessons/bloc/lesson_plans_bloc.dart';
 import 'package:teacher_app/modules/lessons/bloc/lesson_plans_events.dart';
 import 'package:teacher_app/modules/lessons/bloc/lesson_plans_states.dart';
@@ -47,7 +44,6 @@ void main() {
       expect(bloc.state.summary.activePlans, 3);
       expect(bloc.state.summary.draftPlans, 2);
       expect(bloc.state.summary.upcomingTests, 2);
-      expect(bloc.state.summary.pendingCertificates, 4);
       final unread = db.list('ms_messages').fold<int>(0, (a, m) => a + (m['unread'] as int? ?? 0));
       expect(bloc.state.summary.unreadMessages, unread);
       db.update('ts_tests', 'ts_1', {'status': 'live'});
@@ -109,20 +105,6 @@ void main() {
       bloc.add(OnlineTestSaved(bloc.state.byId('ts_2')!.copyWith(title: 'Renamed'), publish: true));
       await expectLater(bloc.stream, emitsThrough(predicate<OnlineTestsState>((s) => s.byId('ts_2')?.title == 'Renamed')));
       expect(db.list('ts_notices'), isNotEmpty);
-      await bloc.close();
-    });
-
-    test('certificates bloc signs pending and issues', () async {
-      final bloc = getIt<CertificatesBloc>()..add(const CertificatesLoadRequested());
-      await expectLater(bloc.stream, emitsThrough(predicate<CertificatesState>((s) => s.loaded)));
-      expect(bloc.state.templates.length, 12);
-      expect(bloc.state.mine.length, 6);
-      bloc.add(const CertificateSigned('cc_4'));
-      await expectLater(bloc.stream, emitsThrough(predicate<CertificatesState>((s) => s.pendingCount == 3)));
-      bloc.add(const PendingCertificatesSigned());
-      await expectLater(bloc.stream, emitsThrough(predicate<CertificatesState>((s) => s.pendingCount == 0)));
-      bloc.add(const CertificateRevoked('cc_1'));
-      await expectLater(bloc.stream, emitsThrough(predicate<CertificatesState>((s) => s.certificate('cc_1') == null)));
       await bloc.close();
     });
   });
@@ -249,53 +231,4 @@ void main() {
     expect(db.byId('ts_tests', 'ts_1')!['status'], 'upcoming');
   });
 
-  testWidgets('student certificates list signs pending', (t) async {
-    await open(t, RoutePaths.certificates);
-    expect(find.text('Student Certificates'), findsOneWidget);
-    expect(find.text('Dev Malhotra'), findsOneWidget);
-    await t.tap(find.text('Sign Pending (4)'));
-    await t.pumpAndSettle();
-    await t.tap(find.text('Sign & Issue'));
-    await t.pumpAndSettle();
-    expect(db.list('cr_certs').where((c) => c['status'] == 'pending'), isEmpty);
-  });
-
-  testWidgets('certificate detail signs a pending certificate', (t) async {
-    await open(t, RoutePaths.certificate('cc_4'));
-    expect(find.text('Certificate Details'), findsOneWidget);
-    await see(t, find.text('AWARDED RECIPIENT'));
-    expect(find.text('AWARDED RECIPIENT'), findsOneWidget);
-    await t.tap(find.text('Sign & Issue'));
-    await t.pumpAndSettle();
-    expect(db.byId('cr_certs', 'cc_4')!['status'], 'issued');
-  });
-
-  testWidgets('issue certificate flow', (t) async {
-    await open(t, RoutePaths.certificateIssue);
-    await t.tap(find.text('Sign & Issue'));
-    await t.pumpAndSettle();
-    expect(find.text('Select a recipient'), findsOneWidget);
-    await t.tap(find.byType(ListTile).first);
-    await t.pumpAndSettle();
-    await t.enterText(find.widgetWithText(TextFormField, 'e.g. Junior Mathematics Olympiad — 1st Place'), 'Academic Merit');
-    await see(t, find.textContaining('CITATION'));
-    await t.enterText(find.widgetWithText(TextFormField, 'In recognition of…'), 'For outstanding academic performance this term.');
-    await t.tap(find.text('Sign & Issue'));
-    await t.pumpAndSettle();
-    expect(find.text('Certificate Preview'), findsOneWidget);
-    await t.tap(find.text('Confirm & Issue'));
-    await t.pumpAndSettle();
-    expect(db.list('cr_certs').first['title'], 'Academic Merit');
-    expect(db.list('cr_certs').length, 8);
-  });
-
-  testWidgets('templates filter and apply', (t) async {
-    await open(t, RoutePaths.certificateTemplates);
-    expect(find.textContaining('12 Official'), findsOneWidget);
-    expect(find.text('Apply Template'), findsOneWidget);
-    await t.tap(find.text('Portrait'));
-    await t.pumpAndSettle();
-    expect(find.text('Modern Minimalist'), findsNothing);
-    expect(find.text('Excellence Ribbon'), findsWidgets);
-  });
 }

@@ -43,7 +43,6 @@ import 'package:teacher_app/modules/home/bloc/substitution_events.dart';
 import 'package:teacher_app/modules/home/bloc/substitution_states.dart';
 import 'package:teacher_app/modules/home/models/timetable_models.dart';
 import 'package:teacher_app/modules/home/repositories/timetable_repository_interface.dart';
-import 'package:teacher_app/modules/lessons/repositories/certificate_repository_interface.dart';
 import 'package:teacher_app/modules/school/repositories/school_repository_interface.dart';
 import 'package:teacher_app/modules/tasks/models/homework_models.dart';
 import 'package:teacher_app/modules/tasks/repositories/homework_repository_interface.dart';
@@ -421,8 +420,8 @@ void main() {
   });
 
   group('profile and catalogues', () {
-    test('profile edits go to the private hm_me overlay; badges and templates start from the built-in catalogue', () async {
-      await boot(['me', 'cl_badges', 'cr_templates']);
+    test('profile edits go to the private hm_me overlay; badges start from the built-in catalogue', () async {
+      await boot(['me', 'cl_badges']);
       final school = getIt<ISchoolRepository>();
       final me = await school.getTeacher();
       expect(me.name, 'Mrs. Anita Sharma');
@@ -431,7 +430,6 @@ void main() {
       expect((w.id, w.data['phone'], w.data['teacherId']), ('stf_025', '98100 11111', 'stf_025'));
       expect((await school.getTeacher()).phone, '98100 11111');
       expect(await getIt<IBehaviourRepository>().getBadges(), isNotEmpty);
-      expect(await getIt<ICertificateRepository>().getTemplates(), isNotEmpty);
     });
   });
 

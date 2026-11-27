@@ -26,7 +26,6 @@ import 'modules/lessons_di.dart';
 import 'modules/school_di.dart';
 import 'modules/tasks_di.dart';
 import '../modules/classes/repositories/classes_seed.dart';
-import '../modules/lessons/repositories/lessons_seed.dart';
 import 'seed_data.dart';
 
 final GetIt getIt = GetIt.instance;
@@ -91,10 +90,9 @@ Future<void> configureDependencies({LocalDatabaseService? db}) async {
   registerEngageModule(getIt);
 }
 
-/// The Firestore adapters plus the built-in catalogues a new school starts with (behaviour badges, certificate templates);
+/// The Firestore adapters plus the built-in catalogues a new school starts with (behaviour badges);
 /// the teacher's own additions are stored privately and merged over them.
 List<StoreAdapter> firebaseAdapters() => [
   ...defaultAdapters(),
   CatalogueAdapter('cl_badges', classesSeed['cl_badges'] ?? const []),
-  CatalogueAdapter('cr_templates', lessonsSeed['cr_templates'] ?? const []),
 ];

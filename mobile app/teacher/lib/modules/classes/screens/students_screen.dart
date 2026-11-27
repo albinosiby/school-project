@@ -145,7 +145,7 @@ class _ClassViewState extends State<_ClassView> {
           Row(
             children: [
               _Action(Icons.how_to_reg_rounded, today == null ? 'Mark attendance' : 'Attendance', () => context.push(RoutePaths.markAttendance(classId: cls.id))),
-              _Action(Icons.assignment_add, 'Homework', () => context.push('${RoutePaths.homeworkNew}?classId=${cls.id}')),
+              _Action(Icons.assignment_add, 'Assignment', () => context.push('${RoutePaths.homeworkNew}?classId=${cls.id}')),
               _Action(Icons.grading_rounded, 'Marks', () => context.push('${RoutePaths.marks}?class=${cls.id}')),
               _Action(Icons.emoji_events_outlined, 'Behaviour', () => context.push('${RoutePaths.behaviour}?classId=${cls.id}')),
             ],
@@ -566,7 +566,7 @@ class _HomeworkSectionState extends State<_HomeworkSection> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Homework', style: T.h2),
+                  Text('Assignments', style: T.h2),
                   Text(
                     list.isEmpty ? 'Nothing set yet' : '${list.where((h) => h.open).length} open${toGrade > 0 ? ' • $toGrade to grade' : ''}',
                     style: T.small.copyWith(color: toGrade > 0 ? C.primary : C.slate, fontWeight: toGrade > 0 ? FontWeight.w600 : null),
@@ -589,7 +589,7 @@ class _HomeworkSectionState extends State<_HomeworkSection> {
           AppCard(
             radius: R.lg,
             padding: EdgeInsets.all(14.r),
-            child: Text('Set homework and parents get it in the parent app, where they can hand in photos or PDFs.', style: T.small),
+            child: Text('Post an assignment and parents get it in the parent app, where they can hand in photos or PDFs.', style: T.small),
           ),
         for (final h in shown) _HomeworkTile(h: h, stats: HomeworkStats.of(h, widget.roster)),
         if (list.length > shown.length)

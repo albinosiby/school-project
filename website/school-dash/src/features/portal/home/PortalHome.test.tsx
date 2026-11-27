@@ -98,6 +98,61 @@ describe("PortalHome (teacher)", () => {
   });
 });
 
+describe("PortalHome now card, attention and quick actions", () => {
+  const reg = (extra: Record<string, unknown> = {}) => ({ id: "2026-11-23_cls_10B_1", date: "2026-11-23", classId: "cls_10B", grade: "10", section: "B", period: 1, total: 30, marks: { stu_1: "A", stu_2: "L" }, submitted: true, teacherId: "stf_1", ...extra });
+
+  it("offers Mark attendance for the live period while it has no register, and lists the unmarked period", () => {
+    seed({ staff, ops_periods: periods, ops_substitutions: subs, ops_attendance: [reg({ submitted: false })], classes: [{ id: "cls_9A", grade: "9", section: "A", classTeacherId: "stf_1" }] });
+    renderUI(<PortalHome />);
+    const now = screen.getByRole("region", { name: "Now" });
+    expect(now).toHaveTextContent("NOW · PERIOD 1");
+    expect(now).toHaveTextContent("Grade 10-B");
+    expect(now).toHaveTextContent("30 of 45 mins (67%)");
+    expect(within(now).getByRole("link", { name: "Mark attendance" })).toHaveAttribute("href", "/me/attendance?classId=cls_10B&period=1&date=2026-11-23");
+    expect(now).not.toHaveTextContent("Attendance marked");
+    expect(now).toHaveTextContent("Next: Period 4 · Grade 9-A");
+    const attention = within(screen.getByRole("list", { name: "Needs your attention" })).getAllByRole("link");
+    expect(attention.map((a) => a.textContent)).toEqual([
+      "Substitution: Grade 7-A ScienceToday · Period 3 · Accept or decline", "Substitution: Grade 7-A Science2026-11-25 · Period 1 · Accept or decline",
+      "Mark attendance · Period 1 · Grade 10-BMathematics · 08:30 AM · Not marked", "Mark attendance · Grade 9-AClass teacher · Not marked today",
+    ]);
+    expect(attention[2]).toHaveAttribute("href", "/me/attendance?classId=cls_10B&period=1&date=2026-11-23");
+    expect(attention[0]).toHaveAttribute("href", "/me/substitutions");
+    expect(within(screen.getByRole("region", { name: "Needs your attention" })).getByRole("link", { name: "Assignments" })).toHaveAttribute("href", "/me/assignments");
+  });
+
+  it("shows Attendance marked · x/y present with View once the period's register is in", () => {
+    seed({ staff, ops_periods: periods, ops_attendance: [reg()] });
+    renderUI(<PortalHome />);
+    const now = screen.getByRole("region", { name: "Now" });
+    expect(now).toHaveTextContent("Attendance marked · 29/30 present · 1 absent");
+    expect(within(now).queryByRole("link", { name: "Mark attendance" })).not.toBeInTheDocument();
+    expect(within(now).getByRole("link", { name: "View attendance of Grade 10-B period 1" })).toHaveAttribute("href", "/me/attendance?classId=cls_10B&period=1&date=2026-11-23");
+    expect(screen.getByText("All caught up")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Today's periods" })).getAllByRole("listitem")[0]).toHaveTextContent("Marked · 29/30");
+  });
+
+  it("says the day has not started and names the next class before the first bell", () => {
+    vi.setSystemTime(new Date(2026, 10, 23, 7, 45));
+    seed({ staff, ops_periods: periods });
+    renderUI(<PortalHome />);
+    const now = screen.getByRole("region", { name: "Now" });
+    expect(now).toHaveTextContent("SCHOOL DAY NOT STARTED");
+    expect(now).toHaveTextContent("Your next class starts at 08:30 AM.");
+    expect(screen.getByText("All caught up")).toBeInTheDocument();
+  });
+
+  it("has four equal-size quick action cards", () => {
+    seed({ staff });
+    renderUI(<PortalHome />);
+    const quick = within(screen.getByRole("navigation", { name: "Quick actions" })).getAllByRole("link");
+    expect(quick.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
+      ["Attendance", "/me/attendance"], ["Assignments", "/me/assignments"], ["Enter marks", "/me/marks"], ["Resources", "/me/resources"],
+    ]);
+    expect(new Set(quick.map((a) => a.firstElementChild!.className)).size).toBe(1);
+  });
+});
+
 describe("PortalHome (non-teaching staff)", () => {
   it("hides the timetable and teaching links, keeps check-in, leave and notices", () => {
     authState.user = clerk;
@@ -106,6 +161,8 @@ describe("PortalHome (non-teaching staff)", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Good morning, Ravi Menon");
     expect(screen.getByText("Only teachers have a timetable")).toBeInTheDocument();
     expect(screen.queryByText("Pending substitutions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Now" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Quick actions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "My timetable" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Marks entry" })).not.toBeInTheDocument();
     screen.getAllByRole("link", { name: "Leave & check-in" }).forEach((a) => expect(a).toHaveAttribute("href", "/me/leave"));

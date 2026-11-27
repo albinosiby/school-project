@@ -59,9 +59,9 @@ void main() {
     expect(find.text('CLASS TEACHER'), findsOneWidget);
   });
 
-  testWidgets('tasks and more use both columns; the rail switches tabs', (t) async {
+  testWidgets('assignments and more open in landscape; the rail switches tabs', (t) async {
     await _pumpLandscape(t, RoutePaths.tasks);
-    expect(find.text('Weekly Workload'), findsOneWidget);
+    expect(find.text('Assignments'), findsWidgets, reason: '/tasks now opens Assignments');
     await _pumpLandscape(t, RoutePaths.more);
     expect(find.byType(NavigationRail), findsOneWidget);
     await t.tap(find.byIcon(Icons.home_outlined).first);

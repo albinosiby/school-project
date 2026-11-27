@@ -23,6 +23,7 @@ import 'package:teacher_app/modules/tasks/bloc/tasks_events.dart';
 import 'package:teacher_app/modules/tasks/bloc/tasks_states.dart';
 import 'package:teacher_app/modules/tasks/models/duty_models.dart';
 import 'package:teacher_app/modules/tasks/models/task_models.dart';
+import 'package:teacher_app/modules/tasks/screens/assignments_screen.dart';
 import 'package:teacher_app/modules/tasks/screens/tasks_screen.dart';
 import 'package:teacher_app/utils/services/local_database_service.dart';
 import 'helpers/pump_app.dart';
@@ -55,6 +56,8 @@ Future<void> pump(WidgetTester t, String location) async {
   ignoreOverflow();
   await pumpScreen(t, location: location, routes: [
     GoRoute(path: RoutePaths.tasks, builder: (_, _) => const Scaffold(body: TasksScreen())),
+    GoRoute(path: RoutePaths.assignments, builder: (_, _) => const AssignmentsScreen()),
+    GoRoute(path: RoutePaths.homeworkNew, builder: (_, _) => const Scaffold(body: Text('NEW ASSIGNMENT'))),
     GoRoute(path: RoutePaths.notifications, builder: (_, _) => const Scaffold()),
     GoRoute(path: RoutePaths.profile, builder: (_, _) => const Scaffold()),
     ...tasksRoutes,
@@ -252,6 +255,29 @@ void main() {
     await t.pumpAndSettle();
     expect(db.byId('tk_duties', 'd_exam1')!['status'], 'done');
     expect(find.text('Reopen Duty'), findsOneWidget);
+  });
+
+  testWidgets('assignments page: review count, tabs, open one, new assignment', (t) async {
+    await pump(t, RoutePaths.assignments);
+    expect(find.text('Assignments'), findsOneWidget);
+    expect(find.textContaining('to review'), findsWidgets);
+    expect(find.byKey(const ValueKey('asg-hw_review')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('asg-tab-review')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('asg-hw_review')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('asg-tab-closed')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('asg-hw_review')), findsNothing);
+    await t.tap(find.byKey(const ValueKey('asg-tab-review')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('asg-hw_review')));
+    await t.pumpAndSettle();
+    expect(find.text('Quadratic Equations Review'), findsOneWidget);
+    t.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('asg-new')));
+    await t.pumpAndSettle();
+    expect(find.text('NEW ASSIGNMENT'), findsOneWidget);
   });
 
   testWidgets('homework page: hand-ins, filter, grade a paper with marks and feedback', (t) async {

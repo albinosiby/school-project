@@ -303,7 +303,7 @@ class _TeachCard extends StatelessWidget {
           Row(
             children: [
               _Tool('Attendance', Icons.how_to_reg_outlined, () => context.push(RoutePaths.markAttendance(classId: cls.id))),
-              _Tool('Homework', Icons.assignment_add, () => context.push('${RoutePaths.homeworkNew}?classId=${cls.id}')),
+              _Tool('Assignment', Icons.assignment_add, () => context.push('${RoutePaths.homeworkNew}?classId=${cls.id}')),
               _Tool('Marks', Icons.grading_rounded, () => context.push('${RoutePaths.marks}?class=${cls.id}')),
               _Tool('Resources', Icons.folder_open_rounded, () => context.push('${RoutePaths.resources}?classId=${cls.id}')),
             ],

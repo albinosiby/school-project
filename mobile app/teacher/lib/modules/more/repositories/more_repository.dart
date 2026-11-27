@@ -9,7 +9,7 @@ class LocalMoreRepository implements IMoreRepository {
   LocalMoreRepository(this._db);
   final DataStore _db;
 
-  static const _collections = {'ls_plans', 'ts_tests', 'cr_certs', 'tk_tasks', 'ms_messages', 'tt_periods', 'lm_my', 'lm_balance', 'pm_meetings', 'ed_duties', 'lv_sessions'};
+  static const _collections = {'ls_plans', 'ts_tests', 'tk_tasks', 'ms_messages', 'tt_periods', 'lm_my', 'lm_balance', 'pm_meetings', 'ed_duties', 'lv_sessions'};
 
   @override
   Future<MoreSummary> getSummary() async {
@@ -18,7 +18,6 @@ class LocalMoreRepository implements IMoreRepository {
       activePlans: plans.where((p) => p.isActive).length,
       draftPlans: plans.where((p) => p.draft).length,
       upcomingTests: _db.list('ts_tests').where((t) => t['status'] == 'upcoming').length,
-      pendingCertificates: _db.list('cr_certs').where((c) => c['status'] == 'pending').length,
       openTasks: _db.list('tk_tasks').where((t) => t['status'] != 'done' && t['done'] != true).length,
       // one row per conversation with an integer `unread` count
       unreadMessages: _db.list('ms_messages').fold<int>(0, (a, m) => a + (m['unread'] is int ? m['unread'] as int : 0)),

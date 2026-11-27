@@ -103,7 +103,7 @@ class _HomeViewState extends State<_HomeView> {
       ],
     ];
     final attention = <Widget>[
-      SectionHeader('Needs your attention', icon: Icons.assignment_late_outlined, action: 'All tasks', onAction: () => context.push(RoutePaths.tasks)),
+      SectionHeader('Needs your attention', icon: Icons.assignment_late_outlined, action: 'Assignments', onAction: () => context.push(RoutePaths.assignments)),
       if (state.status == HomeStatus.loaded && items.isEmpty)
         AppCard(
           radius: R.lg,

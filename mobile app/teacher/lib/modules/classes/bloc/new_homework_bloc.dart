@@ -51,15 +51,15 @@ class NewHomeworkBloc extends Bloc<NewHomeworkEvent, NewHomeworkState> {
         status: NewHomeworkStatus.saved,
         saved: hw,
         message: editing
-            ? 'Homework updated'
+            ? 'Assignment updated'
             : hw.status == 'scheduled'
-            ? 'Homework scheduled — parents are notified when it is published'
-            : 'Homework set for ${e.enrolled} students — parents are notified',
+            ? 'Assignment scheduled — parents are notified when it is published'
+            : 'Assignment posted to ${e.enrolled} students — parents are notified',
       ));
     } on AppException catch (err) {
       emit(state.copyWith(status: NewHomeworkStatus.failure, message: err.message));
     } catch (_) {
-      emit(state.copyWith(status: NewHomeworkStatus.failure, message: 'Could not save the homework. Check your connection.'));
+      emit(state.copyWith(status: NewHomeworkStatus.failure, message: 'Could not save the assignment. Check your connection.'));
     }
   }
 }

@@ -1,12 +1,14 @@
 "use client";
-// Staff portal home (contract §2 /me): greeting, today's check-in, today's periods (teachers) with substitutions overlaid,
-// pending substitutions, the latest leave request and the newest notices, plus links to every section.
+// Staff portal home (contract §2 /me): greeting; for teachers the "now" card (live period, Mark attendance until that
+// period's register is in), "Needs your attention" (substitutions to answer, begun periods without a register) and quick
+// actions; today's check-in, today's periods with substitutions overlaid, pending substitutions, the latest leave request
+// and the newest notices, plus links to every section. Mirrors the teacher app's home (modules/home).
 import Link from "next/link";
 import { useMemo } from "react";
-import { ArrowRight, CalendarDays, Megaphone, Replace } from "lucide-react";
-import { Badge, Card, CardHeader, EmptyState, Stat } from "@/components/ui";
+import { ArrowRight, CalendarCheck, CalendarDays, CheckCircle2, ClipboardList, Coffee, FolderOpen, GraduationCap, Megaphone, Replace, type LucideIcon } from "lucide-react";
+import { Badge, Card, CardHeader, EmptyState, ProgressBar, Stat } from "@/components/ui";
 import { PORTAL_NAV } from "@/components/portal/nav";
-import { PERIOD_TIMES, periodClass, subStatus, type Period, type Substitution } from "@/features/ops/logic";
+import { subStatus, type AttRec, type Period, type Substitution } from "@/features/ops/logic";
 import { clsLabel, dayOfIso } from "@/features/ops/shared";
 import { t12 } from "@/features/people/checkins";
 import { useCollection } from "@/lib/useCollection";
@@ -15,18 +17,13 @@ import { useStaffProfile } from "@/lib/portal/useStaffProfile";
 import { CheckInCard } from "../leave/CheckInCard";
 import { byNewest, statusTone, type PortalLeave } from "../leave/logic";
 import { useStaffNotices } from "../notices/NoticesView";
-import { todayIso } from "../shared";
+import type { ClassDoc, MobilePolicy } from "../teaching";
+import {
+  attendanceHref, attentionItems, bellsOf, clockOf, markedFor, markedLabel, markedMap, nowInfo, teachingSlots, todaySlots, toMin,
+  type AttentionItem, type Marked, type NowInfo, type Slot,
+} from "./logic";
 
-type Slot = { id: string; period: number; time: string; classId: string; subject: string; room?: string; cover?: boolean; status?: string };
-
-/** Today's periods: own `ops_periods` of the weekday, with the substitutions the teacher covers today laid over. */
-export function todaySlots(periods: Period[], subs: Substitution[], today: string): Slot[] {
-  const day = dayOfIso(today);
-  const own: Slot[] = periods.filter((p) => p.day === day).map((p) => ({ id: p.id, period: Number(p.period), time: PERIOD_TIMES[Number(p.period) - 1] ?? "", classId: periodClass(p), subject: p.subject, room: p.room }));
-  const covers: Slot[] = subs.filter((s) => s.date === today && subStatus(s.status) !== "Declined")
-    .map((s) => ({ id: s.id, period: Number(s.period), time: PERIOD_TIMES[Number(s.period) - 1] ?? "", classId: s.classId, subject: s.subject, cover: true, status: subStatus(s.status) }));
-  return [...own, ...covers].sort((a, b) => a.period - b.period || Number(!!a.cover) - Number(!!b.cover));
-}
+export { todaySlots };
 
 export function PortalHome() {
   const profile = useStaffProfile();
@@ -44,19 +41,28 @@ function CrewHome({ name, designation }: { name: string; designation: string }) 
 }
 
 function StaffHome() {
-  const { name, designation, staffId, teaching, canAddStaff, ready } = useStaffProfile();
+  const { name, designation, staffId, teaching, canAddStaff, reviewer, ready } = useStaffProfile();
   const now = useNow(60_000);
-  const today = todayIso(new Date(now));
+  const { today, minute, hour } = clockOf(now);
   const periods = useCollection<Period>("ops_periods", teaching, [["teacherId", "==", staffId]] as const);
   const subs = useCollection<Substitution>("ops_substitutions", teaching, [["substituteTeacherId", "==", staffId]] as const);
+  const school = useCollection<MobilePolicy>("school", teaching);
+  const classes = useCollection<ClassDoc>("classes", teaching);
+  const registers = useCollection<AttRec>("ops_attendance", teaching, [["date", "==", today]] as const);
   const leaves = useCollection<PortalLeave>("staff_leaves", !!staffId, [["staffId", "==", staffId]] as const);
   const notices = useStaffNotices();
+  const policy = school.rows.find((row) => row.id === "mobile");
+  const bells = useMemo(() => bellsOf(policy), [policy]);
   const mySubs = useMemo(() => subs.rows.filter((s) => s.substituteTeacherId === staffId), [subs.rows, staffId]);
-  const slots = useMemo(() => todaySlots(periods.rows.filter((p) => p.teacherId === staffId), mySubs, today), [periods.rows, mySubs, staffId, today]);
+  const slots = useMemo(() => todaySlots(periods.rows.filter((p) => p.teacherId === staffId), mySubs, today, bells), [periods.rows, mySubs, staffId, today, bells]);
+  const marked = useMemo(() => markedMap(registers.rows, today), [registers.rows, today]);
+  const working = dayOfIso(today) !== "Sun";
+  const info = nowInfo(working ? teachingSlots(slots) : [], bells, minute);
+  const classTeacherOf = classes.rows.filter((c) => c.classTeacherId === staffId && c.deleted !== true).map((c) => c.id).sort();
+  const attention = teaching ? attentionItems({ today, minute, slots, subs: mySubs, marked, started: working && info.started, classTeacherOf, label: clsLabel, time: t12 }) : [];
   const pendingSubs = mySubs.filter((s) => subStatus(s.status) === "Assigned" && s.date >= today).length;
   const latestLeave = byNewest(leaves.rows.filter((l) => l.staffId === staffId))[0];
-  const links = PORTAL_NAV.filter((item) => item.href !== "/me" && (!("teaching" in item) || teaching) && (!("addStaff" in item) || canAddStaff));
-  const hour = new Date(now).getHours();
+  const links = PORTAL_NAV.filter((item) => item.href !== "/me" && (!("teaching" in item) || teaching) && (!("addStaff" in item) || canAddStaff) && (!("reviewer" in item) || reviewer));
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
@@ -66,6 +72,15 @@ function StaffHome() {
         <h1 className="t-headline-lg">{ready ? `${greeting}, ${name}` : "Loading…"}</h1>
         {designation && <p className="text-sm text-on-surface-variant">{designation}</p>}
       </div>
+
+      {teaching && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2"><NowCard info={info} today={today} marked={marked} ready={periods.ready} /></div>
+          <AttentionCard items={attention} ready={periods.ready && registers.ready} />
+        </div>
+      )}
+
+      {teaching && <QuickActions />}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2"><CheckInCard /></div>
@@ -90,14 +105,7 @@ function StaffHome() {
             : slots.length === 0 ? <EmptyState title="No periods today" hint={dayOfIso(today) === "Sun" ? "Enjoy your Sunday." : "Nothing on your timetable for today."} />
             : (
               <ul aria-label="Today's periods" className="divide-y divide-outline-variant/60">
-                {slots.map((s) => (
-                  <li key={`${s.id}_${s.cover ? "c" : "p"}`} className="flex items-center gap-3 py-2.5 text-sm">
-                    <span className="w-14 shrink-0 font-semibold text-secondary">P{s.period}</span>
-                    <span className="w-20 shrink-0 text-on-surface-variant">{s.time ? t12(s.time) : "—"}</span>
-                    <span className="min-w-0 flex-1 truncate"><span className="font-medium">{clsLabel(s.classId)}</span> · {s.subject}{s.room ? ` · ${s.room}` : ""}</span>
-                    {s.cover && <Badge tone={s.status === "Accepted" ? "success" : "warning"}>{s.status === "Accepted" ? "Substitution" : "Substitution · to accept"}</Badge>}
-                  </li>
-                ))}
+                {slots.map((s) => <PeriodRow key={`${s.id}_${s.cover ? "c" : "p"}`} s={s} today={today} begun={working && toMin(s.from) <= minute} m={markedFor(marked, s.classId, s.period)} />)}
               </ul>
             )}
         </Card>
@@ -125,13 +133,136 @@ function StaffHome() {
 
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-outline">Sections</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid auto-rows-fr gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {links.map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href}><Card className="flex items-center gap-3 p-4 hover:bg-surface-container-low"><Icon size={20} className="text-secondary" /><span className="flex-1 font-medium">{label}</span><ArrowRight size={16} className="text-outline" /></Card></Link>
+            <Link key={href} href={href} className="block h-full"><Card className="flex h-full items-center gap-3 p-4 hover:bg-surface-container-low"><Icon size={20} className="text-secondary" /><span className="flex-1 font-medium">{label}</span><ArrowRight size={16} className="text-outline" /></Card></Link>
           ))}
         </div>
       </div>
       {teaching && <p className="flex items-center gap-1.5 text-xs text-outline"><CalendarDays size={12} />Periods come from the school timetable; substitutions the office assigns to you appear on the day.</p>}
     </div>
+  );
+}
+
+function PeriodRow({ s, today, begun, m }: { s: Slot; today: string; begun: boolean; m: Marked | null }) {
+  const takes = !s.cover || s.status === "Accepted";
+  return (
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5 text-sm">
+      <span className="w-10 shrink-0 font-semibold text-secondary sm:w-14">P{s.period}</span>
+      <span className="w-16 shrink-0 text-on-surface-variant sm:w-20">{s.time ? t12(s.time) : "—"}</span>
+      <span className="min-w-0 flex-1 truncate"><span className="font-medium">{clsLabel(s.classId)}</span> · {s.subject}{s.room ? ` · ${s.room}` : ""}</span>
+      {s.cover && <Badge tone={s.status === "Accepted" ? "success" : "warning"}>{s.status === "Accepted" ? "Substitution" : "Substitution · to accept"}</Badge>}
+      {takes && m && <Badge tone="success">Marked · {m.present}/{m.total}</Badge>}
+      {takes && !m && begun && <Link href={attendanceHref(s.classId, s.period, today)}><Badge tone="danger">Not marked</Badge></Link>}
+    </li>
+  );
+}
+
+/** The "now" card (the app's NowCard): the live period with progress and Mark attendance — or, once that period's register
+ * is in, "Attendance marked · x/y present" with View — else the break / no class state and the next period. */
+function NowCard({ info, today, marked, ready }: { info: NowInfo; today: string; marked: Map<string, Marked>; ready: boolean }) {
+  const { live, next, brk } = info;
+  const nextRow = next && (
+    <div className="mt-4 flex items-center gap-2 rounded-lg border border-outline-variant/60 px-3 py-2.5 text-sm">
+      <ArrowRight size={14} className="shrink-0 text-secondary" />
+      <span className="min-w-0 flex-1 truncate"><span className="font-semibold">Next:</span> Period {next.period} · {clsLabel(next.classId)} {next.subject}{next.room ? ` (${next.room})` : ""}</span>
+      <span className="shrink-0 font-semibold text-secondary">{t12(next.from)}</span>
+    </div>
+  );
+  if (!ready) return <Card className="h-full p-5"><p className="text-sm text-on-surface-variant">Loading…</p></Card>;
+  if (!live) {
+    return (
+      <Card role="region" aria-label="Now" className="h-full p-5">
+        <Badge tone="warning">{brk ? brk.label.toUpperCase() : info.started ? "NO CLASS RIGHT NOW" : "SCHOOL DAY NOT STARTED"}</Badge>
+        <div className="mt-3 flex items-center gap-2">{brk && <Coffee size={20} className="text-warning" />}<h2 className="t-headline-md">{brk ? `Break until ${t12(brk.to)}` : "No class in progress"}</h2></div>
+        <p className="mt-1 text-sm text-on-surface-variant">{next ? `Your next class starts at ${t12(next.from)}.` : "You have no more periods today."}</p>
+        {nextRow}
+      </Card>
+    );
+  }
+  const m = markedFor(marked, live.classId, live.period);
+  const href = attendanceHref(live.classId, live.period, today);
+  const pct = info.length ? Math.round((info.done / info.length) * 100) : 0;
+  return (
+    <Card role="region" aria-label="Now" className="h-full p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="brand"><span className="size-1.5 rounded-full bg-secondary" />NOW · PERIOD {live.period}</Badge>
+        <span className="rounded-full border border-outline-variant px-2.5 py-0.5 text-xs font-semibold text-secondary">{t12(live.from)} – {t12(live.to)}</span>
+        {live.cover && <Badge tone="success">Substitution</Badge>}
+      </div>
+      <div className="mt-3 flex items-start justify-between gap-3">
+        <div className="min-w-0"><h2 className="t-headline-md truncate">{clsLabel(live.classId)}</h2><p className="text-sm text-on-surface-variant">{live.subject}</p></div>
+        {live.room && <span className="shrink-0 rounded-full border border-outline-variant px-2.5 py-0.5 text-xs font-semibold text-secondary">{live.room}</span>}
+      </div>
+      <div className="mt-4 rounded-lg bg-surface-container-low p-3">
+        <div className="mb-2 flex items-center justify-between gap-2 text-xs"><span className="text-on-surface-variant">Period progress</span><span className="font-semibold">{info.done} of {info.length} mins <span className="text-secondary">({pct}%)</span></span></div>
+        <ProgressBar value={pct} />
+      </div>
+      <div className="mt-4">
+        {m ? (
+          <div className="flex items-center gap-2 rounded-lg bg-success-container px-3 py-2.5 text-sm text-success">
+            <CheckCircle2 size={18} className="shrink-0" />
+            <span className="min-w-0 flex-1 font-semibold">Attendance marked · {markedLabel(m)}</span>
+            <Link href={href} className="shrink-0 font-semibold text-secondary hover:underline" aria-label={`View attendance of ${clsLabel(live.classId)} period ${live.period}`}>View</Link>
+          </div>
+        ) : (
+          <Link href={href} className="inline-flex h-10 w-full items-center justify-center gap-2 rounded bg-secondary px-4 text-sm font-semibold text-on-secondary shadow-card hover:bg-secondary-container">
+            <CalendarCheck size={16} />Mark attendance
+          </Link>
+        )}
+      </div>
+      {nextRow}
+    </Card>
+  );
+}
+
+function AttentionCard({ items, ready }: { items: AttentionItem[]; ready: boolean }) {
+  return (
+    <Card role="region" aria-label="Needs your attention" className="flex h-full flex-col p-5">
+      <CardHeader className="p-0 pb-3" title="Needs your attention" actions={<Link href="/me/assignments" className="text-sm font-medium text-secondary">Assignments</Link>} />
+      {!ready ? <p className="text-sm text-on-surface-variant">Loading…</p> : !items.length ? (
+        <div className="flex items-center gap-3 rounded-lg bg-success-container/60 p-3">
+          <CheckCircle2 size={20} className="shrink-0 text-success" />
+          <div><p className="font-semibold">All caught up</p><p className="text-xs text-on-surface-variant">Nothing is waiting for you right now.</p></div>
+        </div>
+      ) : (
+        <ul aria-label="Needs your attention" className="-mx-2 divide-y divide-outline-variant/60">
+          {items.map((i) => (
+            <li key={i.id}>
+              <Link href={i.href} className="flex items-center gap-3 rounded px-2 py-2.5 hover:bg-surface-container-low">
+                <span className={`grid size-8 shrink-0 place-items-center rounded-lg ${i.tone === "warning" ? "bg-warning-container text-warning" : "bg-error-container text-error"}`}>
+                  {i.kind === "sub" ? <Replace size={16} /> : <CalendarCheck size={16} />}
+                </span>
+                <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{i.title}</span><span className="block truncate text-xs text-on-surface-variant">{i.sub}</span></span>
+                <ArrowRight size={14} className="shrink-0 text-outline" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+const QUICK: { href: string; label: string; icon: LucideIcon; tint: string }[] = [
+  { href: "/me/attendance", label: "Attendance", icon: CalendarCheck, tint: "bg-info-container text-secondary" },
+  { href: "/me/assignments", label: "Assignments", icon: ClipboardList, tint: "bg-warning-container text-warning" },
+  { href: "/me/marks", label: "Enter marks", icon: GraduationCap, tint: "bg-tertiary-container/15 text-tertiary" },
+  { href: "/me/resources", label: "Resources", icon: FolderOpen, tint: "bg-success-container text-success" },
+];
+
+/** Four equal cards (the app's quick actions: one fixed size whatever the label). */
+function QuickActions() {
+  return (
+    <nav aria-label="Quick actions" className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {QUICK.map(({ href, label, icon: Icon, tint }) => (
+        <Link key={href} href={href} className="block h-full">
+          <Card className="flex h-28 flex-col items-center justify-center gap-2 p-3 text-center transition-colors hover:bg-surface-container-low">
+            <span className={`grid size-10 place-items-center rounded-xl ${tint}`}><Icon size={20} /></span>
+            <span className="line-clamp-2 text-sm font-semibold leading-tight">{label}</span>
+          </Card>
+        </Link>
+      ))}
+    </nav>
   );
 }

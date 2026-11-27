@@ -18,10 +18,14 @@ export function PortalNavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const path = usePathname();
   const { teaching, canAddStaff, crew, reviewer } = useStaffProfile();
   const links = PORTAL_NAV.filter((item) => (crew ? item.href === "/me" : (!("teaching" in item) || teaching) && (!("addStaff" in item) || canAddStaff) && (!("reviewer" in item) || reviewer)));
+  // the most specific matching link is the current one (/me/attendance/trends over /me/attendance)
+  const current = links.map((item) => item.href)
+    .filter((href) => (href === "/me" ? path === "/me" : path === href || path.startsWith(href + "/")))
+    .sort((a, b) => b.length - a.length)[0];
   return (
     <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-2" aria-label="Staff portal">
       {links.map(({ href, label, icon: Icon }) => {
-        const on = href === "/me" ? path === "/me" : path === href || path.startsWith(href + "/");
+        const on = href === current;
         return (
           <Link key={href} href={href} onClick={onNavigate} aria-current={on ? "page" : undefined}
             className={cn("flex items-center gap-3 rounded-md border-l-[3px] px-3 py-2.5 text-sm transition-colors",

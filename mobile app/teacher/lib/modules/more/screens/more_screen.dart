@@ -42,7 +42,7 @@ class _MoreView extends StatelessWidget {
         MoreModule('Live Classes', 'Virtual classrooms', Icons.videocam_outlined, () => push(RoutePaths.liveClasses),
             tone: Tone.danger, badge: text(s.nextLive), badgeTone: Tone.success),
         MoreModule('Enter Marks', 'Record exam and test marks', Icons.edit_note_rounded, () => push(RoutePaths.marksEnter), tone: Tone.warning),
-        MoreModule('Tasks & Assignments', 'Homework, grading and reminders', Icons.task_alt_rounded, () => push(RoutePaths.tasks),
+        MoreModule('Assignments', 'Set, schedule and review assignments', Icons.assignment_outlined, () => push(RoutePaths.assignments),
             tone: Tone.success, badge: count(s.openTasks, 'open'), badgeTone: Tone.warning),
       ]),
       ('Communication', [

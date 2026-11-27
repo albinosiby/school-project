@@ -1,5 +1,6 @@
 import 'package:get_it/get_it.dart';
 import '../../modules/school/repositories/school_repository_interface.dart';
+import '../../modules/tasks/bloc/assignments_bloc.dart';
 import '../../modules/tasks/bloc/duties_bloc.dart';
 import '../../modules/tasks/bloc/homework_bloc.dart';
 import '../../modules/tasks/bloc/syllabus_bloc.dart';
@@ -23,6 +24,7 @@ void registerTasksModule(GetIt getIt) {
   getIt.registerLazySingleton<ISyllabusRepository>(() => LocalSyllabusRepository(getIt<DataStore>()));
 
   getIt.registerFactory<TasksBloc>(() => TasksBloc(getIt<ITaskRepository>(), getIt<IHomeworkRepository>(), getIt<ISchoolRepository>()));
+  getIt.registerFactory<AssignmentsBloc>(() => AssignmentsBloc(getIt<IHomeworkRepository>(), getIt<ISchoolRepository>()));
   getIt.registerFactory<TaskFormBloc>(() => TaskFormBloc(getIt<ITaskRepository>(), getIt<ISchoolRepository>()));
   getIt.registerFactory<DutiesBloc>(() => DutiesBloc(getIt<IDutyRepository>(), getIt<IHomeworkRepository>(), getIt<ISyllabusRepository>(), getIt<ISchoolRepository>()));
   getIt.registerFactory<HomeworkBloc>(() => HomeworkBloc(getIt<IHomeworkRepository>(), getIt<ISchoolRepository>()));

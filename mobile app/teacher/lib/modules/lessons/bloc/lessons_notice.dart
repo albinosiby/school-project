@@ -1,7 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 /// What the screen should do after an action finished.
-enum NoticeAction { none, pop, popTwice, openPreview }
+enum NoticeAction { none, pop, popTwice }
 
 /// One-shot feedback emitted by the lessons BLoCs. [id] increases so equal messages still fire listeners.
 class Notice extends Equatable {

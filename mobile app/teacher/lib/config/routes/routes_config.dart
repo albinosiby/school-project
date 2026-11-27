@@ -11,7 +11,7 @@ import '../../modules/home/screens/timetable_screen.dart';
 import '../../modules/engage/screens/messages_screen.dart';
 import '../../modules/engage/screens/widgets/chat_unread_badge.dart';
 import '../../modules/more/screens/more_screen.dart';
-import '../../modules/tasks/screens/tasks_screen.dart';
+import '../../modules/tasks/screens/assignments_screen.dart';
 import '../../utils/helpers/stream_listenable.dart';
 import '../../utils/services/local_storage_service.dart';
 import 'modules/attendance_routes.dart';
@@ -68,8 +68,9 @@ final GoRouter router = GoRouter(
         StatefulShellBranch(routes: [GoRoute(path: RoutePaths.more, builder: (_, _) => const MoreScreen())]),
       ],
     ),
-    // Tasks left the dock for Chat; it opens as a pushed page from Home, Classes and More.
-    GoRoute(path: RoutePaths.tasks, builder: (_, _) => const TasksScreen()),
+    // Assignments (all classes) replaced the Tasks page; old /tasks links land there.
+    GoRoute(path: RoutePaths.assignments, builder: (_, _) => const AssignmentsScreen()),
+    GoRoute(path: RoutePaths.tasks, redirect: (_, _) => RoutePaths.assignments),
     // Module routes. Order matters where paths overlap: /homework/new (classes) before /homework/:id (tasks).
     ...authRoutes,
     ...homeRoutes,

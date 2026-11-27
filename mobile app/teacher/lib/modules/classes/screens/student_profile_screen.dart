@@ -332,7 +332,7 @@ class _Overview extends StatelessWidget {
               if (s.homework.isNotEmpty) ...[
                 SizedBox(height: 6.h),
                 Text(
-                  pendingHw == 0 ? 'All ${s.homework.length} homework turned in' : '$pendingHw of ${s.homework.length} homework not turned in',
+                  pendingHw == 0 ? 'All ${s.homework.length} assignments turned in' : '$pendingHw of ${s.homework.length} assignments not turned in',
                   style: T.small.copyWith(color: pendingHw == 0 ? C.successDark : C.warningDark, fontWeight: FontWeight.w600),
                 ),
               ],
@@ -724,11 +724,11 @@ class _AcademicsTab extends StatelessWidget {
         ),
       ),
       _Card(
-        title: 'Homework',
+        title: 'Assignments',
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (s.homework.isEmpty) const _Muted('No homework assigned yet.'),
+            if (s.homework.isEmpty) const _Muted('No assignments yet.'),
             for (final h in s.homework.take(12)) _HomeworkRow(h: h, studentId: s.studentId),
           ],
         ),

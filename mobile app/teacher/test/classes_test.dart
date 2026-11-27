@@ -480,10 +480,10 @@ void main() {
     testWidgets('new homework validates, sets it for the class and opens it', (t) async {
       final before = (await getIt<IHomeworkRepository>().getAll(classId: 'cls_10B')).length;
       await pump(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
-      expect(find.text('New homework'), findsOneWidget);
+      expect(find.text('New assignment'), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('hw-submit')));
       await t.pumpAndSettle();
-      expect(find.textContaining('Give the homework a title'), findsOneWidget);
+      expect(find.textContaining('Give the assignment a title'), findsWidgets);
       await t.enterText(find.byKey(const ValueKey('hw-title')), 'Practice Set 5');
       await t.enterText(find.byKey(const ValueKey('hw-notes')), 'Exercise 4.2, questions 1-10');
       await t.pump();
@@ -515,6 +515,8 @@ void main() {
     testWidgets('a not-graded homework is set with 0 marks', (t) async {
       await pump(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
       await t.enterText(find.byKey(const ValueKey('hw-title')), 'Read chapter 5');
+      await t.dragUntilVisible(find.byKey(const ValueKey('hw-graded')), find.byType(ListView).first, const Offset(0, -250));
+      await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('hw-graded')));
       await t.pump();
       await t.tap(find.byKey(const ValueKey('hw-submit')));

@@ -68,7 +68,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     final links = {for (final m in _url.allMatches(n.body)) m.group(0)!}.toList();
     final actionLabel = switch (n.type) {
       'leave' => 'Review leave requests',
-      'homework' => 'Open homework',
+      'homework' => 'Open assignment',
       'exam' => 'View exam duty',
       'chat' || 'message' => 'Open conversation',
       'circular' || 'notice' => 'Read circular',

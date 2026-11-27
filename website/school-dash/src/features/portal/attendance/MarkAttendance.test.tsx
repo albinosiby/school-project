@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent } from "@testing-library/react";
-import { ADMIN_UID, authState, field, getRow, renderUI, screen, seed, within, writes } from "@/test/render";
+import { ADMIN_UID, authState, dialog, field, getRow, renderUI, screen, seed, setUrl, within, writes } from "@/test/render";
 import { MarkAttendance } from "./MarkAttendance";
 import type { SubStatus } from "@/features/ops/logic";
 import { saveError, slotsForDate, teacherRecord } from "./logic";
@@ -51,7 +50,7 @@ describe("Class attendance", () => {
   it("submits ops_attendance/{date}_{classId}_{period} with the app's key set and only non-present students", async () => {
     teacher(); seed(base);
     const { user } = renderUI(<MarkAttendance />);
-    expect(field("Date")).toHaveValue("2026-11-23");
+    expect(screen.getByTestId("att-date")).toHaveTextContent("Today, 23 Nov 2026");
     expect(field("Period")).toHaveValue("1_cls_10B");
     expect(screen.queryByText("Old Student")).not.toBeInTheDocument();
     expect(screen.queryByText("Gone Student")).not.toBeInTheDocument();
@@ -94,17 +93,19 @@ describe("Class attendance", () => {
     expect(getRow("ops_attendance", REC)).toMatchObject({ marks: {}, total: 3, teacherId: "stf_1" });
   });
 
-  it("locks a period another teacher already recorded and refuses a future date", async () => {
+  it("locks a period another teacher already recorded and offers no future date", async () => {
     teacher();
     seed({ ...base, ops_attendance: [{ id: REC, date: "2026-11-23", classId: "cls_10B", period: 1, total: 3, marks: {}, submitted: true, teacherId: "stf_2" }] });
     const { user } = renderUI(<MarkAttendance />);
     expect(screen.getByRole("alert")).toHaveTextContent("already recorded by another teacher");
     expect(screen.getByRole("button", { name: "Update attendance" })).toBeDisabled();
     expect(within(group("Aarav Mehta")).getByRole("button", { name: "Absent" })).toBeDisabled();
-    fireEvent.change(field("Date"), { target: { value: "2026-11-24" } });
+    await user.click(screen.getByRole("button", { name: /Change date/ }));
+    expect(within(dialog("Attendance date")).getByRole("button", { name: /^Tue, 24 Nov 2026/ })).toBeDisabled();
+    await user.click(within(dialog("Attendance date")).getByRole("button", { name: /^Tue, 17 Nov 2026/ }));
+    await user.click(within(dialog("Attendance date")).getByRole("button", { name: "Open this day" }));
+    expect(screen.getByTestId("att-date")).toHaveTextContent("Tue, 17 Nov 2026");
     expect(field("Period")).toHaveValue("2_cls_10B");
-    await user.click(screen.getByRole("button", { name: "Submit attendance" }));
-    expect(await screen.findByText("Attendance cannot be saved for a future date")).toBeInTheDocument();
     expect(writes).toHaveLength(0);
   });
 
@@ -118,9 +119,58 @@ describe("Class attendance", () => {
     const history = screen.getByRole("table", { name: "Attendance history" });
     expect(within(history).getAllByRole("row")).toHaveLength(2); // header + own record only
     await user.click(within(history).getByRole("button", { name: "Open" }));
-    expect(field("Date")).toHaveValue("2026-11-17");
+    expect(screen.getByTestId("att-date")).toHaveTextContent("Tue, 17 Nov 2026");
     expect(pressed("Bina Rao")).toBe("Absent");
     expect(writes).toHaveLength(0);
+  });
+
+  it("opens the class, period and date passed by the timetable (never a future date)", () => {
+    teacher(); seed(base);
+    setUrl("/me/attendance?class=cls_10B&period=2&date=2026-11-17");
+    renderUI(<MarkAttendance />);
+    expect(screen.getByTestId("att-date")).toHaveTextContent("Tue, 17 Nov 2026");
+    expect(field("Period")).toHaveValue("2_cls_10B");
+    expect(screen.getByText("10-B · Period 2")).toBeInTheDocument();
+  });
+
+  it("ignores a future date in the link", () => {
+    teacher(); seed(base);
+    setUrl("/me/attendance?class=cls_10B&period=2&date=2026-11-24");
+    renderUI(<MarkAttendance />);
+    expect(screen.getByTestId("att-date")).toHaveTextContent("Today, 23 Nov 2026");
+  });
+
+  it("lists the days to mark from the academic year start and jumps to the first unmarked period", async () => {
+    teacher();
+    seed({ ...base, school: [{ id: "mobile", academicRange: { start: "2026-11-16", end: "2027-03-31" } }], ops_attendance: [
+      { id: "2026-11-16_cls_10B_1", date: "2026-11-16", classId: "cls_10B", period: 1, total: 3, marks: {}, submitted: true, teacherId: "stf_1" },
+      { id: "2026-11-23_cls_10B_1", date: "2026-11-23", classId: "cls_10B", period: 1, total: 3, marks: {}, submitted: true, teacherId: "stf_1" },
+    ] });
+    const { user } = renderUI(<MarkAttendance />);
+    const strip = screen.getByRole("region", { name: "Days to mark" });
+    expect(strip).toHaveTextContent("2 days to mark");
+    expect(within(strip).getAllByRole("button").map((b) => b.textContent)).toEqual(["Mon, 23 Nov1", "Tue, 17 Nov1"]); // newest first; the 16th is marked
+    // today: P1 is marked, the cover in P4 is not -> picking today opens P4
+    await user.click(within(strip).getByRole("button", { name: /Mon, 23 Nov/ }));
+    expect(field("Period")).toHaveValue("4_cls_8A");
+    expect(screen.getByText("Not marked")).toBeInTheDocument();
+    await user.click(within(strip).getByRole("button", { name: /Tue, 17 Nov/ }));
+    expect(screen.getByTestId("att-date")).toHaveTextContent("Tue, 17 Nov 2026");
+    expect(field("Period")).toHaveValue("2_cls_10B");
+    // the calendar has the same red dots
+    await user.click(screen.getByRole("button", { name: /Change date/ }));
+    const cal = dialog("Attendance date");
+    expect(within(cal).getByTestId("dot-2026-11-17")).toBeInTheDocument();
+    expect(within(cal).queryByTestId("dot-2026-11-16")).not.toBeInTheDocument();
+    expect(within(cal).queryByTestId("dot-2026-11-10")).not.toBeInTheDocument(); // before the academic year
+    expect(within(cal).getByText("2 days to mark in November")).toBeInTheDocument();
+    expect(writes).toHaveLength(0);
+  });
+
+  it("links to the attendance trends", () => {
+    teacher(); seed(base);
+    renderUI(<MarkAttendance />);
+    expect(screen.getByRole("link", { name: /Attendance trends/ })).toHaveAttribute("href", "/me/attendance/trends");
   });
 
   it("tells a non-teaching staff member the page is for teachers", () => {

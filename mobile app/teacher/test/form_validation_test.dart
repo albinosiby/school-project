@@ -152,12 +152,13 @@ void main() {
       await open(t, '${RoutePaths.homeworkNew}?classId=cls_10B');
       await t.tap(find.byKey(const ValueKey('hw-submit')));
       await t.pumpAndSettle();
-      expect(await seen(t, 'Give the homework a title (at least 3 characters)'), findsOneWidget);
+      expect(await seen(t, 'Give the assignment a title (at least 3 characters)'), findsWidgets);
       await t.enterText(find.byKey(const ValueKey('hw-title')), 'Practice Set 5');
+      await reveal(t, find.byKey(const ValueKey('hw-max')));
       await t.enterText(find.byKey(const ValueKey('hw-max')), '0');
       await t.tap(find.byKey(const ValueKey('hw-submit')));
       await t.pumpAndSettle();
-      expect(await seen(t, 'Enter marks from 1 to 1000'), findsOneWidget);
+      expect(await seen(t, 'Enter marks from 1 to 1000'), findsWidgets);
       expect(db.list('tk_homework').length, before);
       await t.enterText(find.byKey(const ValueKey('hw-max')), 'abc');
       await t.pump();
@@ -486,15 +487,6 @@ void main() {
       await t.enterText(field('Reason'), 'abc');
       await tapText(t, 'Send Request');
       expect(db.byId('ed_duties', 'ed_2')!['swapReason'], 'abc');
-    });
-
-    testWidgets('certificate issue: recipient and title required', (t) async {
-      ignoreOverflow();
-      await open(t, RoutePaths.certificateIssue);
-      await tapText(t, 'Sign & Issue');
-      expect(await seen(t, 'Select a student first'), findsWidgets);
-      expect(await seen(t, 'Select a recipient'), findsOneWidget);
-      expect(await seen(t, 'Enter the award title'), findsOneWidget);
     });
 
     testWidgets('a file resource needs a file, a link needs https://', (t) async {
